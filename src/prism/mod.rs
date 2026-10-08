@@ -1,6 +1,4 @@
-mod child_nodes;
-
-pub use child_nodes::{child_nodes, node_type_name};
+pub use prism_child_nodes::{child_nodes, node_type_name};
 use ruby_prism::{ConstantId, Location, Node};
 
 pub fn bytes_to_string(bytes: &[u8]) -> String {
@@ -77,7 +75,7 @@ pub trait NodeExt<'pr> {
 
 impl<'pr> NodeExt<'pr> for Node<'pr> {
     fn clone_node(&self) -> Node<'pr> {
-        child_nodes::copy_node(self)
+        prism_child_nodes::copy_node(self)
     }
 
     fn start_offset(&self) -> usize {

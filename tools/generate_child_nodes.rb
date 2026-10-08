@@ -85,5 +85,5 @@ output << <<~RUST
   }
 RUST
 
-File.write(File.expand_path("../src/prism/child_nodes.rs", __dir__), output)
+File.write(File.expand_path("../crates/prism-child-nodes/src/child_nodes.rs", __dir__), output)
 puts "Generated #{functions.length} node types"
