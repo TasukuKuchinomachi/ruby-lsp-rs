@@ -288,11 +288,16 @@ impl<'pr> Checker<'_, 'pr> {
                     return;
                 };
                 if !body_reachable && let Some(statements) = if_node.statements() {
-                    let span = if_node
-                        .then_keyword_loc()
-                        .or_else(|| if_node.if_keyword_loc())
-                        .map(|location| Span::of_location(&location))
-                        .unwrap_or_else(|| Span::of_node(&statements.as_node()));
+                    let is_ternary = if_node.if_keyword_loc().is_none();
+                    let span = if is_ternary && self.options.steep_compatible {
+                        Span::of_node(&statements.as_node())
+                    } else {
+                        if_node
+                            .then_keyword_loc()
+                            .or_else(|| if_node.if_keyword_loc())
+                            .map(|location| Span::of_location(&location))
+                            .unwrap_or_else(|| Span::of_node(&statements.as_node()))
+                    };
                     locations.push(span);
                 }
                 if !else_reachable && let Some(subsequent) = if_node.subsequent() {
@@ -841,6 +846,14 @@ impl<'pr> Checker<'_, 'pr> {
     ) -> Type {
         let mut exception_types = Vec::new();
         for exception in rescue.exceptions().iter() {
+            if self.options.steep_compatible && matches!(exception, Node::SplatNode { .. }) {
+                self.record_diagnostic(
+                    Span::of_node(&exception),
+                    Severity::Hint,
+                    "Ruby::UnsupportedSyntax",
+                    "Unsupported splat node occurrence".to_string(),
+                );
+            }
             let exception_value = self.infer(&exception, context, locals);
             match instance_type_of_class_value(self.environment, &exception_value) {
                 Some(instance_type) => exception_types.push(instance_type),
@@ -1009,5 +1022,34 @@ impl<'pr> Checker<'_, 'pr> {
 
     pub(crate) fn is_certain_mismatch(&self, actual: &Type, declared: &Type) -> bool {
         !is_bottom(actual) && is_subtype(self.environment, actual, declared) == Certainty::No
+    }
+
+    /// Steep does not pass the declared type to the receiver of a call, so `[{ key: 1 }].freeze` stays
+    /// `Array[Hash[Symbol, Integer]]` and is certainly not an array of records. A `void` value fits only `void`,
+    /// `top` and `untyped`
+    pub(crate) fn is_certain_assignment_mismatch(
+        &self,
+        actual: &Type,
+        declared: &Type,
+        value_node: Option<&Node<'_>>,
+    ) -> bool {
+        if self.options.steep_compatible && matches!(actual, Type::Void) {
+            return !matches!(declared, Type::Void | Type::Top | Type::Untyped);
+        }
+        let is_call_on_collection_literal = value_node
+            .and_then(|value_node| value_node.as_call_node())
+            .and_then(|call| call.receiver())
+            .is_some_and(|receiver| {
+                matches!(receiver, Node::ArrayNode { .. } | Node::HashNode { .. })
+            });
+        if !self.options.steep_compatible || !is_call_on_collection_literal {
+            return self.is_certain_mismatch(actual, declared);
+        }
+        !is_bottom(actual)
+            && crate::subtyping::is_subtype_with_strict_collections(
+                self.environment,
+                actual,
+                declared,
+            ) == Certainty::No
     }
 }

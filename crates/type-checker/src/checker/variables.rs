@@ -79,6 +79,9 @@ impl<'pr> Checker<'_, 'pr> {
                 self.record_type_hover(Span::of_node(node), &variable_type);
                 variable_type
             }
+            Node::ItLocalVariableReadNode { .. } if self.options.steep_compatible => {
+                self.infer_it_as_method_call(node, context, locals)
+            }
             Node::ItLocalVariableReadNode { .. } => {
                 let variable_type = self.local_variable_type(IT_PARAMETER_KEY, context, locals);
                 self.record_type_hover(Span::of_node(node), &variable_type);
@@ -469,7 +472,9 @@ impl<'pr> Checker<'_, 'pr> {
         context: &Context,
         locals: &Locals,
     ) {
-        if self.is_silent() || !self.is_certain_mismatch(value_type, declared) {
+        if self.is_silent()
+            || !self.is_certain_assignment_mismatch(value_type, declared, value_node)
+        {
             return;
         }
         let value_type = match value_node {
@@ -478,7 +483,7 @@ impl<'pr> Checker<'_, 'pr> {
             }
             None => value_type.clone(),
         };
-        if self.is_certain_mismatch(&value_type, declared) {
+        if self.is_certain_assignment_mismatch(&value_type, declared, value_node) {
             self.record_diagnostic(
                 self.assignment_span.unwrap_or(span),
                 Severity::Hint,
@@ -803,6 +808,13 @@ impl<'pr> Checker<'_, 'pr> {
         context: &Context,
         locals: &Locals,
     ) -> Type {
+        if self.options.steep_compatible
+            && self
+                .declared_instance_variable_type(name, context)
+                .is_none()
+        {
+            return Type::Untyped;
+        }
         if let Some(flow_type) = locals.get(&instance_variable_local_key(name)) {
             return flow_type.clone();
         }
@@ -854,6 +866,9 @@ impl<'pr> Checker<'_, 'pr> {
             singleton,
             name: name.to_string(),
         };
+        if self.options.steep_compatible {
+            return Type::Untyped;
+        }
         if let Some(cached) = self.instance_variable_cache.get(&key) {
             return cached.clone();
         }

@@ -366,6 +366,17 @@ impl<'pr> Checker<'_, 'pr> {
         let Some(receiver) = call.receiver() else {
             return;
         };
+        if self.fails_to_build_receiver_definition(&call, &receiver, context, locals) {
+            // Steep types the receiver `untyped` along with the failed call, and `nil?` still refines the receiver,
+            // to `untyped`, through `guess_type_from_method`
+            if method_name == "nil?"
+                && arguments.is_empty()
+                && let Some(target) = self.narrowing_target_in(&receiver, context, locals)
+            {
+                Checker::set_target_type(&target, Type::Untyped, locals);
+            }
+            return;
+        }
         match (method_name.as_str(), arguments.as_slice()) {
             ("!", []) => self.narrow_at(&receiver, !truthy, context, locals, depth),
             ("nil?", []) => {
@@ -424,6 +435,30 @@ impl<'pr> Checker<'_, 'pr> {
                 self.narrow_by_return_type(&call, &receiver, truthy, context, locals);
             }
         }
+    }
+
+    fn fails_to_build_receiver_definition(
+        &mut self,
+        call: &ruby_prism::CallNode<'pr>,
+        receiver: &Node<'pr>,
+        context: &Context,
+        locals: &Locals,
+    ) -> bool {
+        if !self.options.steep_compatible {
+            return false;
+        }
+        let mut scratch_locals = locals.clone();
+        let Some(receiver_type) =
+            self.silently(|checker| checker.infer(receiver, context, &mut scratch_locals))
+        else {
+            return false;
+        };
+        let receiver_type = if call.is_safe_navigation() {
+            remove_nil(&receiver_type)
+        } else {
+            receiver_type
+        };
+        self.definition_error_of(&receiver_type).is_some()
     }
 
     /// Steep's `evaluate_union_method_call`: on a union receiver, a member stays in the branch only when its own

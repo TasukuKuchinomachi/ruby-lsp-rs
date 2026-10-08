@@ -11,7 +11,7 @@ use rbs_environment::{
     SteepfileConfiguration, Type, TypeName, WorkspaceSources,
 };
 use serde_json::{Value, json};
-use type_checker::{Analysis, HoverEntry, HoverKind, Severity, TypeDiagnostic, TypeHint, TypeHintKind};
+use type_checker::{Analysis, AnalysisOptions, HoverEntry, HoverKind, Severity, TypeDiagnostic, TypeHint, TypeHintKind};
 
 use crate::document::Document;
 use crate::position::{Encoding, LineIndex, Position, Range};
@@ -342,7 +342,11 @@ fn source_fingerprint(document: &Document) -> u64 {
 }
 
 pub fn analyze(environment: &Environment, source: &[u8]) -> Option<Arc<Analysis>> {
-    catch_unwind(AssertUnwindSafe(|| type_checker::analyze(environment, source))).ok().map(Arc::new)
+    analyze_with_options(environment, source, AnalysisOptions::default())
+}
+
+pub fn analyze_with_options(environment: &Environment, source: &[u8], options: AnalysisOptions) -> Option<Arc<Analysis>> {
+    catch_unwind(AssertUnwindSafe(|| type_checker::analyze_with_options(environment, source, options))).ok().map(Arc::new)
 }
 
 pub fn truncate_type(type_text: &str, maximum_length: Option<usize>) -> Option<String> {

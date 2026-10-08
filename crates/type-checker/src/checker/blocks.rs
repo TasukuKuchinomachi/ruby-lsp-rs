@@ -171,7 +171,7 @@ impl<'pr> Checker<'_, 'pr> {
         // later; typing it as `nil` inside the block would report every use
         let mut relaxed_names = Vec::new();
         for (name, local_type) in parameter_locals.iter_mut() {
-            if matches!(local_type, Type::Nil) {
+            if matches!(local_type, Type::Nil) && !self.options.steep_compatible {
                 *local_type = Type::Untyped;
                 relaxed_names.push(name.clone());
             }
@@ -258,6 +258,7 @@ impl<'pr> Checker<'_, 'pr> {
                     })
                     .collect()
             }
+            Node::ItParametersNode { .. } if self.options.steep_compatible => Vec::new(),
             Node::ItParametersNode { .. } => {
                 let yielded = YieldedValues::new(signature, 1);
                 locals.insert(IT_PARAMETER_KEY.to_string(), yielded.at(0));

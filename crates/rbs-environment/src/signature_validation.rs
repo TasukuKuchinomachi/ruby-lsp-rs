@@ -185,9 +185,39 @@ pub(crate) struct MethodAliasRecord {
     pub(crate) location: Location,
 }
 
+/// The declaration `Steep::Signature::Validator` validates under one `rescue_validation_errors`
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum ValidationOwner {
+    Class(TypeName),
+    Interface(TypeName),
+    TypeAlias(TypeName),
+    Constant(TypeName),
+    Global(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ValidationMember {
+    Declaration,
+    /// An instance method other than `initialize`, or an instance attribute, whose types
+    /// `RBS::DefinitionBuilder#validate_type_params` checks before anything else in the class body
+    InstanceMethod,
+    Initializer,
+    InstanceAlias,
+    InstanceVariable,
+    SingletonMember,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ValidationScope {
+    pub(crate) location: Location,
+    pub(crate) owner: ValidationOwner,
+    pub(crate) member: ValidationMember,
+}
+
 /// What a signature file needs checked once every file is merged into the environment
 #[derive(Default)]
 pub(crate) struct FileValidation {
+    pub(crate) scopes: Vec<ValidationScope>,
     pub(crate) uses: Vec<UseClause>,
     pub(crate) references: Vec<TypeReference>,
     pub(crate) declarations: Vec<DeclarationRecord>,

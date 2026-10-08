@@ -19,10 +19,12 @@ use crate::environment::{
 use crate::lookup::SingletonAncestor;
 use crate::signature_validation::{
     AliasOwner, DeclarationRecord, FileValidation, MethodAliasRecord, MixinKind, ReferenceKind,
-    SignatureDiagnostic, TypeReference, duplicated_declaration, duplicated_method_definitions,
-    finish_diagnostics, generic_parameter_mismatch, invalid_method_overload, superclass_mismatch,
+    SignatureDiagnostic, TypeReference, ValidationMember, ValidationOwner, ValidationScope,
+    duplicated_declaration, duplicated_method_definitions, finish_diagnostics,
+    generic_parameter_mismatch, invalid_method_overload, superclass_mismatch,
     syntax_error_diagnostic, validate_files,
 };
+use crate::steep_compatibility::DuplicatedMethodDefinition;
 use crate::types::{
     Block, Function, Literal, MethodType, NameKind, Parameter, ProcType, RecordField, Type,
     TypeName, TypeParameter,
@@ -144,13 +146,17 @@ impl Loader {
 
         let known_names = KnownNames::collect(&files);
         parallel_for_each_mut(&mut files, |file| known_names.resolve_file(file));
-        let validations: Vec<FileValidation> = files
+        let mut validations: Vec<FileValidation> = files
             .iter_mut()
             .filter_map(|file| {
                 let mut validation = file.validation.take()?;
                 validation.uses = file.uses.clone();
                 Some(validation)
             })
+            .collect();
+        let signature_validation_scopes: Vec<ValidationScope> = validations
+            .iter_mut()
+            .flat_map(|validation| std::mem::take(&mut validation.scopes))
             .collect();
 
         let mut environment = Environment::default();
@@ -165,8 +171,10 @@ impl Loader {
         let MergeState {
             pending_overloadings,
             diagnostics: merge_diagnostics,
+            duplicated_method_definitions,
             ..
         } = merge_state;
+        environment.duplicated_method_definitions = duplicated_method_definitions.definitions;
         signature_diagnostics.extend(merge_diagnostics);
         signature_diagnostics.extend(apply_inherited_overloadings(
             &mut environment,
@@ -177,6 +185,7 @@ impl Loader {
         finish_diagnostics(&mut signature_diagnostics);
         environment.errors = load_errors;
         environment.signature_diagnostics = signature_diagnostics;
+        environment.signature_validation_scopes = signature_validation_scopes;
         environment
     }
 }
@@ -397,6 +406,13 @@ fn parse_pending_source(
     Ok(file)
 }
 
+fn attribute_validation_member(kind: AttributeKind) -> ValidationMember {
+    match kind {
+        AttributeKind::Instance => ValidationMember::InstanceMethod,
+        AttributeKind::Singleton => ValidationMember::SingletonMember,
+    }
+}
+
 fn namespace_string(namespace: &NamespaceNode) -> String {
     let mut result = String::new();
     if namespace.absolute() {
@@ -514,6 +530,21 @@ impl<'source> Converter<'source> {
             argument_count,
             location: self.location(range),
         });
+    }
+
+    fn record_scope(
+        &self,
+        owner: impl FnOnce() -> ValidationOwner,
+        member: ValidationMember,
+        range: RBSLocationRange,
+    ) {
+        if let Some(collector) = &self.validation {
+            collector.file.borrow_mut().scopes.push(ValidationScope {
+                location: self.location(range),
+                owner: owner(),
+                member,
+            });
+        }
     }
 
     fn record_declaration(&self, name: &TypeName, range: RBSLocationRange) {
@@ -644,6 +675,11 @@ impl<'source> Converter<'source> {
             Node::Class(class) => {
                 let name = qualify(context, &type_name_string(&class.name()));
                 self.record_declaration(&name, class.location());
+                self.record_scope(
+                    || ValidationOwner::Class(name.clone()),
+                    ValidationMember::Declaration,
+                    class.location(),
+                );
                 let inner_context = inner_context(context, &name);
                 let mut fragment = self.with_context(&inner_context, || {
                     self.empty_class_fragment(
@@ -669,6 +705,11 @@ impl<'source> Converter<'source> {
             Node::Module(module) => {
                 let name = qualify(context, &type_name_string(&module.name()));
                 self.record_declaration(&name, module.location());
+                self.record_scope(
+                    || ValidationOwner::Class(name.clone()),
+                    ValidationMember::Declaration,
+                    module.location(),
+                );
                 let inner_context = inner_context(context, &name);
                 let fragment = self.with_context(&inner_context, || {
                     let mut fragment = self.empty_class_fragment(
@@ -698,6 +739,11 @@ impl<'source> Converter<'source> {
             Node::Interface(interface) => {
                 let name = qualify(context, &type_name_string(&interface.name()));
                 self.record_declaration(&name, interface.location());
+                self.record_scope(
+                    || ValidationOwner::Interface(name.clone()),
+                    ValidationMember::Declaration,
+                    interface.location(),
+                );
                 let mut declaration = InterfaceDeclaration {
                     name: name.clone(),
                     type_parameters: self.convert_type_parameters(interface.type_params()),
@@ -771,6 +817,11 @@ impl<'source> Converter<'source> {
             Node::TypeAlias(type_alias) => {
                 let name = qualify(context, &type_name_string(&type_alias.name()));
                 self.record_declaration(&name, type_alias.location());
+                self.record_scope(
+                    || ValidationOwner::TypeAlias(name.clone()),
+                    ValidationMember::Declaration,
+                    type_alias.location(),
+                );
                 let declaration = TypeAliasDeclaration {
                     name,
                     type_parameters: self.convert_type_parameters(type_alias.type_params()),
@@ -785,6 +836,11 @@ impl<'source> Converter<'source> {
             Node::Constant(constant) => {
                 let name = qualify(context, &type_name_string(&constant.name()));
                 self.record_declaration(&name, constant.location());
+                self.record_scope(
+                    || ValidationOwner::Constant(name.clone()),
+                    ValidationMember::Declaration,
+                    constant.location(),
+                );
                 let declaration = ConstantDeclaration {
                     name,
                     constant_type: self.convert_type(constant.type_()),
@@ -797,6 +853,11 @@ impl<'source> Converter<'source> {
                 });
             }
             Node::Global(global) => {
+                self.record_scope(
+                    || ValidationOwner::Global(global.name().as_str().to_string()),
+                    ValidationMember::Declaration,
+                    global.location(),
+                );
                 let declaration = GlobalDeclaration {
                     name: global.name().as_str().to_string(),
                     global_type: self.convert_type(global.type_()),
@@ -931,6 +992,16 @@ impl<'source> Converter<'source> {
             match member {
                 Node::MethodDefinition(method) => {
                     let method_name = method.name().as_str().to_string();
+                    let member = match method.kind() {
+                        MethodDefinitionKind::Singleton => ValidationMember::SingletonMember,
+                        _ if method_name == "initialize" => ValidationMember::Initializer,
+                        _ => ValidationMember::InstanceMethod,
+                    };
+                    self.record_scope(
+                        || ValidationOwner::Class(fragment.name.clone()),
+                        member,
+                        method.location(),
+                    );
                     let overloads = self.convert_overloads(method.overloads());
                     let explicit_visibility = match method.visibility() {
                         MethodDefinitionVisibility::Public => Some(Visibility::Public),
@@ -980,10 +1051,23 @@ impl<'source> Converter<'source> {
                     }
                 }
                 Node::Alias(alias) => {
-                    let (kind, visibility) = match alias.kind() {
-                        AliasKind::Instance => (MethodKind::Instance, default_visibility),
-                        AliasKind::Singleton => (MethodKind::Singleton, Visibility::Public),
+                    let (kind, visibility, member) = match alias.kind() {
+                        AliasKind::Instance => (
+                            MethodKind::Instance,
+                            default_visibility,
+                            ValidationMember::InstanceAlias,
+                        ),
+                        AliasKind::Singleton => (
+                            MethodKind::Singleton,
+                            Visibility::Public,
+                            ValidationMember::SingletonMember,
+                        ),
                     };
+                    self.record_scope(
+                        || ValidationOwner::Class(fragment.name.clone()),
+                        member,
+                        alias.location(),
+                    );
                     self.record_method_alias(
                         &fragment.name,
                         AliasOwner::Class(kind),
@@ -1006,75 +1090,117 @@ impl<'source> Converter<'source> {
                         overloading: false,
                     });
                 }
-                Node::AttrReader(attribute) => Attribute {
-                    name: attribute.name().as_str().to_string(),
-                    attribute_type: self.convert_type(attribute.type_()),
-                    kind: attribute.kind(),
-                    visibility: attribute.visibility(),
-                    instance_variable: self.attribute_instance_variable(
-                        attribute.name().as_str(),
-                        attribute.ivar_name(),
-                        attribute.ivar_name_location(),
-                    ),
-                    location: self.location(attribute.location()),
-                    comment: comment_text(attribute.comment()),
-                    annotations: annotation_texts(attribute.annotations()),
+                Node::AttrReader(attribute) => {
+                    self.record_scope(
+                        || ValidationOwner::Class(fragment.name.clone()),
+                        attribute_validation_member(attribute.kind()),
+                        attribute.location(),
+                    );
+                    Attribute {
+                        name: attribute.name().as_str().to_string(),
+                        attribute_type: self.convert_type(attribute.type_()),
+                        kind: attribute.kind(),
+                        visibility: attribute.visibility(),
+                        instance_variable: self.attribute_instance_variable(
+                            attribute.name().as_str(),
+                            attribute.ivar_name(),
+                            attribute.ivar_name_location(),
+                        ),
+                        location: self.location(attribute.location()),
+                        comment: comment_text(attribute.comment()),
+                        annotations: annotation_texts(attribute.annotations()),
+                    }
+                    .register(
+                        &mut fragment,
+                        default_visibility,
+                        AttributeAccess::Reader,
+                    )
                 }
-                .register(
-                    &mut fragment,
-                    default_visibility,
-                    AttributeAccess::Reader,
-                ),
-                Node::AttrWriter(attribute) => Attribute {
-                    name: attribute.name().as_str().to_string(),
-                    attribute_type: self.convert_type(attribute.type_()),
-                    kind: attribute.kind(),
-                    visibility: attribute.visibility(),
-                    instance_variable: self.attribute_instance_variable(
-                        attribute.name().as_str(),
-                        attribute.ivar_name(),
-                        attribute.ivar_name_location(),
-                    ),
-                    location: self.location(attribute.location()),
-                    comment: comment_text(attribute.comment()),
-                    annotations: annotation_texts(attribute.annotations()),
+                Node::AttrWriter(attribute) => {
+                    self.record_scope(
+                        || ValidationOwner::Class(fragment.name.clone()),
+                        attribute_validation_member(attribute.kind()),
+                        attribute.location(),
+                    );
+                    Attribute {
+                        name: attribute.name().as_str().to_string(),
+                        attribute_type: self.convert_type(attribute.type_()),
+                        kind: attribute.kind(),
+                        visibility: attribute.visibility(),
+                        instance_variable: self.attribute_instance_variable(
+                            attribute.name().as_str(),
+                            attribute.ivar_name(),
+                            attribute.ivar_name_location(),
+                        ),
+                        location: self.location(attribute.location()),
+                        comment: comment_text(attribute.comment()),
+                        annotations: annotation_texts(attribute.annotations()),
+                    }
+                    .register(
+                        &mut fragment,
+                        default_visibility,
+                        AttributeAccess::Writer,
+                    )
                 }
-                .register(
-                    &mut fragment,
-                    default_visibility,
-                    AttributeAccess::Writer,
-                ),
-                Node::AttrAccessor(attribute) => Attribute {
-                    name: attribute.name().as_str().to_string(),
-                    attribute_type: self.convert_type(attribute.type_()),
-                    kind: attribute.kind(),
-                    visibility: attribute.visibility(),
-                    instance_variable: self.attribute_instance_variable(
-                        attribute.name().as_str(),
-                        attribute.ivar_name(),
-                        attribute.ivar_name_location(),
-                    ),
-                    location: self.location(attribute.location()),
-                    comment: comment_text(attribute.comment()),
-                    annotations: annotation_texts(attribute.annotations()),
+                Node::AttrAccessor(attribute) => {
+                    self.record_scope(
+                        || ValidationOwner::Class(fragment.name.clone()),
+                        attribute_validation_member(attribute.kind()),
+                        attribute.location(),
+                    );
+                    Attribute {
+                        name: attribute.name().as_str().to_string(),
+                        attribute_type: self.convert_type(attribute.type_()),
+                        kind: attribute.kind(),
+                        visibility: attribute.visibility(),
+                        instance_variable: self.attribute_instance_variable(
+                            attribute.name().as_str(),
+                            attribute.ivar_name(),
+                            attribute.ivar_name_location(),
+                        ),
+                        location: self.location(attribute.location()),
+                        comment: comment_text(attribute.comment()),
+                        annotations: annotation_texts(attribute.annotations()),
+                    }
+                    .register(
+                        &mut fragment,
+                        default_visibility,
+                        AttributeAccess::Accessor,
+                    )
                 }
-                .register(
-                    &mut fragment,
-                    default_visibility,
-                    AttributeAccess::Accessor,
-                ),
-                Node::InstanceVariable(variable) => fragment.instance_variables.push((
-                    variable.name().as_str().to_string(),
-                    self.convert_type(variable.type_()),
-                )),
-                Node::ClassInstanceVariable(variable) => fragment.class_instance_variables.push((
-                    variable.name().as_str().to_string(),
-                    self.convert_type(variable.type_()),
-                )),
-                Node::ClassVariable(variable) => fragment.class_variables.push((
-                    variable.name().as_str().to_string(),
-                    self.convert_type(variable.type_()),
-                )),
+                Node::InstanceVariable(variable) => {
+                    self.record_scope(
+                        || ValidationOwner::Class(fragment.name.clone()),
+                        ValidationMember::InstanceVariable,
+                        variable.location(),
+                    );
+                    fragment.instance_variables.push((
+                        variable.name().as_str().to_string(),
+                        self.convert_type(variable.type_()),
+                    ))
+                }
+                Node::ClassInstanceVariable(variable) => {
+                    self.record_scope(
+                        || ValidationOwner::Class(fragment.name.clone()),
+                        ValidationMember::SingletonMember,
+                        variable.location(),
+                    );
+                    fragment.class_instance_variables.push((
+                        variable.name().as_str().to_string(),
+                        self.convert_type(variable.type_()),
+                    ))
+                }
+                Node::ClassVariable(variable) => {
+                    self.record_scope(
+                        || ValidationOwner::Class(fragment.name.clone()),
+                        ValidationMember::SingletonMember,
+                        variable.location(),
+                    );
+                    fragment.class_variables.push((
+                        variable.name().as_str().to_string(),
+                        self.convert_type(variable.type_()),
+                    ))
+                }
                 Node::Include(include) => {
                     let ancestor = self.convert_recorded_ancestor(
                         &include.name(),
@@ -1674,6 +1800,38 @@ struct MergeState<'a> {
     /// The first superclass given to each class, which RBS calls the primary declaration
     first_super_classes: HashMap<TypeName, (Ancestor, Location)>,
     diagnostics: Vec<SignatureDiagnostic>,
+    duplicated_method_definitions: DuplicatedMethodDefinitionRecorder,
+}
+
+/// Every duplicated method, in libraries too, because Steep fails to build the definition of its class wherever it is
+#[derive(Default)]
+struct DuplicatedMethodDefinitionRecorder {
+    definitions: Vec<DuplicatedMethodDefinition>,
+    indexes: HashMap<(TypeName, MethodKind, String), usize>,
+}
+
+impl DuplicatedMethodDefinitionRecorder {
+    fn record(
+        &mut self,
+        type_name: &TypeName,
+        previous: &MethodDefinition,
+        current: &MethodDefinition,
+    ) {
+        let key = (type_name.clone(), current.kind, current.name.clone());
+        let definitions = &mut self.definitions;
+        let index = *self.indexes.entry(key).or_insert_with(|| {
+            definitions.push(DuplicatedMethodDefinition {
+                type_name: type_name.clone(),
+                kind: current.kind,
+                method_name: current.name.clone(),
+                locations: previous.location.iter().cloned().collect(),
+            });
+            definitions.len() - 1
+        });
+        definitions[index]
+            .locations
+            .extend(current.location.iter().cloned());
+    }
 }
 
 impl MergeState<'_> {
@@ -1684,6 +1842,7 @@ impl MergeState<'_> {
             first_declarations: HashMap::new(),
             first_super_classes: HashMap::new(),
             diagnostics: Vec::new(),
+            duplicated_method_definitions: DuplicatedMethodDefinitionRecorder::default(),
         }
     }
 
@@ -1923,6 +2082,11 @@ fn merge_class(environment: &mut Environment, class: ClassFragment, state: &mut 
                 let previous = occupied.insert(definition);
                 if !overloading {
                     let current = occupied.get();
+                    state.duplicated_method_definitions.record(
+                        &declaration.name,
+                        &previous,
+                        current,
+                    );
                     state.diagnostics.extend(duplicated_method_definitions(
                         state.signature_files,
                         &declaration.name,

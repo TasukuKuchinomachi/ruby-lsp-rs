@@ -5,7 +5,9 @@ use std::process::Command;
 use std::sync::OnceLock;
 
 use rbs_environment::{Environment, Loader};
-use type_checker::{Analysis, HoverKind, TypeHintKind, analyze};
+use type_checker::{
+    Analysis, AnalysisOptions, HoverKind, TypeHintKind, analyze, analyze_with_options,
+};
 
 pub const MARKER: char = '‸';
 
@@ -157,6 +159,20 @@ pub struct Checked {
 pub fn check(environment: &Environment, source_with_markers: &str) -> Checked {
     let MarkedSource { source, markers } = marked(source_with_markers);
     let analysis = analyze(environment, source.as_bytes());
+    Checked {
+        analysis,
+        markers,
+        source,
+    }
+}
+
+pub fn check_with_options(
+    environment: &Environment,
+    source_with_markers: &str,
+    options: AnalysisOptions,
+) -> Checked {
+    let MarkedSource { source, markers } = marked(source_with_markers);
+    let analysis = analyze_with_options(environment, source.as_bytes(), options);
     Checked {
         analysis,
         markers,

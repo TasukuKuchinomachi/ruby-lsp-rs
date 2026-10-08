@@ -282,8 +282,10 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         let method_name = constant_text(&call.name());
         let receiver = call.receiver();
         let block_node = call.block();
+        let typed_like_lambda =
+            method_name == "lambda" || (method_name == "proc" && !self.options.steep_compatible);
         if receiver.is_none()
-            && (method_name == "lambda" || method_name == "proc")
+            && typed_like_lambda
             && let Some(block) = block_node
                 .as_ref()
                 .filter(|block| matches!(block, Node::BlockNode { .. }))
@@ -295,6 +297,15 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             Some(receiver) => self.infer(receiver, context, locals),
             None => context.self_type.clone(),
         };
+        let looked_up_receiver = if call.is_safe_navigation() {
+            remove_nil(&receiver_type)
+        } else {
+            receiver_type.clone()
+        };
+        if let Some(error) = self.definition_error_of(&looked_up_receiver) {
+            self.record_unexpected_error(Span::of_location(&call.location()), error);
+            return Type::Untyped;
+        }
         let mut deferred_lambdas = Vec::new();
         let arguments = self.infer_arguments_deferring_lambdas(
             call.arguments(),
@@ -412,6 +423,76 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         result
     }
 
+    /// Why Steep cannot build the definition it looks the method up in, when the receiver is an instance or the
+    /// singleton of a class whose RBS definition fails to build
+    pub(crate) fn definition_error_of(
+        &self,
+        receiver_type: &Type,
+    ) -> Option<&'environment rbs_environment::DefinitionError> {
+        if !self.options.steep_compatible {
+            return None;
+        }
+        members_of(receiver_type)
+            .iter()
+            .flat_map(|member| members_of(&self.expand_alias_deeply(member, 0)))
+            .find_map(|member| match member {
+                Type::ClassInstance { name, .. } => {
+                    self.environment.instance_definition_error(&name)
+                }
+                Type::ClassSingleton { name } => self.environment.singleton_definition_error(&name),
+                _ => None,
+            })
+    }
+
+    /// Steep's `synthesize` rescues the RBS error, reports it on the node and types the node and everything in it
+    /// as `untyped` without checking them
+    pub(crate) fn record_unexpected_error(
+        &mut self,
+        span: Span,
+        error: &rbs_environment::DefinitionError,
+    ) {
+        self.record_diagnostic(
+            span,
+            Severity::Hint,
+            "Ruby::UnexpectedError",
+            format!("UnexpectedError: {}", error.message()),
+        );
+    }
+
+    /// `it` is a method call to Steep, whose parser follows Ruby 3.3
+    pub(crate) fn infer_it_as_method_call(
+        &mut self,
+        node: &Node<'pr>,
+        context: &Context,
+        locals: &mut Locals,
+    ) -> Type {
+        let span = Span::of_node(node);
+        if let Some(error) = self.definition_error_of(&context.self_type) {
+            self.record_unexpected_error(span, error);
+            return Type::Untyped;
+        }
+        let site = CallSite {
+            method_name: "it".to_string(),
+            name_span: span,
+            block: CallBlock::Absent,
+            is_self_call: true,
+            reports_diagnostics: true,
+            deferred_lambdas: Vec::new(),
+            expression_span: span,
+            send_span: span,
+            no_method_span: span,
+        };
+        let self_type = context.self_type.clone();
+        self.dispatch_call(
+            &self_type,
+            &self_type,
+            &site,
+            &CallArguments { values: Vec::new() },
+            context,
+            locals,
+        )
+    }
+
     fn call_block(
         &mut self,
         block_node: Option<Node<'pr>>,
@@ -508,12 +589,21 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 let first_parameter = primary_prepared
                     .as_ref()
                     .and_then(PreparedCall::block_first_parameter_type);
-                let (block_type, symbol_is_missing) = self.block_argument_result(
-                    argument_type,
-                    symbol.as_deref(),
-                    first_parameter,
-                    context,
-                );
+                let symbol_receiver_error = symbol
+                    .as_ref()
+                    .and(first_parameter.as_ref())
+                    .and_then(|first_parameter| self.definition_error_of(first_parameter));
+                let (block_type, symbol_is_missing) = if let Some(error) = symbol_receiver_error {
+                    self.record_unexpected_error(*span, error);
+                    (Type::Untyped, false)
+                } else {
+                    self.block_argument_result(
+                        argument_type,
+                        symbol.as_deref(),
+                        first_parameter,
+                        context,
+                    )
+                };
                 if symbol_is_missing
                     && site.reports_diagnostics
                     && let Some(expected) = primary_prepared
@@ -1117,6 +1207,9 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 return Lookup::Found(Box::new(found));
             }
             let reportable = self.is_no_method_reportable(&declared, false);
+            if self.options.steep_compatible {
+                return Lookup::Missing { reportable };
+            }
             if let Some(lookup) =
                 self.lookup_file_method(&declared, false, receiver, method_name, context, depth)
             {
@@ -1198,6 +1291,9 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 )));
             }
             let reportable = self.is_no_method_reportable(&declared, true);
+            if self.options.steep_compatible {
+                return Lookup::Missing { reportable };
+            }
             if let Some(lookup) =
                 self.lookup_file_method(&declared, true, receiver, method_name, context, depth)
             {

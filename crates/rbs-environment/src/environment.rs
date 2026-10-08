@@ -31,7 +31,7 @@ pub enum Visibility {
     Private,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MethodKind {
     Instance,
     Singleton,
@@ -143,5 +143,9 @@ pub struct Environment {
     pub errors: Vec<LoadError>,
     /// Problems in the project signature files, sorted by path and position
     pub signature_diagnostics: Vec<crate::signature_validation::SignatureDiagnostic>,
+    /// Methods defined twice without `...`, in every loaded file in load order
+    pub duplicated_method_definitions: Vec<crate::steep_compatibility::DuplicatedMethodDefinition>,
+    pub(crate) signature_validation_scopes: Vec<crate::signature_validation::ValidationScope>,
+    pub(crate) definition_errors: std::sync::OnceLock<crate::steep_compatibility::DefinitionErrors>,
     pub(crate) ancestor_cache: crate::lookup::AncestorCache,
 }

@@ -16,7 +16,7 @@ struct DefinitionOwner {
     nesting: Vec<String>,
 }
 
-impl<'pr> Checker<'_, 'pr> {
+impl<'environment, 'pr> Checker<'environment, 'pr> {
     pub(crate) fn infer_definition_node(
         &mut self,
         node: &Node<'pr>,
@@ -157,7 +157,15 @@ impl<'pr> Checker<'_, 'pr> {
         };
         let mut locals = Locals::new();
         if let Some(parameters) = definition.parameters() {
+            let first_parameter_diagnostic = self.analysis.diagnostics.len();
             self.assign_definition_parameters(&parameters, &overloads, &context, &mut locals);
+            // Steep's `synthesize` of `defs` types the parameters twice, so it reports what their default values
+            // contain twice
+            if self.options.steep_compatible && definition.receiver().is_some() {
+                let parameter_diagnostics =
+                    self.analysis.diagnostics[first_parameter_diagnostic..].to_vec();
+                self.repeated_diagnostics.extend(parameter_diagnostics);
+            }
         }
         self.instance_variable_write_frames.push(Vec::new());
         self.method_return_frames.push(Vec::new());
@@ -656,6 +664,10 @@ impl<'pr> Checker<'_, 'pr> {
         let Some(name) = self.file_index.class_names_by_offset.get(&start).cloned() else {
             return Type::Untyped;
         };
+        if let Some(error) = self.class_definition_error(&name) {
+            self.record_unexpected_error(Span::of_node(node), error);
+            return Type::Untyped;
+        }
         let mut outer_locals = Locals::new();
         if let Some(superclass) = superclass {
             self.infer(&superclass, context, &mut outer_locals);
@@ -682,6 +694,19 @@ impl<'pr> Checker<'_, 'pr> {
         };
         let mut locals = Locals::new();
         self.infer_optional_node(body, &class_context, &mut locals)
+    }
+
+    /// Steep's `for_class` and `for_module` build both definitions of the class to type its body
+    fn class_definition_error(
+        &self,
+        name: &str,
+    ) -> Option<&'environment rbs_environment::DefinitionError> {
+        if !self.options.steep_compatible {
+            return None;
+        }
+        self.environment
+            .instance_definition_error(name)
+            .or_else(|| self.environment.singleton_definition_error(name))
     }
 
     fn record_class_name_reference(&mut self, constant_path: &Node<'pr>, name: &str) {

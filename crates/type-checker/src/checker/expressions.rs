@@ -196,6 +196,11 @@ impl<'pr> Checker<'_, 'pr> {
             | Node::MatchWriteNode { .. } => self.infer_variable(node, context, locals),
             // Steep types `$1` as `String?`, but it is almost always read right after a successful match, so `String`
             // avoids an error on nearly every use
+            Node::BackReferenceReadNode { .. } | Node::NumberedReferenceReadNode { .. }
+                if self.options.steep_compatible =>
+            {
+                Type::optional(Type::instance("String"))
+            }
             Node::BackReferenceReadNode { .. } | Node::NumberedReferenceReadNode { .. } => {
                 Type::instance("String")
             }

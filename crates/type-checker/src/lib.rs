@@ -111,15 +111,33 @@ impl Analysis {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AnalysisOptions {
+    /// Reports what `steep check` (Steep 2.0.0) reports instead of inferring more than it does: `it` is a method call,
+    /// an instance variable without a signature is `untyped`, `proc { }` is a plain `Proc`, `$1` is `String?`, and a
+    /// node that needs the definition of a class RBS cannot build is `Ruby::UnexpectedError` and left untyped
+    pub steep_compatible: bool,
+}
+
 /// Infers types for a whole Ruby file. Must not panic on any input, including files with syntax errors
 pub fn analyze(environment: &Environment, source: &[u8]) -> Analysis {
+    analyze_with_options(environment, source, AnalysisOptions::default())
+}
+
+pub fn analyze_with_options(
+    environment: &Environment,
+    source: &[u8],
+    options: AnalysisOptions,
+) -> Analysis {
     // Deeply nested code recurses deeply; a dedicated thread gives a known stack size regardless of the caller's
     // thread, and a panic there is contained instead of taking down the language server
     std::thread::scope(|scope| {
         std::thread::Builder::new()
             .name("type-checker".to_string())
             .stack_size(ANALYSIS_STACK_SIZE)
-            .spawn_scoped(scope, || analyze_on_current_thread(environment, source))
+            .spawn_scoped(scope, || {
+                analyze_on_current_thread(environment, source, options)
+            })
             .ok()
             .and_then(|handle| handle.join().ok())
             .unwrap_or_default()
@@ -128,13 +146,18 @@ pub fn analyze(environment: &Environment, source: &[u8]) -> Analysis {
 
 const ANALYSIS_STACK_SIZE: usize = 128 * 1024 * 1024;
 
-fn analyze_on_current_thread(environment: &Environment, source: &[u8]) -> Analysis {
+fn analyze_on_current_thread(
+    environment: &Environment,
+    source: &[u8],
+    options: AnalysisOptions,
+) -> Analysis {
     let parse_result = ruby_prism::parse(source);
     let root = parse_result.node();
     let file_index = file_index::FileIndex::build(environment, &root);
     let line_index = source::LineIndex::new(source);
     let annotations = annotations::Annotations::collect(&parse_result, &line_index);
-    let mut checker = checker::Checker::new(environment, file_index, line_index, annotations);
+    let mut checker =
+        checker::Checker::new(environment, file_index, line_index, annotations, options);
     checker.check_program(&root);
     checker.analysis
 }

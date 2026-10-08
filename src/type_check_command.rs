@@ -1,21 +1,27 @@
 use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
-use rbs_environment::{DiagnosticConfiguration, DiagnosticSeverity, Environment, SteepfileConfiguration};
-use type_checker::Severity;
+use rbs_environment::{DiagnosticConfiguration, DiagnosticSeverity, Environment, SignatureDiagnostic, SteepfileConfiguration};
+use type_checker::{AnalysisOptions, Severity};
 
 use crate::position::{Encoding, LineIndex};
 use crate::ruby_environment::RubyEnvironment;
 use crate::type_checking;
 
-pub const USAGE: &str = "Usage: ruby-lsp-rs check [--ruby-command \"mise exec -- ruby\"] [--severity-level error|warning|information|hint] [paths...]";
+pub const SUBCOMMAND: &str = "type-check";
+
+pub const USAGE: &str = "Usage: ruby-lsp-rs type-check [--ruby-command \"mise exec -- ruby\"] [--severity-level error|warning|information|hint] [--steep-compatible] [paths...]";
+
+const UNEXPECTED_ERROR_CODE: &str = "Ruby::UnexpectedError";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CheckOptions {
+pub struct TypeCheckOptions {
     pub ruby_command: Vec<String>,
     /// Diagnostics less severe than this are neither printed nor counted, as `steep check --severity-level` (which
     /// defaults to `warning`)
     pub severity_level: DiagnosticSeverity,
+    /// Report what `steep check` reports, so that the command can replace it in CI
+    pub steep_compatible: bool,
     pub paths: Vec<PathBuf>,
 }
 
@@ -30,9 +36,10 @@ fn option_value<'a>(
     Ok(argument.strip_prefix(name).and_then(|rest| rest.strip_prefix('=')))
 }
 
-pub fn parse_arguments(arguments: &[String]) -> Result<CheckOptions, String> {
+pub fn parse_arguments(arguments: &[String]) -> Result<TypeCheckOptions, String> {
     let mut ruby_command = vec!["ruby".to_string()];
     let mut severity_level = DiagnosticSeverity::Warning;
+    let mut steep_compatible = false;
     let mut paths = Vec::new();
     let mut remaining = arguments.iter();
     while let Some(argument) = remaining.next() {
@@ -44,16 +51,22 @@ pub fn parse_arguments(arguments: &[String]) -> Result<CheckOptions, String> {
         } else if let Some(level) = option_value("--severity-level", argument, &mut remaining)? {
             severity_level = DiagnosticSeverity::from_name(level)
                 .ok_or(format!("--severity-level must be error, warning, information, or hint: {level}"))?;
+        } else if argument == "--steep-compatible" {
+            steep_compatible = true;
         } else if argument.starts_with("--") {
             return Err(format!("Unknown option: {argument}"));
         } else {
             paths.push(PathBuf::from(argument));
         }
     }
-    Ok(CheckOptions { ruby_command, severity_level, paths })
+    Ok(TypeCheckOptions { ruby_command, severity_level, steep_compatible, paths })
 }
 
 pub fn run(arguments: &[String]) -> i32 {
+    if arguments.iter().any(|argument| argument == "--help" || argument == "-h") {
+        println!("{USAGE}");
+        return 0;
+    }
     let options = match parse_arguments(arguments) {
         Ok(options) => options,
         Err(message) => {
@@ -84,17 +97,23 @@ pub fn run(arguments: &[String]) -> i32 {
 
     let files = collect_files(&workspace_path, loaded.steepfile.as_ref(), &options.paths);
     let default_code_diagnostics = DiagnosticConfiguration::default();
+    let analysis_options = AnalysisOptions { steep_compatible: options.steep_compatible };
     let results: Vec<FileResult> = files
         .par_iter()
         .map(|path| {
             let code_diagnostics =
                 type_checking::code_diagnostics_for(&workspace_path, loaded.steepfile.as_ref(), path)
                     .unwrap_or(&default_code_diagnostics);
-            check_file(&loaded.environment, &workspace_path, path, code_diagnostics, options.severity_level)
+            check_file(&loaded.environment, &workspace_path, path, code_diagnostics, options.severity_level, analysis_options)
         })
         .collect();
 
-    let signature_result = check_signatures(&loaded.environment, &workspace_path, &options.paths);
+    let signature_result =
+        check_signatures(&loaded.environment, &workspace_path, &options.paths, options.steep_compatible);
+    let unexpected_error_file_count = results.iter().filter(|result| result.has_unexpected_error).count();
+    if let Some(warning) = unexpected_error_warning(unexpected_error_file_count) {
+        eprintln!("{warning}");
+    }
 
     let mut error_count = 0;
     let mut diagnostic_count = 0;
@@ -109,13 +128,27 @@ pub fn run(arguments: &[String]) -> i32 {
     exit_code(diagnostic_count)
 }
 
+/// Steep gives up typing the nodes that need a class definition RBS cannot build and reports `Ruby::UnexpectedError`,
+/// which is a hint by default, so it is easy to miss that parts of the files are not type checked
+pub fn unexpected_error_warning(file_count: usize) -> Option<String> {
+    (file_count > 0).then(|| {
+        format!(
+            "Steep compatible mode: Steep cannot type check parts of {file_count} files because RBS fails to build class definitions with duplicated methods or unknown types (see RBS::DuplicatedMethodDefinition and RBS::UnknownTypeName); they are reported as {UNEXPECTED_ERROR_CODE}"
+        )
+    })
+}
+
 /// Signature diagnostics are always errors in Steep, so every severity level shows them. Explicitly given paths limit
 /// them to the signature files under those paths
-pub fn check_signatures(environment: &Environment, workspace_path: &Path, paths: &[PathBuf]) -> FileResult {
+pub fn check_signatures(environment: &Environment, workspace_path: &Path, paths: &[PathBuf], steep_compatible: bool) -> FileResult {
     let roots: Vec<PathBuf> = paths.iter().map(|path| workspace_path.join(path)).collect();
-    let lines: Vec<String> = environment
-        .signature_diagnostics
-        .iter()
+    let diagnostics: Vec<&SignatureDiagnostic> = if steep_compatible {
+        environment.steep_compatible_signature_diagnostics()
+    } else {
+        environment.signature_diagnostics.iter().collect()
+    };
+    let lines: Vec<String> = diagnostics
+        .into_iter()
         .filter(|diagnostic| roots.is_empty() || roots.iter().any(|root| diagnostic.path.starts_with(root)))
         .map(|diagnostic| {
             let display_path = diagnostic.path.strip_prefix(workspace_path).unwrap_or(&diagnostic.path).display();
@@ -128,7 +161,7 @@ pub fn check_signatures(environment: &Environment, workspace_path: &Path, paths:
             )
         })
         .collect();
-    FileResult { error_count: lines.len(), lines }
+    FileResult { error_count: lines.len(), lines, has_unexpected_error: false }
 }
 
 /// steep 2.0.0 `Drivers::Check#print_result` fails when any diagnostic survives `--severity-level`, errors or not
@@ -149,6 +182,8 @@ fn shown_at(severity: Severity, severity_level: DiagnosticSeverity) -> bool {
 pub struct FileResult {
     pub lines: Vec<String>,
     pub error_count: usize,
+    /// Whether the type checker reported `Ruby::UnexpectedError`, whatever the severity level
+    pub has_unexpected_error: bool,
 }
 
 pub fn check_file(
@@ -157,17 +192,27 @@ pub fn check_file(
     path: &Path,
     code_diagnostics: &DiagnosticConfiguration,
     severity_level: DiagnosticSeverity,
+    analysis_options: AnalysisOptions,
 ) -> FileResult {
     let display_path = path.strip_prefix(workspace_path).unwrap_or(path).display().to_string();
     let source = match std::fs::read(path) {
         Ok(source) => source,
         Err(error) => {
-            return FileResult { lines: vec![format!("{display_path}: [error] Failed to read: {error}")], error_count: 1 };
+            return FileResult {
+                lines: vec![format!("{display_path}: [error] Failed to read: {error}")],
+                error_count: 1,
+                has_unexpected_error: false,
+            };
         }
     };
-    let Some(analysis) = type_checking::analyze(environment, &source) else {
-        return FileResult { lines: vec![format!("{display_path}: [error] The type checker crashed")], error_count: 1 };
+    let Some(analysis) = type_checking::analyze_with_options(environment, &source, analysis_options) else {
+        return FileResult {
+            lines: vec![format!("{display_path}: [error] The type checker crashed")],
+            error_count: 1,
+            has_unexpected_error: false,
+        };
     };
+    let has_unexpected_error = analysis.diagnostics.iter().any(|diagnostic| diagnostic.code == UNEXPECTED_ERROR_CODE);
     let line_index = LineIndex::new(&source, Encoding::Utf32);
     let mut diagnostics = type_checking::configured_diagnostics(&analysis, code_diagnostics);
     diagnostics.retain(|(_, severity)| shown_at(*severity, severity_level));
@@ -187,7 +232,7 @@ pub fn check_file(
         })
         .collect();
     let error_count = diagnostics.iter().filter(|(_, severity)| *severity == Severity::Error).count();
-    FileResult { lines, error_count }
+    FileResult { lines, error_count, has_unexpected_error }
 }
 
 /// Explicitly given files skip the `Steepfile` filter so that a file outside the targets can still be checked on demand
@@ -256,11 +301,36 @@ mod tests {
     #[test]
     fn defaults_to_ruby_and_the_warning_level() {
         let options = parse_arguments(&[]).unwrap();
-        assert_eq!(options, CheckOptions {
+        assert_eq!(options, TypeCheckOptions {
             ruby_command: arguments(&["ruby"]),
             severity_level: DiagnosticSeverity::Warning,
+            steep_compatible: false,
             paths: Vec::new()
         });
+    }
+
+    #[test]
+    fn parses_steep_compatible() {
+        let options = parse_arguments(&arguments(&["--steep-compatible", "app"])).unwrap();
+        assert!(options.steep_compatible);
+        assert_eq!(options.paths, vec![PathBuf::from("app")]);
+        assert!(parse_arguments(&arguments(&["--steep-compatible=true"])).is_err());
+    }
+
+    #[test]
+    fn warns_about_files_steep_cannot_type_check_completely() {
+        assert_eq!(unexpected_error_warning(0), None);
+        let warning = unexpected_error_warning(243).unwrap();
+        assert!(warning.starts_with("Steep compatible mode: Steep cannot type check parts of 243 files"));
+        assert!(warning.contains("RBS::DuplicatedMethodDefinition"));
+        assert!(warning.contains("Ruby::UnexpectedError"));
+    }
+
+    #[test]
+    fn usage_names_the_type_check_subcommand() {
+        assert_eq!(SUBCOMMAND, "type-check");
+        assert!(USAGE.starts_with("Usage: ruby-lsp-rs type-check "));
+        assert!(USAGE.contains("[--steep-compatible]"));
     }
 
     #[test]
@@ -301,21 +371,76 @@ mod tests {
         let mut environment = Environment::default();
         environment.signature_diagnostics = vec![diagnostic("sig/a.rbs", 2), diagnostic("sig/models/b.rbs", 0)];
 
-        let result = check_signatures(&environment, workspace, &[]);
+        let result = check_signatures(&environment, workspace, &[], false);
         assert_eq!(result.lines, vec![
             "sig/a.rbs:3:5: [error] Cannot find type `Missing` (RBS::UnknownTypeName)".to_string(),
             "sig/models/b.rbs:1:5: [error] Cannot find type `Missing` (RBS::UnknownTypeName)".to_string(),
         ]);
         assert_eq!(result.error_count, 2);
 
-        let result = check_signatures(&environment, workspace, &[PathBuf::from("sig/models")]);
+        let result = check_signatures(&environment, workspace, &[PathBuf::from("sig/models")], false);
         assert_eq!(result.lines.len(), 1);
         assert!(result.lines[0].starts_with("sig/models/b.rbs:1:5:"));
     }
 
     #[test]
+    fn prints_signature_diagnostics_as_steep_does_in_steep_compatible_mode() {
+        let workspace = std::env::temp_dir().join(format!("ruby-lsp-rs-type-check-command-signatures-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&workspace);
+        let signature_path = workspace.join("sig/searcher.rbs");
+        std::fs::create_dir_all(signature_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &signature_path,
+            "class Searcher\n  def initialize: (Missing records) -> void\n  def search: () -> Missing\n  attr_reader records: Missing\nend\n",
+        )
+        .unwrap();
+        let mut loader = rbs_environment::Loader::new();
+        loader.add_signature_directory(&workspace.join("sig"));
+        let environment = loader.finish();
+
+        assert_eq!(check_signatures(&environment, &workspace, &[], false).lines.len(), 3);
+        assert_eq!(check_signatures(&environment, &workspace, &[], true).lines, vec![
+            "sig/searcher.rbs:3:21: [error] Cannot find type `Missing` (RBS::UnknownTypeName)".to_string()
+        ]);
+        std::fs::remove_dir_all(&workspace).unwrap();
+    }
+
+    #[test]
+    fn reports_unexpected_errors_only_in_steep_compatible_mode() {
+        let workspace = std::env::temp_dir().join(format!("ruby-lsp-rs-type-check-command-unexpected-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&workspace);
+        std::fs::create_dir_all(workspace.join("lib")).unwrap();
+        let ruby_path = workspace.join("lib/clock.rb");
+        std::fs::write(&ruby_path, "Time.now\n").unwrap();
+        let mut loader = rbs_environment::Loader::new();
+        loader.add_source(
+            Path::new("library.rbs"),
+            "class Object\nend\nclass Time\n  def self.now: () -> Time\n  def year: () -> Integer\n  def year: () -> Integer\nend\n",
+        );
+        let environment = loader.finish();
+        let configuration = DiagnosticConfiguration::default();
+        let compatible = AnalysisOptions { steep_compatible: true };
+
+        let result = check_file(&environment, &workspace, &ruby_path, &configuration, DiagnosticSeverity::Hint, compatible);
+        assert_eq!(result.lines.len(), 1);
+        assert!(result.lines[0].starts_with("lib/clock.rb:1:1: [hint] UnexpectedError: "));
+        assert!(result.lines[0].ends_with("(Ruby::UnexpectedError)"));
+        assert!(result.has_unexpected_error);
+
+        let result = check_file(&environment, &workspace, &ruby_path, &configuration, DiagnosticSeverity::Warning, compatible);
+        assert!(result.lines.is_empty());
+        assert!(result.has_unexpected_error);
+
+        let result =
+            check_file(&environment, &workspace, &ruby_path, &configuration, DiagnosticSeverity::Hint, AnalysisOptions::default());
+        assert!(result.lines.is_empty());
+        assert!(!result.has_unexpected_error);
+        std::fs::remove_dir_all(&workspace).unwrap();
+    }
+
+    #[test]
     fn collects_ruby_files_within_check_paths() {
-        let workspace = std::env::temp_dir().join(format!("ruby-lsp-rs-check-command-{}", std::process::id()));
+        let workspace = std::env::temp_dir().join(format!("ruby-lsp-rs-type-check-command-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&workspace);
         for file in ["lib/foo.rb", "lib/templates/bar.rb", "test/foo_test.rb", ".bundle/baz.rb", "lib/notes.txt"] {
             let path = workspace.join(file);

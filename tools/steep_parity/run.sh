@@ -24,9 +24,15 @@ record_timing() {
 
 if [ "${SKIP_DIAGNOSTICS:-0}" != "1" ]; then
   started=$SECONDS
-  (cd "$project_path" && "$ruby_lsp_rs_binary" check --ruby-command "$ruby_command" --severity-level hint) \
+  type_check_arguments=(--ruby-command "$ruby_command" --severity-level hint)
+  compare_arguments=()
+  if [ "${STEEP_COMPATIBLE:-0}" = "1" ]; then
+    type_check_arguments+=(--steep-compatible)
+    compare_arguments+=(--steep-compatible)
+  fi
+  (cd "$project_path" && "$ruby_lsp_rs_binary" type-check "${type_check_arguments[@]}") \
     > "$report_directory/ruby-lsp-rs.check.txt" 2> "$report_directory/ruby-lsp-rs.check.stderr" || true
-  record_timing "ruby-lsp-rs check" $((SECONDS - started))
+  record_timing "ruby-lsp-rs type-check" $((SECONDS - started))
 
   if [ -n "${STEEP_CHECK_OUTPUT:-}" ]; then
     cp "$STEEP_CHECK_OUTPUT" "$report_directory/steep.check.txt"
@@ -44,7 +50,8 @@ if [ "${SKIP_DIAGNOSTICS:-0}" != "1" ]; then
     --ruby-lsp-rs-output "$report_directory/ruby-lsp-rs.check.txt" \
     --ruby-lsp-rs-source "$repository_directory" \
     --report "$report_directory/diagnostics.md" \
-    --summary-json "$report_directory/diagnostics.json"
+    --summary-json "$report_directory/diagnostics.json" \
+    ${compare_arguments[@]+"${compare_arguments[@]}"}
   record_timing "compare diagnostics" $((SECONDS - started))
 fi
 

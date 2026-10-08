@@ -18,8 +18,8 @@ use crate::annotations::{AnnotationTarget, Annotations};
 use crate::file_index::{FileIndex, InstanceVariableKey, ScopeKind};
 use crate::source::{LineIndex, Span};
 use crate::{
-    Analysis, DefinitionEntry, HoverEntry, HoverKind, Severity, TypeDiagnostic, TypeHint,
-    TypeHintKind,
+    Analysis, AnalysisOptions, DefinitionEntry, HoverEntry, HoverKind, Severity, TypeDiagnostic,
+    TypeHint, TypeHintKind,
 };
 
 pub(crate) type Locals = HashMap<String, Type>;
@@ -78,6 +78,7 @@ struct ResolvedAnnotation {
 
 pub(crate) struct Checker<'environment, 'pr> {
     pub(crate) environment: &'environment Environment,
+    pub(crate) options: AnalysisOptions,
     pub(crate) file_index: FileIndex<'pr>,
     pub(crate) line_index: LineIndex,
     pub(crate) analysis: Analysis,
@@ -97,6 +98,8 @@ pub(crate) struct Checker<'environment, 'pr> {
     pub(crate) assignment_span: Option<Span>,
     fully_known_cache: HashMap<String, bool>,
     repetition_depth: usize,
+    /// Diagnostics Steep reports a second time, kept apart from the removal of duplicates
+    repeated_diagnostics: Vec<TypeDiagnostic>,
 }
 
 struct Checkpoint {
@@ -114,6 +117,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         file_index: FileIndex<'pr>,
         line_index: LineIndex,
         annotations: Annotations,
+        options: AnalysisOptions,
     ) -> Checker<'environment, 'pr> {
         let resolved_annotations = annotations
             .type_annotations
@@ -143,6 +147,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             .collect();
         Checker {
             environment,
+            options,
             file_index,
             line_index,
             analysis: Analysis::default(),
@@ -161,6 +166,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             assignment_span: None,
             fully_known_cache: HashMap::new(),
             repetition_depth: 0,
+            repeated_diagnostics: Vec::new(),
         }
     }
 
@@ -184,6 +190,15 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         self.analysis
             .diagnostics
             .retain(|diagnostic| seen.insert((diagnostic.start, diagnostic.end, diagnostic.code)));
+        let mut repeated_seen = HashSet::new();
+        let repeated: Vec<TypeDiagnostic> = std::mem::take(&mut self.repeated_diagnostics)
+            .into_iter()
+            .filter(|diagnostic| {
+                repeated_seen.insert((diagnostic.start, diagnostic.end, diagnostic.code))
+                    && seen.contains(&(diagnostic.start, diagnostic.end, diagnostic.code))
+            })
+            .collect();
+        self.analysis.diagnostics.extend(repeated);
     }
 
     fn checkpoint(&self) -> Checkpoint {
