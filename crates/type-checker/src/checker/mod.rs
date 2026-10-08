@@ -1,0 +1,438 @@
+mod arguments;
+mod blocks;
+mod calls;
+mod constants;
+mod control_flow;
+mod definitions;
+mod expressions;
+mod narrowing;
+mod variables;
+
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
+
+use rbs_environment::{Block, Environment, Location, Type};
+use ruby_prism::Node;
+
+use crate::annotations::{AnnotationTarget, Annotations};
+use crate::file_index::{FileIndex, InstanceVariableKey, ScopeKind};
+use crate::source::{LineIndex, Span};
+use crate::{
+    Analysis, DefinitionEntry, HoverEntry, HoverKind, Severity, TypeDiagnostic, TypeHint,
+    TypeHintKind,
+};
+
+pub(crate) type Locals = HashMap<String, Type>;
+
+const MAXIMUM_SILENT_DEPTH: usize = 24;
+
+pub(crate) enum CacheState {
+    InProgress,
+    Done(Type),
+}
+
+/// What `break` and `next` may carry in the innermost block or loop
+pub(crate) struct JumpExpectation {
+    pub(crate) break_type: Option<Type>,
+    pub(crate) next_type: Option<Type>,
+}
+
+pub(crate) struct MethodContext {
+    pub(crate) name: String,
+    pub(crate) owner: String,
+    pub(crate) singleton: bool,
+    /// Present only when the RBS declaration has exactly one overload, so that a mismatch is certain
+    pub(crate) declared_return_type: Option<Type>,
+    pub(crate) block: Option<Block>,
+}
+
+#[derive(Clone)]
+pub(crate) struct Context {
+    pub(crate) self_type: Type,
+    pub(crate) nesting: Rc<Vec<String>>,
+    pub(crate) method: Option<Rc<MethodContext>>,
+    pub(crate) declared_locals: Rc<HashMap<String, Type>>,
+}
+
+impl Context {
+    pub(crate) fn namespace(&self) -> &str {
+        self.nesting.last().map(String::as_str).unwrap_or("")
+    }
+
+    pub(crate) fn instance_variable_owner(&self) -> Option<(String, bool)> {
+        match &self.self_type {
+            Type::ClassInstance { name, .. } => Some((name.clone(), false)),
+            Type::ClassSingleton { name } => Some((name.clone(), true)),
+            _ => None,
+        }
+    }
+}
+
+struct ResolvedAnnotation {
+    offset: usize,
+    target: AnnotationTarget,
+    annotated_type: Type,
+    variable_scope_start: usize,
+    self_scope_start: usize,
+}
+
+pub(crate) struct Checker<'environment, 'pr> {
+    pub(crate) environment: &'environment Environment,
+    pub(crate) file_index: FileIndex<'pr>,
+    pub(crate) line_index: LineIndex,
+    pub(crate) analysis: Analysis,
+    annotations: Vec<ResolvedAnnotation>,
+    inline_assertions: HashMap<usize, Type>,
+    silent_depth: usize,
+    expression_depth: usize,
+    method_return_cache: HashMap<usize, CacheState>,
+    constant_cache: HashMap<String, CacheState>,
+    instance_variable_cache: HashMap<InstanceVariableKey, Type>,
+    inferred_instance_variable_writes: HashMap<InstanceVariableKey, Vec<Type>>,
+    instance_variable_write_frames: Vec<Vec<(InstanceVariableKey, Type)>>,
+    method_return_frames: Vec<Vec<Type>>,
+    block_next_frames: Vec<Vec<Type>>,
+    jump_expectations: Vec<JumpExpectation>,
+    /// The whole assignment being checked; Steep reports `IncompatibleAssignment` on the assignment node
+    pub(crate) assignment_span: Option<Span>,
+    fully_known_cache: HashMap<String, bool>,
+    repetition_depth: usize,
+}
+
+struct Checkpoint {
+    type_hints: usize,
+    hovers: usize,
+    definitions: usize,
+    diagnostics: usize,
+}
+
+const MAXIMUM_REPETITION_DEPTH: usize = 3;
+
+impl<'environment, 'pr> Checker<'environment, 'pr> {
+    pub(crate) fn new(
+        environment: &'environment Environment,
+        file_index: FileIndex<'pr>,
+        line_index: LineIndex,
+        annotations: Annotations,
+    ) -> Checker<'environment, 'pr> {
+        let resolved_annotations = annotations
+            .type_annotations
+            .into_iter()
+            .map(|annotation| {
+                let variable_scope_start = file_index
+                    .innermost_scope(annotation.offset, |kind| kind != ScopeKind::Block)
+                    .map(|scope| scope.span.start)
+                    .unwrap_or(0);
+                let self_scope_start = file_index
+                    .innermost_scope(annotation.offset, |_| true)
+                    .map(|scope| scope.span.start)
+                    .unwrap_or(0);
+                ResolvedAnnotation {
+                    offset: annotation.offset,
+                    target: annotation.target,
+                    annotated_type: annotation.annotated_type,
+                    variable_scope_start,
+                    self_scope_start,
+                }
+            })
+            .collect();
+        let inline_assertions = annotations
+            .inline_assertions
+            .into_iter()
+            .map(|(line, assertion)| (line, assertion.asserted_type))
+            .collect();
+        Checker {
+            environment,
+            file_index,
+            line_index,
+            analysis: Analysis::default(),
+            annotations: resolved_annotations,
+            inline_assertions,
+            silent_depth: 0,
+            expression_depth: 0,
+            method_return_cache: HashMap::new(),
+            constant_cache: HashMap::new(),
+            instance_variable_cache: HashMap::new(),
+            inferred_instance_variable_writes: HashMap::new(),
+            instance_variable_write_frames: Vec::new(),
+            method_return_frames: Vec::new(),
+            block_next_frames: Vec::new(),
+            jump_expectations: Vec::new(),
+            assignment_span: None,
+            fully_known_cache: HashMap::new(),
+            repetition_depth: 0,
+        }
+    }
+
+    pub(crate) fn check_program(&mut self, root: &Node<'pr>) {
+        let Some(program) = root.as_program_node() else {
+            return;
+        };
+        let scope_start = crate::file_index::PROGRAM_SCOPE_START;
+        let nesting: Rc<Vec<String>> = Rc::new(Vec::new());
+        let context = Context {
+            self_type: self
+                .annotated_self_type(scope_start, &nesting)
+                .unwrap_or_else(|| Type::instance("Object")),
+            declared_locals: Rc::new(self.local_variable_annotations(scope_start, &nesting)),
+            nesting,
+            method: None,
+        };
+        let mut locals = Locals::new();
+        self.infer_statements(&program.statements(), &context, &mut locals);
+        let mut seen = HashSet::new();
+        self.analysis
+            .diagnostics
+            .retain(|diagnostic| seen.insert((diagnostic.start, diagnostic.end, diagnostic.code)));
+    }
+
+    fn checkpoint(&self) -> Checkpoint {
+        Checkpoint {
+            type_hints: self.analysis.type_hints.len(),
+            hovers: self.analysis.hovers.len(),
+            definitions: self.analysis.definitions.len(),
+            diagnostics: self.analysis.diagnostics.len(),
+        }
+    }
+
+    fn rollback(&mut self, checkpoint: Checkpoint) {
+        self.analysis.type_hints.truncate(checkpoint.type_hints);
+        self.analysis.hovers.truncate(checkpoint.hovers);
+        self.analysis.definitions.truncate(checkpoint.definitions);
+        self.analysis.diagnostics.truncate(checkpoint.diagnostics);
+    }
+
+    /// Infers a loop or block body that may run many times. When a variable from outside gets a new type inside the
+    /// body, the body is inferred again starting from the widened types and the first pass is discarded, so that
+    /// `last = nil; items.each { |item| last&.size; last = item }` sees `last` as `String?` on every iteration
+    /// `fresh_names` are block parameters, which start over on every iteration and are never widened. `relaxed_names`
+    /// entered as `untyped` in place of `nil`; when the body assigns them they are widened back to `nil | assigned`
+    pub(crate) fn infer_repeatedly<T>(
+        &mut self,
+        entry: &Locals,
+        fresh_names: &[String],
+        relaxed_names: &[String],
+        mut iteration: impl FnMut(&mut Self, &mut Locals) -> T,
+    ) -> (Locals, T) {
+        let checkpoint = self.checkpoint();
+        let mut iteration_locals = entry.clone();
+        let result = iteration(self, &mut iteration_locals);
+        if self.repetition_depth >= MAXIMUM_REPETITION_DEPTH {
+            return (iteration_locals, result);
+        }
+        let mut widened = entry.clone();
+        let mut changed = false;
+        for (name, entry_type) in widened.iter_mut() {
+            if fresh_names.contains(name) {
+                continue;
+            }
+            let Some(end_type) = iteration_locals.get(name) else {
+                continue;
+            };
+            if end_type == entry_type {
+                continue;
+            }
+            if relaxed_names.contains(name) {
+                *entry_type = Type::optional(end_type.clone());
+                changed = true;
+                continue;
+            }
+            let union = Type::union(vec![entry_type.clone(), end_type.clone()]);
+            if union != *entry_type {
+                *entry_type = union;
+                changed = true;
+            }
+        }
+        if !changed {
+            return (iteration_locals, result);
+        }
+        self.rollback(checkpoint);
+        self.repetition_depth += 1;
+        let mut second_locals = widened;
+        let result = iteration(self, &mut second_locals);
+        self.repetition_depth -= 1;
+        (second_locals, result)
+    }
+
+    pub(crate) fn is_silent(&self) -> bool {
+        self.silent_depth > 0
+    }
+
+    pub(crate) fn record_hint(
+        &mut self,
+        kind: TypeHintKind,
+        offset: usize,
+        hint_type: &Type,
+        is_obvious: bool,
+    ) {
+        if self.is_silent() {
+            return;
+        }
+        self.analysis.type_hints.push(TypeHint {
+            kind,
+            offset,
+            hint_type: hint_type.clone(),
+            is_obvious,
+        });
+    }
+
+    pub(crate) fn record_hover(&mut self, span: Span, kind: HoverKind) {
+        if self.is_silent() || span.start >= span.end {
+            return;
+        }
+        self.analysis.hovers.push(HoverEntry {
+            start: span.start,
+            end: span.end,
+            kind,
+        });
+    }
+
+    pub(crate) fn record_type_hover(&mut self, span: Span, hover_type: &Type) {
+        if self.is_silent() {
+            return;
+        }
+        self.record_hover(span, HoverKind::Type(hover_type.clone()));
+    }
+
+    pub(crate) fn record_definition(&mut self, span: Span, targets: Vec<Location>) {
+        if self.is_silent() || targets.is_empty() || span.start >= span.end {
+            return;
+        }
+        self.analysis.definitions.push(DefinitionEntry {
+            start: span.start,
+            end: span.end,
+            targets,
+        });
+    }
+
+    pub(crate) fn record_diagnostic(
+        &mut self,
+        span: Span,
+        severity: Severity,
+        code: &'static str,
+        message: String,
+    ) {
+        if self.is_silent() {
+            return;
+        }
+        self.analysis.diagnostics.push(TypeDiagnostic {
+            start: span.start,
+            end: span.end,
+            severity,
+            code,
+            message,
+        });
+    }
+
+    pub(crate) fn nesting_of_class(name: &str) -> Vec<String> {
+        let mut nesting = Vec::new();
+        let mut prefix = String::new();
+        for segment in name.split("::") {
+            if !prefix.is_empty() {
+                prefix.push_str("::");
+            }
+            prefix.push_str(segment);
+            nesting.push(prefix.clone());
+        }
+        nesting
+    }
+
+    fn resolve_annotation_type(&self, annotated_type: &Type, nesting: &[String]) -> Type {
+        let mut resolved = annotated_type.clone();
+        self.environment.resolve_type_names(&mut resolved, nesting);
+        resolved
+    }
+
+    pub(crate) fn local_variable_annotations(
+        &self,
+        scope_start: usize,
+        nesting: &[String],
+    ) -> HashMap<String, Type> {
+        self.annotations
+            .iter()
+            .filter(|annotation| annotation.variable_scope_start == scope_start)
+            .filter_map(|annotation| match &annotation.target {
+                AnnotationTarget::LocalVariable(name) => Some((
+                    name.clone(),
+                    self.resolve_annotation_type(&annotation.annotated_type, nesting),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub(crate) fn annotated_self_type(
+        &self,
+        scope_start: usize,
+        nesting: &[String],
+    ) -> Option<Type> {
+        self.annotations
+            .iter()
+            .find(|annotation| {
+                annotation.self_scope_start == scope_start
+                    && annotation.target == AnnotationTarget::SelfType
+            })
+            .map(|annotation| self.resolve_annotation_type(&annotation.annotated_type, nesting))
+    }
+
+    pub(crate) fn instance_variable_annotation(
+        &self,
+        class_name: &str,
+        variable_name: &str,
+    ) -> Option<Type> {
+        self.annotations.iter().find_map(|annotation| {
+            let AnnotationTarget::InstanceVariable(name) = &annotation.target else {
+                return None;
+            };
+            if name != variable_name {
+                return None;
+            }
+            let class_scope = self
+                .file_index
+                .innermost_scope(annotation.offset, |kind| kind == ScopeKind::Class)?;
+            let annotated_class = self
+                .file_index
+                .class_names_by_offset
+                .get(&class_scope.span.start)?;
+            if annotated_class != class_name {
+                return None;
+            }
+            Some(self.resolve_annotation_type(
+                &annotation.annotated_type,
+                &Checker::nesting_of_class(class_name),
+            ))
+        })
+    }
+
+    pub(crate) fn inline_assertion_for(
+        &self,
+        value_end_offset: usize,
+        nesting: &[String],
+    ) -> Option<Type> {
+        let line = self.line_index.line_of(value_end_offset);
+        self.inline_assertions
+            .get(&line)
+            .map(|asserted_type| self.resolve_annotation_type(asserted_type, nesting))
+    }
+
+    pub(crate) fn is_fully_known(&mut self, class_name: &str) -> bool {
+        if let Some(known) = self.fully_known_cache.get(class_name) {
+            return *known;
+        }
+        let known = crate::subtyping::is_fully_known_class(self.environment, class_name);
+        self.fully_known_cache.insert(class_name.to_string(), known);
+        known
+    }
+
+    pub(crate) fn silently<T>(&mut self, operation: impl FnOnce(&mut Self) -> T) -> Option<T> {
+        if self.silent_depth >= MAXIMUM_SILENT_DEPTH {
+            return None;
+        }
+        self.silent_depth += 1;
+        let saved_expression_depth = self.expression_depth;
+        let result = operation(self);
+        self.expression_depth = saved_expression_depth;
+        self.silent_depth -= 1;
+        Some(result)
+    }
+}
