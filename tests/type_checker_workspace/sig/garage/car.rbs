@@ -1,0 +1,9 @@
+module Garage
+  class Car
+    @name: String
+
+    def initialize: (String name) -> void
+    def rename: (String name) -> void
+    def label: () -> String
+  end
+end

@@ -1,10 +1,13 @@
+use std::path::{Path, PathBuf};
+
 use serde_json::{Value, json};
 
 use super::support::formatter::{self, FormatterError};
 use super::{RequestContext, RequestResult, TextDocumentParams, parse_params};
-use crate::document::{Document, ParsedDocument};
+use crate::document::{Document, LanguageId, ParsedDocument};
 use crate::global_state::{GlobalState, message_type};
 use crate::requests::Outgoing;
+use crate::type_checking;
 
 pub const CACHE_KEY: &str = "textDocument/diagnostic";
 
@@ -22,22 +25,29 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
         return Ok(Value::Null);
     }
 
-    let global_state = &*context.global_state;
     let outgoing = context.outgoing;
     let document = context.store.get(&uri)?;
+    let type_diagnostics =
+        if document.cache_get(CACHE_KEY).is_none() { type_diagnostics(context.global_state, document) } else { Vec::new() };
+    let global_state = &*context.global_state;
 
     let diagnostics = match document.cache_get(CACHE_KEY) {
         Some(cached) => cached.clone(),
         None => {
-            let computed = if document.is_ruby() { perform(global_state, outgoing, document).map(Value::Array) } else { Ok(Value::Null) };
-            match computed {
-                Ok(diagnostics) => document.cache_set(CACHE_KEY, diagnostics),
-                Err(error) => {
+            let computed = if document.is_ruby() {
+                let mut diagnostics = perform(global_state, outgoing, document).unwrap_or_else(|error| {
                     outgoing.show_message(&format!("Error running diagnostics: {}", error.message), message_type::ERROR);
                     outgoing.log_message(&format!("Diagnostics failed with\r\n: {}", error.full_message), message_type::ERROR);
-                    return Ok(Value::Null);
-                }
-            }
+                    syntax_diagnostics(&document.parse())
+                });
+                diagnostics.extend(type_diagnostics);
+                Value::Array(diagnostics)
+            } else if document.language_id() == LanguageId::Rbs {
+                signature_diagnostics(global_state, document).map(Value::Array).unwrap_or(Value::Null)
+            } else {
+                Value::Null
+            };
+            document.cache_set(CACHE_KEY, computed)
         }
     };
 
@@ -49,8 +59,7 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
 
 pub fn perform(global_state: &GlobalState, outgoing: &Outgoing, document: &Document) -> Result<Vec<Value>, FormatterError> {
     let parsed = document.parse();
-    let mut diagnostics = syntax_error_diagnostics(&parsed);
-    diagnostics.extend(syntax_warning_diagnostics(&parsed));
+    let mut diagnostics = syntax_diagnostics(&parsed);
 
     if parsed.syntax_error() || document.past_expensive_limit() {
         return Ok(diagnostics);
@@ -62,6 +71,41 @@ pub fn perform(global_state: &GlobalState, outgoing: &Outgoing, document: &Docum
 
     diagnostics.extend(formatter::run_diagnostic(global_state, outgoing, &active_linters, document.uri(), document.source())?);
     Ok(diagnostics)
+}
+
+fn type_diagnostics(global_state: &mut GlobalState, document: &Document) -> Vec<Value> {
+    let type_checking = &global_state.type_checking;
+    if !type_checking.is_active() || !type_checking.settings.diagnostics_enabled || document.past_expensive_limit() {
+        return Vec::new();
+    }
+    let workspace_path = global_state.workspace_path();
+    let Some(path) = crate::uri::to_path(document.uri()) else { return Vec::new() };
+    let Some(configuration) = type_checking.code_diagnostics_for(Path::new(&workspace_path), Path::new(&path)).cloned()
+    else {
+        return Vec::new();
+    };
+    let Some(analysis) = global_state.type_checking.analysis_for(document) else { return Vec::new() };
+    type_checking::diagnostics(&analysis, &configuration, &document.line_index())
+}
+
+/// `None` for a file outside the `Steepfile` signature directories, which Steep doesn't validate
+fn signature_diagnostics(global_state: &GlobalState, document: &Document) -> Option<Vec<Value>> {
+    let type_checking = &global_state.type_checking;
+    if !type_checking.is_active() || !type_checking.settings.diagnostics_enabled {
+        return None;
+    }
+    let environment = type_checking.environment.as_ref()?;
+    let path = PathBuf::from(crate::uri::to_path(document.uri())?);
+    if !type_checking.is_signature_path(Path::new(&global_state.workspace_path()), &path) {
+        return None;
+    }
+    Some(type_checking::signature_diagnostics(environment, &path, document.source(), document.encoding()))
+}
+
+fn syntax_diagnostics(parsed: &ParsedDocument<'_>) -> Vec<Value> {
+    let mut diagnostics = syntax_error_diagnostics(parsed);
+    diagnostics.extend(syntax_warning_diagnostics(parsed));
+    diagnostics
 }
 
 fn syntax_error_diagnostics(parsed: &ParsedDocument<'_>) -> Vec<Value> {

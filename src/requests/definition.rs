@@ -5,9 +5,14 @@ use super::support::common::{delegate_request_if_needed, determine_target, locat
 use super::support::sorbet_level::SorbetLevel;
 use super::{RequestContext, RequestResult, TextDocumentPositionParams, parse_params, to_result};
 use crate::document::ParsedDocument;
-use crate::listeners::definition::Definition;
+use crate::listeners::definition::{Definition, variable_name};
 use crate::position::Position;
 use crate::prism::NodeExt;
+use crate::requests::support::implementation_lookup;
+use crate::requests::support::local_variable_definition;
+use crate::requests::support::interface::{LocationLink, LocationOrLink};
+use crate::type_checking::{self, DefinitionTarget};
+use crate::type_inferrer::TypeInferrer;
 
 pub const NODE_TYPES: &[&str] = &[
     "CallNode",
@@ -45,23 +50,121 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
         return Ok(Value::Null);
     }
 
+    let analysis = context.global_state.type_checking.analysis_for(document);
     let global_state = &*context.global_state;
     let parsed = document.parse();
     let position = params.position;
     let offset = parsed.offset_of(position)?;
     delegate_request_if_needed(global_state, document, offset)?;
 
+    if let Some((start, end)) = local_variable_definition::definition_range(&parsed.ast(), offset) {
+        let range = parsed.line_index.range_of(start, end);
+        let link = LocationLink { target_uri: document.uri().to_string(), target_range: range, target_selection_range: range };
+        return to_result(vec![LocationOrLink::Link(link)]);
+    }
+
+    let signature_links = analysis
+        .as_ref()
+        .map(|analysis| type_checking::definition_links(analysis, offset, global_state.encoding))
+        .unwrap_or_default();
+    let definition_target = global_state.type_checking.settings.definition_target;
+    if definition_target == DefinitionTarget::Signature && !signature_links.is_empty() {
+        return to_result(merge_definitions(Vec::new(), signature_links));
+    }
+
+    let mut index = global_state.index();
+    let typed_implementations = analysis.as_ref().and_then(|analysis| analysis.hover_at(offset)).and_then(|hover_entry| {
+        implementation_lookup::implementation_entries(&mut index, hover_entry).map(|ids| {
+            ids.into_iter().map(|id| implementation_lookup::implementation_link(index.entry(id))).collect::<Vec<_>>()
+        })
+    });
+
     let node_context = parsed.locate(offset, NODE_TYPES);
     let target = refine_target(&parsed, node_context.node.as_ref(), node_context.parent.as_ref(), position);
+    let instance_variable_name =
+        target.as_ref().filter(|target| target.type_name().starts_with("InstanceVariable")).and_then(variable_name);
+    let name_based_definitions = match target {
+        Some(target) => {
+            let sorbet_level = SorbetLevel::for_document(global_state, &parsed);
+            let mut listener =
+                Definition::new(global_state, &mut index, document.language_id(), document.uri(), &node_context, sorbet_level);
+            listener.dispatch(&target);
+            listener.into_response()
+        }
+        None => Vec::new(),
+    };
 
-    let Some(target) = target else { return to_result(Vec::<Value>::new()) };
+    let instance_variable_declarations = match (instance_variable_name, global_state.type_checking.environment.as_ref()) {
+        (Some(variable_name), Some(environment)) => TypeInferrer::new(&mut index)
+            .infer_receiver_type(&node_context)
+            .map(|self_type| {
+                let (class_name, singleton) = match self_type.name.split_once("::<Class:") {
+                    Some((class_name, _)) => (class_name.to_string(), true),
+                    None => (self_type.name, false),
+                };
+                type_checking::instance_variable_declaration_links(
+                    environment,
+                    &class_name,
+                    &variable_name,
+                    singleton,
+                    global_state.encoding,
+                )
+            })
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    };
 
-    let sorbet_level = SorbetLevel::for_document(global_state, &parsed);
-    let mut index = global_state.index();
-    let mut listener =
-        Definition::new(global_state, &mut index, document.language_id(), document.uri(), &node_context, sorbet_level);
-    listener.dispatch(&target);
-    to_result(listener.into_response())
+    let definitions = match definition_target {
+        DefinitionTarget::Implementation => merge_definitions(
+            implementations(typed_implementations, name_based_definitions, signature_links),
+            instance_variable_declarations,
+        ),
+        DefinitionTarget::Signature if !instance_variable_declarations.is_empty() => {
+            merge_definitions(Vec::new(), instance_variable_declarations)
+        }
+        DefinitionTarget::Signature => name_based_definitions,
+        DefinitionTarget::Both => {
+            let implementations = implementations(typed_implementations, name_based_definitions, Vec::new());
+            merge_definitions(merge_definitions(implementations, signature_links), instance_variable_declarations)
+        }
+    };
+    to_result(definitions)
+}
+
+/// Implementations found from the inferred type are exact, while the name based lookup may list methods of unrelated
+/// classes, so it's only used when the type checker doesn't know what is at the position. Signatures stand in for
+/// methods without a Ruby implementation, like the core methods written in C
+fn implementations(
+    typed_implementations: Option<Vec<LocationLink>>,
+    name_based_definitions: Vec<LocationOrLink>,
+    signature_links: Vec<LocationLink>,
+) -> Vec<LocationOrLink> {
+    match typed_implementations {
+        Some(typed_implementations) if !typed_implementations.is_empty() => {
+            typed_implementations.into_iter().map(LocationOrLink::Link).collect()
+        }
+        Some(_) if !signature_links.is_empty() => merge_definitions(Vec::new(), signature_links),
+        _ if !name_based_definitions.is_empty() => name_based_definitions,
+        _ => merge_definitions(Vec::new(), signature_links),
+    }
+}
+
+fn merge_definitions(mut definitions: Vec<LocationOrLink>, type_definitions: Vec<LocationLink>) -> Vec<LocationOrLink> {
+    for type_definition in type_definitions {
+        let already_present = definitions.iter().any(|definition| match definition {
+            LocationOrLink::Link(link) => {
+                link.target_uri == type_definition.target_uri
+                    && link.target_range.start.line == type_definition.target_range.start.line
+            }
+            LocationOrLink::Location(location) => {
+                location.uri == type_definition.target_uri && location.range.start.line == type_definition.target_range.start.line
+            }
+        });
+        if !already_present {
+            definitions.push(LocationOrLink::Link(type_definition));
+        }
+    }
+    definitions
 }
 
 fn refine_target<'pr>(

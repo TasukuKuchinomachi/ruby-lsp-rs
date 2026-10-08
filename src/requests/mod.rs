@@ -7,6 +7,7 @@ pub mod code_lens_resolve;
 pub mod completion;
 pub mod completion_resolve;
 pub mod compose_bundle;
+pub mod declaration;
 pub mod definition;
 pub mod diagnose_state;
 pub mod diagnostics;
@@ -30,6 +31,7 @@ pub mod selection_ranges;
 pub mod semantic_highlighting;
 pub mod show_syntax_tree;
 pub mod signature_help;
+pub mod type_definition;
 pub mod type_hierarchy_subtypes;
 pub mod type_hierarchy_supertypes;
 pub mod workspace_addons;
@@ -189,6 +191,8 @@ pub fn handler_for(method: &str) -> Option<RequestHandler> {
         "completionItem/resolve" => completion_resolve::handle,
         "textDocument/signatureHelp" => signature_help::handle,
         "textDocument/definition" => definition::handle,
+        "textDocument/declaration" => declaration::handle,
+        "textDocument/typeDefinition" => type_definition::handle,
         "textDocument/prepareTypeHierarchy" => prepare_type_hierarchy::handle,
         "textDocument/rename" => rename::handle,
         "textDocument/prepareRename" => prepare_rename::handle,

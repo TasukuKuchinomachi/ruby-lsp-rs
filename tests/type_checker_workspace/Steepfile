@@ -1,0 +1,5 @@
+target :lib do
+  signature "sig"
+  check "lib"
+  ignore "lib/ignored.rb"
+end

@@ -1,0 +1,3 @@
+class InvalidSignature
+  def missing: () -> MissingType
+end

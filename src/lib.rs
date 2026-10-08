@@ -1,3 +1,4 @@
+pub mod check_command;
 pub mod document;
 pub mod global_state;
 pub mod indexer;
@@ -9,5 +10,6 @@ pub mod requests;
 pub mod ruby_environment;
 pub mod server;
 pub mod store;
+pub mod type_checking;
 pub mod type_inferrer;
 pub mod uri;

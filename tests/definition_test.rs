@@ -395,8 +395,13 @@ fn definition_for_instance_variables_is_disabled_on_typed_strict() {
 fn definition_call_node_precision() {
     let source = "class Foo\n  def message\n    \"hello!\"\n  end\nend\n\nclass Bar\n  def with_foo(foo)\n    @foo_message = foo.message\n  end\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
-    assert!(server.definition(8, 19).is_empty());
-    assert!(!server.definition(8, 23).is_empty());
+    assert_eq!(
+        server.definition(8, 19),
+        vec![json!({ "targetUri": DEFAULT_URI, "targetRange": range_json(7, 15, 7, 18), "targetSelectionRange": range_json(7, 15, 7, 18) })]
+    );
+    let message_definitions = server.definition(8, 23);
+    assert!(!message_definitions.is_empty());
+    assert_ne!(message_definitions[0]["targetRange"]["start"]["line"], json!(7));
 }
 
 #[test]

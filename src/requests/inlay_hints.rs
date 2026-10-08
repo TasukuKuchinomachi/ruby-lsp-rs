@@ -3,6 +3,7 @@ use serde_json::Value;
 use super::{RequestContext, RequestResult, TextDocumentRangeParams, parse_params, to_result};
 use crate::global_state::RequestConfig;
 use crate::listeners::inlay_hints::InlayHints;
+use crate::type_checking;
 
 pub const CACHE_KEY: &str = "textDocument/inlayHint";
 
@@ -20,12 +21,17 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
         return Ok(Value::Null);
     }
 
+    let analysis = context.global_state.type_checking.analysis_for(document);
     let default_configuration = RequestConfig::default();
     let hints_configuration = context.global_state.feature_configuration("inlayHint").unwrap_or(&default_configuration);
     let parsed = document.parse();
     let mut listener = InlayHints::new(&parsed, hints_configuration);
     listener.visit(&parsed.ast());
-    let hints = to_result(listener.into_response())?;
+    let mut hints = to_result(listener.into_response())?;
+    if let (Some(analysis), Value::Array(hints)) = (analysis, &mut hints) {
+        let type_hint_settings = &context.global_state.type_checking.settings.inlay_hints;
+        hints.extend(type_checking::inlay_hints(&analysis, type_hint_settings, &parsed.line_index));
+    }
     drop(parsed);
 
     let hints = document.cache_set(CACHE_KEY, hints);

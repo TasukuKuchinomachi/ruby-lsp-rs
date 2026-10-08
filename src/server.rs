@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender, select};
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response, ResponseError};
@@ -13,9 +14,12 @@ use crate::indexer::{Index, indexing};
 use crate::requests::{self, AUTOMATIC_REQUESTS, Outgoing, RequestContext, RequestError};
 use crate::ruby_environment::RubyEnvironment;
 use crate::store::Store;
+use crate::type_checking::{self, EnvironmentLoadOutcome};
 
 pub const RUBY_LSP_VERSION: &str = "0.26.11";
 const INDEXING_PROGRESS_TOKEN: &str = "indexing-progress";
+const TYPE_CHECKER_PROGRESS_TOKEN: &str = "type-checker-progress";
+const ENVIRONMENT_RELOAD_DELAY: Duration = Duration::from_millis(300);
 
 pub mod file_change_type {
     pub const CREATED: u8 = 1;
@@ -44,11 +48,18 @@ pub struct Server {
     live_indexed_uris: HashSet<String>,
     next_outgoing_request_id: i32,
     shutdown_requested: bool,
+    initialized: bool,
+    environment_sender: Sender<EnvironmentLoadOutcome>,
+    environment_receiver: Receiver<EnvironmentLoadOutcome>,
+    environment_loading: bool,
+    environment_reload_pending: bool,
+    environment_reload_deadline: Option<Instant>,
 }
 
 impl Server {
     pub fn new(connection: Connection, options: ServerOptions) -> Server {
         let (indexing_sender, indexing_receiver) = crossbeam_channel::unbounded();
+        let (environment_sender, environment_receiver) = crossbeam_channel::unbounded();
         Server {
             receiver: connection.receiver,
             outgoing: Outgoing::new(connection.sender),
@@ -63,6 +74,12 @@ impl Server {
             live_indexed_uris: HashSet::new(),
             next_outgoing_request_id: 1,
             shutdown_requested: false,
+            initialized: false,
+            environment_sender,
+            environment_receiver,
+            environment_loading: false,
+            environment_reload_pending: false,
+            environment_reload_deadline: None,
         }
     }
 
@@ -83,6 +100,10 @@ impl Server {
     pub fn run(mut self) -> i32 {
         loop {
             if self.pending_messages.is_empty() {
+                let reload_timer = match self.environment_reload_deadline {
+                    Some(deadline) => crossbeam_channel::at(deadline),
+                    None => crossbeam_channel::never(),
+                };
                 select! {
                     recv(self.receiver) -> message => match message {
                         Ok(message) => self.enqueue(message),
@@ -93,6 +114,12 @@ impl Server {
                             self.finish_initial_indexing(outcome);
                         }
                     },
+                    recv(self.environment_receiver) -> outcome => {
+                        if let Ok(outcome) = outcome {
+                            self.finish_environment_load(outcome);
+                        }
+                    },
+                    recv(reload_timer) -> _ => {},
                 }
             }
 
@@ -102,6 +129,10 @@ impl Server {
             while let Ok(outcome) = self.indexing_receiver.try_recv() {
                 self.finish_initial_indexing(outcome);
             }
+            while let Ok(outcome) = self.environment_receiver.try_recv() {
+                self.finish_environment_load(outcome);
+            }
+            self.start_due_environment_reload();
 
             let Some(message) = self.pending_messages.pop_front() else { continue };
             if let Some(exit_code) = self.process_message(message) {
@@ -267,6 +298,7 @@ impl Server {
             "textDocument/didClose" => self.text_document_did_close(&notification.params),
             "textDocument/didChange" => self.text_document_did_change(&notification.params),
             "workspace/didChangeWatchedFiles" => self.workspace_did_change_watched_files(notification),
+            "workspace/didChangeConfiguration" => self.workspace_did_change_configuration(&notification.params),
             "$/cancelRequest" => self.cancel_request(&notification.params),
             _ => {}
         }
@@ -318,6 +350,12 @@ impl Server {
                 "pattern": "{.rubocop.yml,.rubocop,.rubocop_todo.yml}",
             });
             self.register_watched_files(rubocop_pattern, "rubocop-watcher");
+            self.register_watched_files("**/*.rbs", "rbs-watcher");
+            let steepfile_pattern = json!({
+                "baseUri": self.global_state.workspace_uri,
+                "pattern": "{Steepfile,rbs_collection.lock.yaml}",
+            });
+            self.register_watched_files(steepfile_pattern, "steepfile-watcher");
         }
 
         self.process_indexing_configuration(&options["initializationOptions"]["indexing"]);
@@ -400,6 +438,8 @@ impl Server {
         );
         set("codeLensProvider", enabled.provider("codeLens", json!({ "resolveProvider": true })));
         set("definitionProvider", json!(enabled.is_enabled("definition")));
+        set("declarationProvider", json!(true));
+        set("typeDefinitionProvider", json!(true));
         set("workspaceSymbolProvider", json!(enabled.is_enabled("workspaceSymbol") && !has_type_checker));
         set("signatureHelpProvider", enabled.provider("signatureHelp", json!({ "triggerCharacters": ["(", " ", ","] })));
         set("typeHierarchyProvider", enabled.provider("typeHierarchy", json!({})));
@@ -471,6 +511,102 @@ impl Server {
         }
         self.perform_initial_indexing();
         self.check_formatter_is_available();
+        self.initialized = true;
+        if !self.options.test_mode && self.global_state.type_checking.settings.enabled {
+            self.start_environment_load();
+        }
+    }
+
+    fn start_environment_load(&mut self) {
+        if self.environment_loading {
+            self.environment_reload_pending = true;
+            return;
+        }
+        self.environment_loading = true;
+        let workspace_path = PathBuf::from(self.global_state.workspace_path());
+        let sources = type_checking::workspace_sources(&self.global_state.ruby_environment);
+        if let Some(warning) = type_checking::missing_core_warning(&sources) {
+            self.outgoing.log_message(&warning, message_type::WARNING);
+        }
+        let environment_sender = self.environment_sender.clone();
+        self.begin_progress(TYPE_CHECKER_PROGRESS_TOKEN, "Ruby LSP: loading RBS signatures");
+        std::thread::spawn(move || {
+            let _ = environment_sender.send(type_checking::load_environment(&workspace_path, &sources));
+        });
+    }
+
+    fn finish_environment_load(&mut self, outcome: EnvironmentLoadOutcome) {
+        self.environment_loading = false;
+        self.end_progress(TYPE_CHECKER_PROGRESS_TOKEN);
+        match outcome {
+            Ok(loaded) => {
+                self.outgoing.log(&type_checking::load_summary(&loaded));
+                if let Some(report) = type_checking::load_error_report(&loaded.environment) {
+                    self.outgoing.log_message(&report, message_type::WARNING);
+                }
+                self.global_state.type_checking.set_environment(loaded);
+                self.refresh_type_information();
+            }
+            Err(message) => {
+                self.outgoing.log_message(&format!("Failed to load the RBS environment: {message}"), message_type::ERROR);
+            }
+        }
+        if std::mem::take(&mut self.environment_reload_pending) {
+            self.start_environment_load();
+        }
+    }
+
+    fn schedule_environment_reload(&mut self) {
+        if self.options.test_mode || !self.global_state.type_checking.settings.enabled {
+            return;
+        }
+        self.environment_reload_deadline = Some(Instant::now() + ENVIRONMENT_RELOAD_DELAY);
+    }
+
+    fn start_due_environment_reload(&mut self) {
+        let Some(deadline) = self.environment_reload_deadline else { return };
+        if deadline > Instant::now() {
+            return;
+        }
+        self.environment_reload_deadline = None;
+        self.start_environment_load();
+    }
+
+    fn refresh_type_information(&mut self) {
+        self.global_state.type_checking.clear_analyses();
+        for (_, document) in self.store.iter_mut() {
+            document.clear_cache(requests::inlay_hints::CACHE_KEY);
+            document.clear_cache(requests::diagnostics::CACHE_KEY);
+        }
+        if self.global_state.client_capabilities.supports_inlay_hint_refresh {
+            self.send_request("workspace/inlayHint/refresh", Value::Null);
+        }
+        if self.global_state.client_capabilities.supports_diagnostic_refresh {
+            self.send_request("workspace/diagnostic/refresh", Value::Null);
+        }
+    }
+
+    fn workspace_did_change_configuration(&mut self, params: &Value) {
+        let configuration = &params["settings"]["typeChecker"];
+        if !configuration.is_object() {
+            return;
+        }
+        let previous_settings = self.global_state.type_checking.settings.clone();
+        self.global_state.type_checking.settings.merge(configuration);
+        if self.global_state.type_checking.settings == previous_settings {
+            return;
+        }
+        self.refresh_type_information();
+
+        let type_checking = &self.global_state.type_checking;
+        if self.initialized
+            && !self.options.test_mode
+            && type_checking.settings.enabled
+            && type_checking.environment.is_none()
+            && !self.environment_loading
+        {
+            self.start_environment_load();
+        }
     }
 
     fn check_formatter_is_available(&mut self) {
@@ -577,6 +713,7 @@ impl Server {
         let language_id = LanguageId::from_client_language_id(text_document["languageId"].as_str().unwrap_or("ruby"));
         let source = text_document["text"].as_str().unwrap_or_default().to_string();
         let version = text_document["version"].as_i64().unwrap_or(0) as i32;
+        self.global_state.type_checking.forget(&crate::uri::normalize(uri));
         let document = self.store.set(uri, source, version, language_id);
 
         if document.past_expensive_limit() && crate::uri::scheme(uri) == "file" {
@@ -593,6 +730,7 @@ impl Server {
     fn text_document_did_close(&mut self, params: &Value) {
         let Some(uri) = params["textDocument"]["uri"].as_str() else { return };
         self.store.delete(uri);
+        self.global_state.type_checking.forget(&crate::uri::normalize(uri));
         self.outgoing.notify("textDocument/publishDiagnostics", json!({ "uri": uri, "diagnostics": [] }));
     }
 
@@ -600,6 +738,7 @@ impl Server {
         let Some(uri) = params["textDocument"]["uri"].as_str() else { return };
         let version = params["textDocument"]["version"].as_i64().unwrap_or(0) as i32;
         let edits: Vec<ContentChange> = serde_json::from_value(params["contentChanges"].clone()).unwrap_or_default();
+        self.global_state.type_checking.forget(&crate::uri::normalize(uri));
         if let Err(error) = self.store.push_edits(uri, &edits, version) {
             self.outgoing.log_message(&format!("Error processing textDocument/didChange: {error}"), message_type::ERROR);
         }
@@ -624,6 +763,10 @@ impl Server {
             if file_path.ends_with(".rb") {
                 let change_type = change["type"].as_u64().unwrap_or(0) as u8;
                 self.handle_ruby_file_change(&file_path, change_type);
+                continue;
+            }
+            if type_checking::is_rbs_related_file(&file_path) {
+                self.schedule_environment_reload();
                 continue;
             }
             let file_name = Path::new(&file_path).file_name().and_then(|name| name.to_str()).unwrap_or_default();
@@ -750,7 +893,7 @@ fn read_bundle_env(workspace_path: &Path) -> Value {
     Value::Object(environment)
 }
 
-fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
+pub fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
     if let Some(message) = payload.downcast_ref::<&str>() {
         message.to_string()
     } else if let Some(message) = payload.downcast_ref::<String>() {

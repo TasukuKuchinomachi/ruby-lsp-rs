@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use crate::indexer::Index;
 use crate::position::Encoding;
 use crate::ruby_environment::RubyEnvironment;
+use crate::type_checking::TypeCheckingState;
 
 pub mod message_type {
     pub const ERROR: u8 = 1;
@@ -50,6 +51,7 @@ pub struct ClientCapabilities {
     pub supports_progress: bool,
     pub supports_diagnostic_refresh: bool,
     pub supports_code_lens_refresh: bool,
+    pub supports_inlay_hint_refresh: bool,
 }
 
 impl ClientCapabilities {
@@ -75,6 +77,7 @@ impl ClientCapabilities {
 
         self.supports_diagnostic_refresh = truthy(&workspace["diagnostics"]["refreshSupport"]);
         self.supports_code_lens_refresh = truthy(&workspace["codeLens"]["refreshSupport"]);
+        self.supports_inlay_hint_refresh = truthy(&workspace["inlayHint"]["refreshSupport"]);
     }
 
     pub fn supports_rename(&self) -> bool {
@@ -127,6 +130,7 @@ pub struct GlobalState {
     pub dependency_paths: Vec<String>,
     pub rubylibdir: Option<String>,
     pub ruby_command: Vec<String>,
+    pub type_checking: TypeCheckingState,
 }
 
 impl Default for GlobalState {
@@ -164,6 +168,7 @@ impl GlobalState {
             dependency_paths: Vec::new(),
             rubylibdir: None,
             ruby_command: vec!["ruby".to_string()],
+            type_checking: TypeCheckingState::default(),
         }
     }
 
@@ -352,6 +357,8 @@ impl GlobalState {
 
         self.telemetry_machine_id = initialization_options["telemetryMachineId"].as_str().map(str::to_string);
 
+        self.type_checking.settings.merge(&initialization_options["typeChecker"]);
+
         if let Some(features) = initialization_options["featuresConfiguration"].as_object() {
             for (feature_name, configuration) in features {
                 if let Some(request_config) = self.feature_configuration.get_mut(feature_name) {
@@ -519,6 +526,23 @@ mod tests {
         assert!(state.feature_configuration("inlayHint").unwrap().is_enabled("implicitRescue"));
         assert!(!state.feature_configuration("inlayHint").unwrap().is_enabled("implicitHashValue"));
         assert!(state.is_feature_enabled("anything"));
+    }
+
+    #[test]
+    fn applies_type_checker_initialization_options() {
+        let mut state = GlobalState::new();
+        state.apply_options(
+            &json!({
+                "capabilities": { "workspace": { "inlayHint": { "refreshSupport": true } } },
+                "initializationOptions": { "typeChecker": { "diagnostics": { "enabled": false }, "inlayHints": { "maxLength": null } } },
+            }),
+            environment_with(&[], &[]),
+        );
+        assert!(state.type_checking.settings.enabled);
+        assert!(!state.type_checking.settings.diagnostics_enabled);
+        assert_eq!(state.type_checking.settings.inlay_hints.maximum_length, None);
+        assert!(state.client_capabilities.supports_inlay_hint_refresh);
+        assert!(!state.type_checking.is_active());
     }
 
     #[test]
