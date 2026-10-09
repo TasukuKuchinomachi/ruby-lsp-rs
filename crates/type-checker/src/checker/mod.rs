@@ -18,8 +18,8 @@ use crate::annotations::{AnnotationTarget, Annotations};
 use crate::file_index::{FileIndex, InstanceVariableKey, ScopeKind};
 use crate::source::{LineIndex, Span};
 use crate::{
-    Analysis, AnalysisOptions, DefinitionEntry, HoverEntry, HoverKind, Severity, TypeDiagnostic,
-    TypeHint, TypeHintKind,
+    Analysis, AnalysisOptions, DefinitionEntry, HoverEntry, HoverKind, ReceiverEntry, Severity,
+    TypeDiagnostic, TypeHint, TypeHintKind,
 };
 
 pub(crate) type Locals = HashMap<String, Type>;
@@ -107,6 +107,7 @@ struct Checkpoint {
     hovers: usize,
     definitions: usize,
     diagnostics: usize,
+    receivers: usize,
 }
 
 const MAXIMUM_REPETITION_DEPTH: usize = 3;
@@ -207,6 +208,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             hovers: self.analysis.hovers.len(),
             definitions: self.analysis.definitions.len(),
             diagnostics: self.analysis.diagnostics.len(),
+            receivers: self.analysis.receivers.len(),
         }
     }
 
@@ -215,6 +217,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         self.analysis.hovers.truncate(checkpoint.hovers);
         self.analysis.definitions.truncate(checkpoint.definitions);
         self.analysis.diagnostics.truncate(checkpoint.diagnostics);
+        self.analysis.receivers.truncate(checkpoint.receivers);
     }
 
     /// Infers a loop or block body that may run many times. When a variable from outside gets a new type inside the
@@ -307,6 +310,17 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             return;
         }
         self.record_hover(span, HoverKind::Type(hover_type.clone()));
+    }
+
+    pub(crate) fn record_receiver(&mut self, span: Span, receiver_type: &Type) {
+        if self.is_silent() {
+            return;
+        }
+        self.analysis.receivers.push(ReceiverEntry {
+            start: span.start,
+            end: span.end,
+            receiver_type: receiver_type.clone(),
+        });
     }
 
     pub(crate) fn record_definition(&mut self, span: Span, targets: Vec<Location>) {

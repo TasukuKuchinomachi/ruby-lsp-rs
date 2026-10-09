@@ -9,6 +9,7 @@ pub mod local_variable_definition;
 pub mod package_url;
 pub mod prism_inspect;
 pub mod prism_inspect_fields;
+pub mod receiver_methods;
 pub mod selection_range;
 pub mod semantic_highlighting_response_builder;
 pub mod sorbet;

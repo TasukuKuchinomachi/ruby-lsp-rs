@@ -86,12 +86,21 @@ pub struct DefinitionEntry {
     pub targets: Vec<Location>,
 }
 
+/// Type of the receiver of a method call, e.g. `user` in `user.name` or in the incomplete `user.`
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReceiverEntry {
+    pub start: usize,
+    pub end: usize,
+    pub receiver_type: Type,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Analysis {
     pub type_hints: Vec<TypeHint>,
     pub diagnostics: Vec<TypeDiagnostic>,
     pub hovers: Vec<HoverEntry>,
     pub definitions: Vec<DefinitionEntry>,
+    pub receivers: Vec<ReceiverEntry>,
 }
 
 impl Analysis {
@@ -108,6 +117,15 @@ impl Analysis {
             .iter()
             .filter(|entry| entry.start <= offset && offset < entry.end)
             .min_by_key(|entry| entry.end - entry.start)
+    }
+
+    /// Type of the call receiver spanning exactly `start..end`
+    pub fn receiver_type(&self, start: usize, end: usize) -> Option<&Type> {
+        self.receivers
+            .iter()
+            .rev()
+            .find(|entry| entry.start == start && entry.end == end)
+            .map(|entry| &entry.receiver_type)
     }
 }
 

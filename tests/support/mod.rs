@@ -6,10 +6,12 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
+use rbs_environment::Environment;
 use ruby_lsp_rs::indexer::Index;
 use ruby_lsp_rs::indexer::indexing::{index_single, index_single_with_require_path};
 use ruby_lsp_rs::ruby_environment::RubyEnvironment;
 use ruby_lsp_rs::server::{Server, ServerOptions};
+use ruby_lsp_rs::type_checking::LoadedEnvironment;
 use serde_json::{Value, json};
 
 pub const DEFAULT_URI: &str = "file:///fake.rb";
@@ -26,6 +28,8 @@ pub struct TestOptions {
     pub initialization_options: Option<Value>,
     /// Stands in for Ruby LSP's `stub_test_library`, since detection depends on the bundle's dependencies
     pub test_library: Option<String>,
+    /// RBS environment of the built-in type checker, which is inactive without one
+    pub type_checking_environment: Option<Arc<Environment>>,
 }
 
 pub struct TestServer {
@@ -50,6 +54,13 @@ pub fn with_server(source: Option<&str>, uri: &str, options: TestOptions) -> Tes
     global_state.rubylibdir = options.rubylibdir.clone();
     if let Some(test_library) = &options.test_library {
         global_state.test_library = test_library.clone();
+    }
+    if let Some(environment) = &options.type_checking_environment {
+        global_state.type_checking.set_environment(LoadedEnvironment {
+            environment: environment.clone(),
+            steepfile: None,
+            duration: Duration::ZERO,
+        });
     }
     let index = server.global_state().index.clone();
     let thread = std::thread::spawn(move || server.run());

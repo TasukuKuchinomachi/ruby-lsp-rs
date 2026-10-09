@@ -1,8 +1,11 @@
+use std::collections::HashSet;
 use std::path::Path;
 
+use rbs_environment::{Environment, Type};
 use ruby_prism::{CallNode, Node};
 use serde::Serialize;
 use serde_json::{Value, json};
+use type_checker::Analysis;
 
 use crate::document::ParsedDocument;
 use crate::indexer::{EntryId, EntryKind, Index};
@@ -11,6 +14,7 @@ use crate::node_context::NodeContext;
 use crate::position::{Position, Range};
 use crate::prism::{ConstantNameError, NodeExt, constant_full_name, constant_name, location_slice, node_slice};
 use crate::requests::support::common::self_receiver;
+use crate::requests::support::receiver_methods::{self, ReceiverMethod};
 use crate::requests::support::sorbet_level::SorbetLevel;
 use crate::type_inferrer::TypeInferrer;
 
@@ -107,6 +111,7 @@ pub struct Completion<'a, 'pr> {
     sorbet_level: SorbetLevel,
     uri: &'a str,
     trigger_character: Option<&'a str>,
+    type_checking: Option<(&'a Analysis, &'a Environment)>,
 }
 
 impl<'a, 'pr> Completion<'a, 'pr> {
@@ -118,7 +123,22 @@ impl<'a, 'pr> Completion<'a, 'pr> {
         uri: &'a str,
         trigger_character: Option<&'a str>,
     ) -> Completion<'a, 'pr> {
-        Completion { response: Vec::new(), index, parsed, node_context, sorbet_level, uri, trigger_character }
+        Completion {
+            response: Vec::new(),
+            index,
+            parsed,
+            node_context,
+            sorbet_level,
+            uri,
+            trigger_character,
+            type_checking: None,
+        }
+    }
+
+    /// Methods of receivers whose type the type checker knows come from that type instead of the guess of `TypeInferrer`
+    pub fn with_type_checking(mut self, analysis: &'a Analysis, environment: &'a Environment) -> Completion<'a, 'pr> {
+        self.type_checking = Some((analysis, environment));
+        self
     }
 
     pub fn into_response(self) -> Vec<CompletionItem> {
@@ -405,22 +425,14 @@ impl<'a, 'pr> Completion<'a, 'pr> {
             return;
         }
 
-        let Some(receiver_type) = TypeInferrer::new(self.index).infer_receiver_type(self.node_context) else { return };
-
         let method_name = if self.trigger_character == Some(".") { None } else { Some(name) };
 
-        let range = match method_name {
-            Some(_) => match node.message_loc() {
-                Some(location) => self.parsed.range_from_location(&location),
-                None => return,
-            },
-            None => {
-                let Some(location) = node.call_operator_loc() else { return };
-                let start = self.parsed.byte_position(location.start_offset());
-                let position = Position::new(start.line, start.character + 1);
-                Range::new(position, position)
-            }
-        };
+        if self.complete_methods_of_known_receiver_type(node, method_name) {
+            return;
+        }
+
+        let Some(receiver_type) = TypeInferrer::new(self.index).infer_receiver_type(self.node_context) else { return };
+        let Some(range) = self.method_name_range(node, method_name) else { return };
 
         let guessed_type = if receiver_type.guessed { json!(receiver_type.name) } else { json!(false) };
         let external_references = self.node_context.fully_qualified_name() != receiver_type.name;
@@ -451,6 +463,80 @@ impl<'a, 'pr> Completion<'a, 'pr> {
                 data: Some(json!({ "owner_name": entry.owner(), "guessed_type": guessed_type })),
             });
         }
+    }
+
+    fn method_name_range(&self, node: &CallNode<'_>, method_name: Option<&str>) -> Option<Range> {
+        match method_name {
+            Some(_) => node.message_loc().map(|location| self.parsed.range_from_location(&location)),
+            None => {
+                let location = node.call_operator_loc()?;
+                let start = self.parsed.byte_position(location.start_offset());
+                let position = Position::new(start.line, start.character + 1);
+                Some(Range::new(position, position))
+            }
+        }
+    }
+
+    /// Returns false when the type checker doesn't know the receiver, so that the methods are guessed as before. The
+    /// methods declared in RBS come first and the Ruby index adds the methods that only have a Ruby implementation
+    fn complete_methods_of_known_receiver_type(&mut self, node: &CallNode<'_>, method_name: Option<&str>) -> bool {
+        let Some((analysis, environment)) = self.type_checking else { return false };
+        let Some(receiver) = node.receiver() else { return false };
+        let Some(receiver_type) = analysis.receiver_type(receiver.start_offset(), receiver.end_offset()) else {
+            return false;
+        };
+        let receiver_type = if node.is_safe_navigation() {
+            match receiver_methods::without_nil(receiver_type) {
+                Some(receiver_type) => receiver_type,
+                None => return false,
+            }
+        } else {
+            receiver_type.clone()
+        };
+        let members = receiver_methods::receiver_members(environment, &receiver_type);
+        if members.is_empty() {
+            return false;
+        }
+        let Some(range) = self.method_name_range(node, method_name) else { return true };
+        let prefix = method_name.unwrap_or_default();
+        let includes_private = receiver.as_self_node().is_some();
+
+        let mut seen_names = HashSet::new();
+        for member in &members {
+            for (name, method) in receiver_methods::methods(environment, member) {
+                if !name.starts_with(prefix) || (method.is_private() && !includes_private) {
+                    continue;
+                }
+                if seen_names.insert(name.clone()) {
+                    let item = receiver_method_completion_item(&name, &method, member, range);
+                    self.response.push(item);
+                }
+            }
+            let Some(index_receiver_name) = receiver_methods::index_receiver_name(member) else { continue };
+            for id in self.index.method_completion_candidates(method_name, &index_receiver_name) {
+                let entry = self.index.entry(id);
+                if (!entry.is_public() && !includes_private) || !seen_names.insert(entry.name.clone()) {
+                    continue;
+                }
+                let entry_name = entry.name.clone();
+                self.response.push(CompletionItem {
+                    label: entry_name.clone(),
+                    label_details: Some(CompletionItemLabelDetails {
+                        detail: Some(entry.decorated_parameters()),
+                        description: Some(entry.file_name()),
+                    }),
+                    kind: completion_item_kind::METHOD,
+                    filter_text: Some(entry_name.clone()),
+                    text_edit: TextEdit { range, new_text: method_insertion_text(&entry_name) },
+                    data: Some(json!({
+                        "owner_name": entry.owner(),
+                        "guessed_type": false,
+                        "receiver_type": member.to_string(),
+                    })),
+                });
+            }
+        }
+        true
     }
 
     fn add_local_completions(&mut self, node: &CallNode<'_>, name: &str) {
@@ -563,6 +649,33 @@ impl<'a, 'pr> Completion<'a, 'pr> {
         }
         false
     }
+}
+
+fn receiver_method_completion_item(name: &str, method: &ReceiverMethod<'_>, member: &Type, range: Range) -> CompletionItem {
+    let owner = method.definition.owner.as_str();
+    CompletionItem {
+        label: name.to_string(),
+        label_details: Some(CompletionItemLabelDetails {
+            detail: method.overloads.first().map(ToString::to_string),
+            description: Some(owner.to_string()),
+        }),
+        kind: completion_item_kind::METHOD,
+        filter_text: Some(name.to_string()),
+        text_edit: TextEdit { range, new_text: method_insertion_text(name) },
+        data: Some(json!({ "owner_name": owner, "guessed_type": false, "receiver_type": member.to_string() })),
+    }
+}
+
+/// Only for calls with an explicit receiver, so a writer never needs `self.`
+fn method_insertion_text(name: &str) -> String {
+    match name.strip_suffix('=') {
+        Some(writer_name) if is_writer_name(writer_name) => format!("{writer_name} = "),
+        _ => name.to_string(),
+    }
+}
+
+fn is_writer_name(name: &str) -> bool {
+    name.chars().last().is_some_and(|character| character.is_alphanumeric() || character == '_')
 }
 
 fn build_completion(label: String, range: Range) -> CompletionItem {

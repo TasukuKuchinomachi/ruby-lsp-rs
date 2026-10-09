@@ -294,7 +294,11 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             return self.infer_lambda(block, context, locals);
         }
         let receiver_type = match &receiver {
-            Some(receiver) => self.infer(receiver, context, locals),
+            Some(receiver) => {
+                let receiver_type = self.infer(receiver, context, locals);
+                self.record_receiver(Span::of_node(receiver), &receiver_type);
+                receiver_type
+            }
             None => context.self_type.clone(),
         };
         let looked_up_receiver = if call.is_safe_navigation() {

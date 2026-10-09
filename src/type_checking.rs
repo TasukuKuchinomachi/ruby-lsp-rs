@@ -7,8 +7,8 @@ use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
 use rbs_environment::{
-    DiagnosticConfiguration, DiagnosticSeverity, Environment, Literal, Location, SignatureDiagnostic, SourcePosition,
-    SteepfileConfiguration, Type, TypeName, WorkspaceSources,
+    DiagnosticConfiguration, DiagnosticSeverity, Environment, Literal, Location, MethodType, SignatureDiagnostic,
+    SourcePosition, SteepfileConfiguration, Type, TypeName, WorkspaceSources,
 };
 use serde_json::{Value, json};
 use type_checker::{Analysis, AnalysisOptions, HoverEntry, HoverKind, Severity, TypeDiagnostic, TypeHint, TypeHintKind};
@@ -479,15 +479,8 @@ pub fn hover_markdown(entry: &HoverEntry, source: &[u8]) -> String {
             }
         }
         HoverKind::Method { receiver_type, owner, method_name, singleton, overloads, return_type, comment } => {
-            let prefix = format!("def {}{method_name}: ", if *singleton { "self." } else { "" });
-            let continuation = format!("{}| ", " ".repeat(prefix.chars().count().saturating_sub(2)));
-            let signature: Vec<String> = overloads
-                .iter()
-                .enumerate()
-                .map(|(index, overload)| format!("{}{overload}", if index == 0 { &prefix } else { &continuation }))
-                .collect();
             let mut sections = vec![
-                rbs_code_block(&signature.join("\n")),
+                overloads_code_block(method_name, *singleton, overloads),
                 format!("`({receiver_type}) → {return_type}`"),
                 format!("Defined in `{owner}`"),
             ];
@@ -500,6 +493,30 @@ pub fn hover_markdown(entry: &HoverEntry, source: &[u8]) -> String {
             sections.join("\n\n")
         }
     }
+}
+
+/// Like the hover of a method call, without the receiver and the return type that only a call site knows
+pub fn method_signature_markdown(
+    owner: &str,
+    method_name: &str,
+    singleton: bool,
+    overloads: &[MethodType],
+    comment: Option<&str>,
+) -> String {
+    let mut sections = vec![overloads_code_block(method_name, singleton, overloads), format!("Defined in `{owner}`")];
+    sections.extend(comment.map(|comment| comment.trim().to_string()).filter(|comment| !comment.is_empty()));
+    sections.join("\n\n")
+}
+
+fn overloads_code_block(method_name: &str, singleton: bool, overloads: &[MethodType]) -> String {
+    let prefix = format!("def {}{method_name}: ", if singleton { "self." } else { "" });
+    let continuation = format!("{}| ", " ".repeat(prefix.chars().count().saturating_sub(2)));
+    let signature: Vec<String> = overloads
+        .iter()
+        .enumerate()
+        .map(|(index, overload)| format!("{}{overload}", if index == 0 { &prefix } else { &continuation }))
+        .collect();
+    rbs_code_block(&signature.join("\n"))
 }
 
 fn rbs_code_block(content: &str) -> String {

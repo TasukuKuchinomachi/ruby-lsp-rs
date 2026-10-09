@@ -53,6 +53,7 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
         return Ok(Value::Null);
     }
 
+    let analysis = context.global_state.type_checking.analysis_for(document);
     let global_state = &*context.global_state;
     let parsed = document.parse();
     let offset = parsed.offset_of(params.position)?;
@@ -80,6 +81,9 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
     let trigger_character = params.context.as_ref().and_then(|context| context.trigger_character.as_deref());
     let mut index = global_state.index();
     let mut listener = Completion::new(&mut index, &parsed, &node_context, sorbet_level, document.uri(), trigger_character);
+    if let (Some(analysis), Some(environment)) = (analysis.as_deref(), global_state.type_checking.environment.as_deref()) {
+        listener = listener.with_type_checking(analysis, environment);
+    }
     listener.dispatch(target);
     to_result(listener.into_response())
 }
