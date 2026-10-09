@@ -10,6 +10,7 @@ pub mod ruby_environment;
 pub mod server;
 pub mod store;
 pub mod type_check_command;
+pub mod type_check_report;
 pub mod type_checking;
 pub mod type_inferrer;
 pub mod uri;

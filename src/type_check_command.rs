@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
@@ -6,11 +7,12 @@ use type_checker::{AnalysisOptions, Severity};
 
 use crate::position::{Encoding, LineIndex};
 use crate::ruby_environment::RubyEnvironment;
+use crate::type_check_report::{OutputFormat, Renderer, ReportedDiagnostic, ReportedLocation};
 use crate::type_checking;
 
 pub const SUBCOMMAND: &str = "type-check";
 
-pub const USAGE: &str = "Usage: ruby-lsp-rs type-check [--ruby-command \"mise exec -- ruby\"] [--severity-level error|warning|information|hint] [--steep-compatible] [paths...]";
+pub const USAGE: &str = "Usage: ruby-lsp-rs type-check [--ruby-command \"mise exec -- ruby\"] [--severity-level error|warning|information|hint] [--steep-compatible] [--format pretty|line] [paths...]";
 
 const UNEXPECTED_ERROR_CODE: &str = "Ruby::UnexpectedError";
 
@@ -22,6 +24,7 @@ pub struct TypeCheckOptions {
     pub severity_level: DiagnosticSeverity,
     /// Report what `steep check` reports, so that the command can replace it in CI
     pub steep_compatible: bool,
+    pub format: OutputFormat,
     pub paths: Vec<PathBuf>,
 }
 
@@ -40,6 +43,7 @@ pub fn parse_arguments(arguments: &[String]) -> Result<TypeCheckOptions, String>
     let mut ruby_command = vec!["ruby".to_string()];
     let mut severity_level = DiagnosticSeverity::Warning;
     let mut steep_compatible = false;
+    let mut format = OutputFormat::default();
     let mut paths = Vec::new();
     let mut remaining = arguments.iter();
     while let Some(argument) = remaining.next() {
@@ -51,6 +55,8 @@ pub fn parse_arguments(arguments: &[String]) -> Result<TypeCheckOptions, String>
         } else if let Some(level) = option_value("--severity-level", argument, &mut remaining)? {
             severity_level = DiagnosticSeverity::from_name(level)
                 .ok_or(format!("--severity-level must be error, warning, information, or hint: {level}"))?;
+        } else if let Some(name) = option_value("--format", argument, &mut remaining)? {
+            format = OutputFormat::from_name(name).ok_or(format!("--format must be pretty or line: {name}"))?;
         } else if argument == "--steep-compatible" {
             steep_compatible = true;
         } else if argument.starts_with("--") {
@@ -59,7 +65,7 @@ pub fn parse_arguments(arguments: &[String]) -> Result<TypeCheckOptions, String>
             paths.push(PathBuf::from(argument));
         }
     }
-    Ok(TypeCheckOptions { ruby_command, severity_level, steep_compatible, paths })
+    Ok(TypeCheckOptions { ruby_command, severity_level, steep_compatible, format, paths })
 }
 
 pub fn run(arguments: &[String]) -> i32 {
@@ -115,17 +121,26 @@ pub fn run(arguments: &[String]) -> i32 {
         eprintln!("{warning}");
     }
 
+    let renderer = Renderer { format: options.format, colored: use_color() };
     let mut error_count = 0;
     let mut diagnostic_count = 0;
     for result in results.iter().chain(std::iter::once(&signature_result)) {
-        for line in &result.lines {
-            println!("{line}");
+        for diagnostic in &result.diagnostics {
+            println!("{}", renderer.render(diagnostic));
+            if options.format == OutputFormat::Pretty {
+                println!();
+            }
         }
         error_count += result.error_count;
-        diagnostic_count += result.lines.len();
+        diagnostic_count += result.diagnostics.len();
     }
     eprintln!("Checked {} files: {diagnostic_count} diagnostics, {error_count} errors", results.len());
     exit_code(diagnostic_count)
+}
+
+fn use_color() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
 }
 
 /// Steep gives up typing the nodes that need a class definition RBS cannot build and reports `Ruby::UnexpectedError`,
@@ -147,21 +162,30 @@ pub fn check_signatures(environment: &Environment, workspace_path: &Path, paths:
     } else {
         environment.signature_diagnostics.iter().collect()
     };
-    let lines: Vec<String> = diagnostics
+    let mut sources: HashMap<&Path, Vec<u8>> = HashMap::new();
+    let reported: Vec<ReportedDiagnostic> = diagnostics
         .into_iter()
         .filter(|diagnostic| roots.is_empty() || roots.iter().any(|root| diagnostic.path.starts_with(root)))
         .map(|diagnostic| {
-            let display_path = diagnostic.path.strip_prefix(workspace_path).unwrap_or(&diagnostic.path).display();
-            format!(
-                "{display_path}:{}:{}: [error] {} ({})",
-                diagnostic.start.line + 1,
-                diagnostic.start.utf16_column + 1,
-                diagnostic.message,
-                diagnostic.code
-            )
+            let source = sources.entry(&diagnostic.path).or_insert_with(|| std::fs::read(&diagnostic.path).unwrap_or_default());
+            let line_offset = |line: u32| {
+                source.split_inclusive(|byte| *byte == b'\n').take(line as usize).map(<[u8]>::len).sum::<usize>()
+            };
+            let start = line_offset(diagnostic.start.line) + diagnostic.start.byte_column as usize;
+            let end = line_offset(diagnostic.end.line) + diagnostic.end.byte_column as usize;
+            let mut location =
+                ReportedLocation::from_offsets(source, start, end, diagnostic.start.utf16_column as usize + 1);
+            location.line = diagnostic.start.line as usize + 1;
+            ReportedDiagnostic {
+                path: diagnostic.path.strip_prefix(workspace_path).unwrap_or(&diagnostic.path).display().to_string(),
+                severity: Severity::Error,
+                code: Some(diagnostic.code),
+                message: diagnostic.message.clone(),
+                location: Some(location),
+            }
         })
         .collect();
-    FileResult { error_count: lines.len(), lines, has_unexpected_error: false }
+    FileResult { error_count: reported.len(), diagnostics: reported, has_unexpected_error: false }
 }
 
 /// steep 2.0.0 `Drivers::Check#print_result` fails when any diagnostic survives `--severity-level`, errors or not
@@ -180,10 +204,21 @@ fn shown_at(severity: Severity, severity_level: DiagnosticSeverity) -> bool {
 }
 
 pub struct FileResult {
-    pub lines: Vec<String>,
+    pub diagnostics: Vec<ReportedDiagnostic>,
     pub error_count: usize,
     /// Whether the type checker reported `Ruby::UnexpectedError`, whatever the severity level
     pub has_unexpected_error: bool,
+}
+
+impl FileResult {
+    fn failure(path: String, message: String) -> FileResult {
+        let diagnostic = ReportedDiagnostic { path, severity: Severity::Error, code: None, message, location: None };
+        FileResult { diagnostics: vec![diagnostic], error_count: 1, has_unexpected_error: false }
+    }
+
+    pub fn lines(&self) -> Vec<String> {
+        self.diagnostics.iter().map(crate::type_check_report::render_line).collect()
+    }
 }
 
 pub fn check_file(
@@ -198,41 +233,32 @@ pub fn check_file(
     let source = match std::fs::read(path) {
         Ok(source) => source,
         Err(error) => {
-            return FileResult {
-                lines: vec![format!("{display_path}: [error] Failed to read: {error}")],
-                error_count: 1,
-                has_unexpected_error: false,
-            };
+            return FileResult::failure(display_path, format!("Failed to read: {error}"));
         }
     };
     let Some(analysis) = type_checking::analyze_with_options(environment, &source, analysis_options) else {
-        return FileResult {
-            lines: vec![format!("{display_path}: [error] The type checker crashed")],
-            error_count: 1,
-            has_unexpected_error: false,
-        };
+        return FileResult::failure(display_path, "The type checker crashed".to_string());
     };
     let has_unexpected_error = analysis.diagnostics.iter().any(|diagnostic| diagnostic.code == UNEXPECTED_ERROR_CODE);
     let line_index = LineIndex::new(&source, Encoding::Utf32);
     let mut diagnostics = type_checking::configured_diagnostics(&analysis, code_diagnostics);
     diagnostics.retain(|(_, severity)| shown_at(*severity, severity_level));
     diagnostics.sort_by_key(|(diagnostic, _)| (diagnostic.start, diagnostic.end));
-    let lines = diagnostics
+    let reported = diagnostics
         .iter()
         .map(|(diagnostic, severity)| {
-            let position = line_index.position_of_offset(diagnostic.start);
-            format!(
-                "{display_path}:{}:{}: [{}] {} ({})",
-                position.line + 1,
-                position.character + 1,
-                type_checking::severity_name(*severity),
-                diagnostic.message,
-                diagnostic.code
-            )
+            let column = line_index.position_of_offset(diagnostic.start).character as usize + 1;
+            ReportedDiagnostic {
+                path: display_path.clone(),
+                severity: *severity,
+                code: Some(diagnostic.code),
+                message: diagnostic.message.clone(),
+                location: Some(ReportedLocation::from_offsets(&source, diagnostic.start, diagnostic.end, column)),
+            }
         })
         .collect();
     let error_count = diagnostics.iter().filter(|(_, severity)| *severity == Severity::Error).count();
-    FileResult { lines, error_count, has_unexpected_error }
+    FileResult { diagnostics: reported, error_count, has_unexpected_error }
 }
 
 /// Explicitly given files skip the `Steepfile` filter so that a file outside the targets can still be checked on demand
@@ -305,6 +331,7 @@ mod tests {
             ruby_command: arguments(&["ruby"]),
             severity_level: DiagnosticSeverity::Warning,
             steep_compatible: false,
+            format: OutputFormat::Pretty,
             paths: Vec::new()
         });
     }
@@ -350,6 +377,13 @@ mod tests {
     }
 
     #[test]
+    fn parses_output_format() {
+        assert_eq!(parse_arguments(&arguments(&["--format", "line"])).unwrap().format, OutputFormat::Line);
+        assert_eq!(parse_arguments(&arguments(&["--format=pretty"])).unwrap().format, OutputFormat::Pretty);
+        assert!(parse_arguments(&arguments(&["--format=github"])).is_err());
+    }
+
+    #[test]
     fn rejects_invalid_arguments() {
         assert!(parse_arguments(&arguments(&["--ruby-command"])).is_err());
         assert!(parse_arguments(&arguments(&["--ruby-command", "  "])).is_err());
@@ -372,15 +406,15 @@ mod tests {
         environment.signature_diagnostics = vec![diagnostic("sig/a.rbs", 2), diagnostic("sig/models/b.rbs", 0)];
 
         let result = check_signatures(&environment, workspace, &[], false);
-        assert_eq!(result.lines, vec![
+        assert_eq!(result.lines(), vec![
             "sig/a.rbs:3:5: [error] Cannot find type `Missing` (RBS::UnknownTypeName)".to_string(),
             "sig/models/b.rbs:1:5: [error] Cannot find type `Missing` (RBS::UnknownTypeName)".to_string(),
         ]);
         assert_eq!(result.error_count, 2);
 
         let result = check_signatures(&environment, workspace, &[PathBuf::from("sig/models")], false);
-        assert_eq!(result.lines.len(), 1);
-        assert!(result.lines[0].starts_with("sig/models/b.rbs:1:5:"));
+        assert_eq!(result.diagnostics.len(), 1);
+        assert!(result.lines()[0].starts_with("sig/models/b.rbs:1:5:"));
     }
 
     #[test]
@@ -398,8 +432,8 @@ mod tests {
         loader.add_signature_directory(&workspace.join("sig"));
         let environment = loader.finish();
 
-        assert_eq!(check_signatures(&environment, &workspace, &[], false).lines.len(), 3);
-        assert_eq!(check_signatures(&environment, &workspace, &[], true).lines, vec![
+        assert_eq!(check_signatures(&environment, &workspace, &[], false).diagnostics.len(), 3);
+        assert_eq!(check_signatures(&environment, &workspace, &[], true).lines(), vec![
             "sig/searcher.rbs:3:21: [error] Cannot find type `Missing` (RBS::UnknownTypeName)".to_string()
         ]);
         std::fs::remove_dir_all(&workspace).unwrap();
@@ -422,18 +456,18 @@ mod tests {
         let compatible = AnalysisOptions { steep_compatible: true };
 
         let result = check_file(&environment, &workspace, &ruby_path, &configuration, DiagnosticSeverity::Hint, compatible);
-        assert_eq!(result.lines.len(), 1);
-        assert!(result.lines[0].starts_with("lib/clock.rb:1:1: [hint] UnexpectedError: "));
-        assert!(result.lines[0].ends_with("(Ruby::UnexpectedError)"));
+        assert_eq!(result.diagnostics.len(), 1);
+        assert!(result.lines()[0].starts_with("lib/clock.rb:1:1: [hint] UnexpectedError: "));
+        assert!(result.lines()[0].ends_with("(Ruby::UnexpectedError)"));
         assert!(result.has_unexpected_error);
 
         let result = check_file(&environment, &workspace, &ruby_path, &configuration, DiagnosticSeverity::Warning, compatible);
-        assert!(result.lines.is_empty());
+        assert!(result.diagnostics.is_empty());
         assert!(result.has_unexpected_error);
 
         let result =
             check_file(&environment, &workspace, &ruby_path, &configuration, DiagnosticSeverity::Hint, AnalysisOptions::default());
-        assert!(result.lines.is_empty());
+        assert!(result.diagnostics.is_empty());
         assert!(!result.has_unexpected_error);
         std::fs::remove_dir_all(&workspace).unwrap();
     }

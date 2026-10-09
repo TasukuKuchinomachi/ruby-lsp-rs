@@ -24,7 +24,7 @@ record_timing() {
 
 if [ "${SKIP_DIAGNOSTICS:-0}" != "1" ]; then
   started=$SECONDS
-  type_check_arguments=(--ruby-command "$ruby_command" --severity-level hint)
+  type_check_arguments=(--ruby-command "$ruby_command" --severity-level hint --format line)
   compare_arguments=()
   if [ "${STEEP_COMPATIBLE:-0}" = "1" ]; then
     type_check_arguments+=(--steep-compatible)

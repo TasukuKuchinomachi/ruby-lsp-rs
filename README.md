@@ -35,9 +35,18 @@ ruby-lsp-rs type-check --ruby-command "mise exec -- ruby"
 | `--ruby-command` | Bundler 環境の検出に使う Ruby の起動コマンド（既定は `ruby`） |
 | `--severity-level` | `error` / `warning` / `information` / `hint`（既定は `warning`） |
 | `--steep-compatible` | `steep check` と同じ診断を出す。既定では Steep より型を強く推論するため、Steep が見逃すエラーも報告します |
+| `--format` | `pretty`（既定。rustc のようにソースの該当箇所を示す）/ `line`（1 診断 1 行） |
 | パス | 検査するファイル・ディレクトリ（省略時は `Steepfile` の `check` 対象） |
 
-診断が 1 件でもあれば終了コードは 1 です。
+```
+error[Ruby::NoMethod]: Type `User` does not have method `unknown_method`
+  --> lib/user.rb:15:6
+   |
+15 | user.unknown_method
+   |      ^^^^^^^^^^^^^^
+```
+
+診断が 1 件でもあれば終了コードは 1 です。端末に出力するときは色が付きます（`NO_COLOR` を設定すると付きません）。
 
 ## リポジトリの構成
 
