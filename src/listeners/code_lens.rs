@@ -1,3 +1,4 @@
+use ruby_file_glob::fnmatch;
 use ruby_prism::{CallNode, Node};
 use serde_json::{Value, json};
 
@@ -5,7 +6,6 @@ use crate::document::ParsedDocument;
 use crate::global_state::GlobalState;
 use crate::prism::{child_nodes, constant_id_name, constant_name, location_slice, node_slice};
 use crate::requests::support::common::namespace_constant_name;
-use crate::requests::support::file_glob::fnmatch;
 use crate::requests::support::test_command::{base_command, shell_escape};
 
 const ACCESS_MODIFIERS: &[&str] = &["public", "private", "protected"];

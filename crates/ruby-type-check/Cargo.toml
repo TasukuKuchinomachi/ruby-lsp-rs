@@ -1,0 +1,12 @@
+[package]
+name = "ruby-type-check"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rayon = "1.12.0"
+rbs-environment = { path = "../rbs-environment" }
+ruby-environment = { path = "../ruby-environment" }
+ruby-file-glob = { path = "../ruby-file-glob" }
+type-checker = { path = "../type-checker" }
+walkdir = "2.5.0"

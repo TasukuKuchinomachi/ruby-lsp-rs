@@ -13,6 +13,7 @@ shift
 project_name="$(basename "$project_path")"
 report_directory="$tool_directory/reports/$project_name"
 ruby_lsp_rs_binary="${RUBY_LSP_RS_BINARY:-$repository_directory/target/release/ruby-lsp-rs}"
+ruby_type_check_binary="${RUBY_TYPE_CHECK_BINARY:-$repository_directory/target/release/ruby-type-check}"
 ruby_command="${RUBY_COMMAND:-mise exec -- ruby}"
 mkdir -p "$report_directory"
 timing_file="$report_directory/timing.txt"
@@ -30,9 +31,9 @@ if [ "${SKIP_DIAGNOSTICS:-0}" != "1" ]; then
     type_check_arguments+=(--steep-compatible)
     compare_arguments+=(--steep-compatible)
   fi
-  (cd "$project_path" && "$ruby_lsp_rs_binary" type-check "${type_check_arguments[@]}") \
+  (cd "$project_path" && "$ruby_type_check_binary" "${type_check_arguments[@]}") \
     > "$report_directory/ruby-lsp-rs.check.txt" 2> "$report_directory/ruby-lsp-rs.check.stderr" || true
-  record_timing "ruby-lsp-rs type-check" $((SECONDS - started))
+  record_timing "ruby-type-check" $((SECONDS - started))
 
   if [ -n "${STEEP_CHECK_OUTPUT:-}" ]; then
     cp "$STEEP_CHECK_OUTPUT" "$report_directory/steep.check.txt"

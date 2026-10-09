@@ -1,6 +1,6 @@
 use type_checker::Severity;
 
-use crate::type_checking;
+use crate::project;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OutputFormat {
@@ -93,8 +93,8 @@ impl Renderer {
         };
         let mut message_lines = diagnostic.message.lines();
         let title = match diagnostic.code {
-            Some(code) => format!("{}[{code}]", type_checking::severity_name(diagnostic.severity)),
-            None => type_checking::severity_name(diagnostic.severity).to_string(),
+            Some(code) => format!("{}[{code}]", project::severity_name(diagnostic.severity)),
+            None => project::severity_name(diagnostic.severity).to_string(),
         };
         let mut output = format!(
             "{}{}",
@@ -145,7 +145,7 @@ pub fn render_line(diagnostic: &ReportedDiagnostic) -> String {
     format!(
         "{}{location}: [{}] {}{code}",
         diagnostic.path,
-        type_checking::severity_name(diagnostic.severity),
+        project::severity_name(diagnostic.severity),
         diagnostic.message
     )
 }

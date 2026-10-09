@@ -408,6 +408,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
+name = "ruby-environment"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ruby-file-glob"
+version = "0.1.0"
+
+[[package]]
 name = "ruby-lsp-rs"
 version = "0.1.0"
 dependencies = [
@@ -422,8 +434,11 @@ dependencies = [
  "prism-child-nodes",
  "rayon",
  "rbs-environment",
+ "ruby-environment",
+ "ruby-file-glob",
  "ruby-prism",
  "ruby-rbs",
+ "ruby-type-check",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -472,6 +487,18 @@ checksum = "d6dd91ae70c8232a7426445e7a687e0055c3619157fdcf43ab13776d09eeb939"
 dependencies = [
  "bindgen",
  "cc",
+]
+
+[[package]]
+name = "ruby-type-check"
+version = "0.1.0"
+dependencies = [
+ "rayon",
+ "rbs-environment",
+ "ruby-environment",
+ "ruby-file-glob",
+ "type-checker",
+ "walkdir",
 ]
 
 [[package]]

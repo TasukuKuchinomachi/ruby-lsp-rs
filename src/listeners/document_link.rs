@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use ruby_environment::{DefaultGemStub, GemStub, RubyEnvironment};
 use ruby_prism::Node;
 use serde::Serialize;
 
@@ -9,7 +10,6 @@ use crate::position::Range;
 use crate::prism::{NodeExt, child_nodes, constant_id_name};
 use crate::requests::support::package_url::PackageUrl;
 use crate::requests::support::source_uri::{SourceUri, cgi_unescape};
-use crate::ruby_environment::{DefaultGemStub, GemStub, RubyEnvironment};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DocumentLinkItem {

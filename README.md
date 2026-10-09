@@ -5,7 +5,7 @@ Rust で書いた Ruby の language server です。[Shopify Ruby LSP](https://g
 - 型の inlay hint（メソッドの引数と戻り値、`attr_*`、変数、ブロック引数）
 - hover での型表示と、RBS のシグネチャ・Ruby の実装へのリンク
 - 型エラーの診断
-- `ruby-lsp-rs type-check` によるプロジェクト全体の型検査
+- `ruby-type-check` によるプロジェクト全体の型検査（`steep check` の代わりに CI で使えます）
 
 ## 必要なもの
 
@@ -19,6 +19,8 @@ Rust で書いた Ruby の language server です。[Shopify Ruby LSP](https://g
 cargo build --release
 ```
 
+`target/release/ruby-lsp-rs`（language server）と `target/release/ruby-type-check`（CLI）ができます。
+
 ## VS Code
 
 [`editors/vscode`](editors/vscode/README.md) を参照してください。
@@ -27,7 +29,7 @@ cargo build --release
 
 ```sh
 cd /path/to/project
-ruby-lsp-rs type-check --ruby-command "mise exec -- ruby"
+ruby-type-check --ruby-command "mise exec -- ruby"
 ```
 
 | オプション | 内容 |
@@ -53,8 +55,11 @@ error[Ruby::NoMethod]: Type `User` does not have method `unknown_method`
 | パス | 内容 |
 | --- | --- |
 | `src/` | language server（[ARCHITECTURE.md](ARCHITECTURE.md)） |
+| `crates/ruby-type-check` | `ruby-type-check` CLI。`Steepfile` の対象ファイルを集めてプロジェクト全体を検査する |
 | `crates/rbs-environment` | RBS・`Steepfile`・`rbs_collection.lock.yaml` の読み込み |
 | `crates/type-checker` | 型推論と型検査 |
 | `crates/prism-child-nodes` | Prism のノードを走査するための生成コード |
+| `crates/ruby-environment` | Bundler と RubyGems から Ruby 環境を調べる |
+| `crates/ruby-file-glob` | Ruby の `File.fnmatch` と `Dir.glob` 相当 |
 | `editors/vscode` | VS Code 拡張 |
 | `tools/steep_parity` | Steep と結果を比べるツール |

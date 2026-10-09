@@ -1,8 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use ruby_environment::{LockedGem, RubyEnvironment};
+
 use ruby_lsp_rs::indexer::configuration::{Configuration, IndexablePath};
-use ruby_lsp_rs::ruby_environment::{LockedGem, RubyEnvironment};
 
 struct TemporaryDirectory {
     path: PathBuf,

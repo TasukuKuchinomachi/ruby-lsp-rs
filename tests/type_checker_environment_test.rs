@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use lsp_server::{Connection, Message, Notification, Request, RequestId};
 use rbs_environment::WorkspaceSources;
+use ruby_environment::RubyEnvironment;
 use ruby_lsp_rs::indexer::indexing::index_single;
-use ruby_lsp_rs::ruby_environment::RubyEnvironment;
 use ruby_lsp_rs::server::{Server, ServerOptions};
 use ruby_lsp_rs::type_checking;
 use serde_json::{Value, json};

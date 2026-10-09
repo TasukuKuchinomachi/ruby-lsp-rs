@@ -2,10 +2,11 @@
 
 use std::path::PathBuf;
 
+use ruby_environment::{DefaultGemStub, GemStub};
+
 use ruby_lsp_rs::document::{Document, LanguageId};
 use ruby_lsp_rs::listeners::document_link::{DocumentLink, DocumentLinkItem, GemPaths};
 use ruby_lsp_rs::position::Encoding;
-use ruby_lsp_rs::ruby_environment::{DefaultGemStub, GemStub};
 
 pub const SYNTAX_TREE_VERSION: &str = "9.8.7";
 pub const FAKE_RUBYLIBDIR: &str = "/ruby-lsp-rs-test-rubylibdir";

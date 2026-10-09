@@ -1,11 +1,11 @@
 use indexmap::{IndexMap, IndexSet};
+use ruby_file_glob::{fnmatch, glob};
 use ruby_prism::{CallNode, ClassNode, Node};
 use serde_json::Value;
 
 use crate::indexer::Index;
 use crate::listeners::test_discovery::{DYNAMIC_REFERENCE_MARKER, DiscoveryContext, TestDiscovery};
 use crate::prism::constant_id_name;
-use crate::requests::support::file_glob::{fnmatch, glob};
 use crate::requests::support::test_command::{shell_escape, test_command};
 use crate::requests::support::test_item::TestItem;
 

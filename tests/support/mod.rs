@@ -7,11 +7,11 @@ use std::time::Duration;
 
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
 use rbs_environment::Environment;
+use ruby_environment::RubyEnvironment;
 use ruby_lsp_rs::indexer::Index;
 use ruby_lsp_rs::indexer::indexing::{index_single, index_single_with_require_path};
-use ruby_lsp_rs::ruby_environment::RubyEnvironment;
 use ruby_lsp_rs::server::{Server, ServerOptions};
-use ruby_lsp_rs::type_checking::LoadedEnvironment;
+use ruby_type_check::project::LoadedEnvironment;
 use serde_json::{Value, json};
 
 pub const DEFAULT_URI: &str = "file:///fake.rb";

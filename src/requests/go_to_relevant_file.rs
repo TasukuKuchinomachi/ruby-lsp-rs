@@ -3,9 +3,9 @@ use std::path::Path;
 use indexmap::IndexMap;
 use serde_json::{Value, json};
 
+use ruby_file_glob::{basename, dirname, extname, glob, split_path};
 use super::{RequestContext, RequestResult, TextDocumentParams, parse_params};
 use crate::listeners::definition::expand_path;
-use crate::requests::support::file_glob::{basename, dirname, extname, glob, split_path};
 
 const TEST_KEYWORDS: &[&str] = &["test", "spec", "integration_test"];
 const TEST_PREFIX_GLOB: &str = "test_,spec_,integration_test_";

@@ -1,9 +1,9 @@
 use serde_json::Value;
 
+use ruby_file_glob::fnmatch;
 use super::{RequestContext, RequestResult, TextDocumentParams, parse_params};
 use crate::listeners::code_lens::CodeLens;
 use crate::listeners::test_discovery;
-use crate::requests::support::file_glob::fnmatch;
 use crate::requests::support::test_collection::TestCollection;
 use crate::requests::support::test_command::TEST_PATH_PATTERN;
 

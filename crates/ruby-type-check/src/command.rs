@@ -3,16 +3,13 @@ use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
 use rbs_environment::{DiagnosticConfiguration, DiagnosticSeverity, Environment, SignatureDiagnostic, SteepfileConfiguration};
+use ruby_environment::RubyEnvironment;
 use type_checker::{AnalysisOptions, Severity};
 
-use crate::position::{Encoding, LineIndex};
-use crate::ruby_environment::RubyEnvironment;
-use crate::type_check_report::{OutputFormat, Renderer, ReportedDiagnostic, ReportedLocation};
-use crate::type_checking;
+use crate::project;
+use crate::report::{OutputFormat, Renderer, ReportedDiagnostic, ReportedLocation};
 
-pub const SUBCOMMAND: &str = "type-check";
-
-pub const USAGE: &str = "Usage: ruby-lsp-rs type-check [--ruby-command \"mise exec -- ruby\"] [--severity-level error|warning|information|hint] [--steep-compatible] [--format pretty|line] [paths...]";
+pub const USAGE: &str = "Usage: ruby-type-check [--ruby-command \"mise exec -- ruby\"] [--severity-level error|warning|information|hint] [--steep-compatible] [--format pretty|line] [paths...]";
 
 const UNEXPECTED_ERROR_CODE: &str = "Ruby::UnexpectedError";
 
@@ -85,19 +82,13 @@ pub fn run(arguments: &[String]) -> i32 {
         eprintln!("Failed to detect the Ruby environment: {error}");
         RubyEnvironment::default()
     });
-    let sources = type_checking::workspace_sources(&ruby_environment);
-    if let Some(warning) = type_checking::missing_core_warning(&sources) {
+    let sources = project::workspace_sources(&ruby_environment);
+    if let Some(warning) = project::missing_core_warning(&sources) {
         eprintln!("{warning}");
     }
-    let loaded = match type_checking::load_environment(&workspace_path, &sources) {
-        Ok(loaded) => loaded,
-        Err(message) => {
-            eprintln!("Failed to load the RBS environment: {message}");
-            return 2;
-        }
-    };
-    eprintln!("{}", type_checking::load_summary(&loaded));
-    if let Some(report) = type_checking::load_error_report(&loaded.environment) {
+    let loaded = project::load_environment(&workspace_path, &sources);
+    eprintln!("{}", project::load_summary(&loaded));
+    if let Some(report) = project::load_error_report(&loaded.environment) {
         eprintln!("{report}");
     }
 
@@ -108,7 +99,7 @@ pub fn run(arguments: &[String]) -> i32 {
         .par_iter()
         .map(|path| {
             let code_diagnostics =
-                type_checking::code_diagnostics_for(&workspace_path, loaded.steepfile.as_ref(), path)
+                project::code_diagnostics_for(&workspace_path, loaded.steepfile.as_ref(), path)
                     .unwrap_or(&default_code_diagnostics);
             check_file(&loaded.environment, &workspace_path, path, code_diagnostics, options.severity_level, analysis_options)
         })
@@ -217,7 +208,7 @@ impl FileResult {
     }
 
     pub fn lines(&self) -> Vec<String> {
-        self.diagnostics.iter().map(crate::type_check_report::render_line).collect()
+        self.diagnostics.iter().map(crate::report::render_line).collect()
     }
 }
 
@@ -236,18 +227,17 @@ pub fn check_file(
             return FileResult::failure(display_path, format!("Failed to read: {error}"));
         }
     };
-    let Some(analysis) = type_checking::analyze_with_options(environment, &source, analysis_options) else {
+    let Some(analysis) = project::analyze_with_options(environment, &source, analysis_options) else {
         return FileResult::failure(display_path, "The type checker crashed".to_string());
     };
     let has_unexpected_error = analysis.diagnostics.iter().any(|diagnostic| diagnostic.code == UNEXPECTED_ERROR_CODE);
-    let line_index = LineIndex::new(&source, Encoding::Utf32);
-    let mut diagnostics = type_checking::configured_diagnostics(&analysis, code_diagnostics);
+    let mut diagnostics = project::configured_diagnostics(&analysis, code_diagnostics);
     diagnostics.retain(|(_, severity)| shown_at(*severity, severity_level));
     diagnostics.sort_by_key(|(diagnostic, _)| (diagnostic.start, diagnostic.end));
     let reported = diagnostics
         .iter()
         .map(|(diagnostic, severity)| {
-            let column = line_index.position_of_offset(diagnostic.start).character as usize + 1;
+            let column = character_column(&source, diagnostic.start);
             ReportedDiagnostic {
                 path: display_path.clone(),
                 severity: *severity,
@@ -259,6 +249,12 @@ pub fn check_file(
         .collect();
     let error_count = diagnostics.iter().filter(|(_, severity)| *severity == Severity::Error).count();
     FileResult { diagnostics: reported, error_count, has_unexpected_error }
+}
+
+fn character_column(source: &[u8], offset: usize) -> usize {
+    let offset = offset.min(source.len());
+    let line_start = source[..offset].iter().rposition(|byte| *byte == b'\n').map_or(0, |index| index + 1);
+    String::from_utf8_lossy(&source[line_start..offset]).chars().count() + 1
 }
 
 /// Explicitly given files skip the `Steepfile` filter so that a file outside the targets can still be checked on demand
@@ -279,7 +275,7 @@ pub fn collect_files(workspace_path: &Path, steepfile: Option<&SteepfileConfigur
             let path = entry.path();
             if entry.file_type().is_file()
                 && path.extension().is_some_and(|extension| extension == "rb")
-                && type_checking::is_checked_path(workspace_path, steepfile, path)
+                && project::is_checked_path(workspace_path, steepfile, path)
             {
                 files.push(path.to_path_buf());
             }
@@ -351,13 +347,6 @@ mod tests {
         assert!(warning.starts_with("Steep compatible mode: Steep cannot type check parts of 243 files"));
         assert!(warning.contains("RBS::DuplicatedMethodDefinition"));
         assert!(warning.contains("Ruby::UnexpectedError"));
-    }
-
-    #[test]
-    fn usage_names_the_type_check_subcommand() {
-        assert_eq!(SUBCOMMAND, "type-check");
-        assert!(USAGE.starts_with("Usage: ruby-lsp-rs type-check "));
-        assert!(USAGE.contains("[--steep-compatible]"));
     }
 
     #[test]

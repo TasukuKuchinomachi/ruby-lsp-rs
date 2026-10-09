@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use ruby_environment::RubyEnvironment;
 use serde_json::{Value, json};
 
 use crate::indexer::Index;
 use crate::position::Encoding;
-use crate::ruby_environment::RubyEnvironment;
 use crate::type_checking::TypeCheckingState;
 
 pub mod message_type {

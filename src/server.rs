@@ -6,13 +6,14 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender, select};
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response, ResponseError};
+use ruby_environment::RubyEnvironment;
+use ruby_type_check::project;
 use serde_json::{Value, json};
 
 use crate::document::{ContentChange, LanguageId};
 use crate::global_state::{GlobalState, message_type};
 use crate::indexer::{Index, indexing};
 use crate::requests::{self, AUTOMATIC_REQUESTS, Outgoing, RequestContext, RequestError};
-use crate::ruby_environment::RubyEnvironment;
 use crate::store::Store;
 use crate::type_checking::{self, EnvironmentLoadOutcome};
 
@@ -524,8 +525,8 @@ impl Server {
         }
         self.environment_loading = true;
         let workspace_path = PathBuf::from(self.global_state.workspace_path());
-        let sources = type_checking::workspace_sources(&self.global_state.ruby_environment);
-        if let Some(warning) = type_checking::missing_core_warning(&sources) {
+        let sources = project::workspace_sources(&self.global_state.ruby_environment);
+        if let Some(warning) = project::missing_core_warning(&sources) {
             self.outgoing.log_message(&warning, message_type::WARNING);
         }
         let environment_sender = self.environment_sender.clone();
@@ -540,8 +541,8 @@ impl Server {
         self.end_progress(TYPE_CHECKER_PROGRESS_TOKEN);
         match outcome {
             Ok(loaded) => {
-                self.outgoing.log(&type_checking::load_summary(&loaded));
-                if let Some(report) = type_checking::load_error_report(&loaded.environment) {
+                self.outgoing.log(&project::load_summary(&loaded));
+                if let Some(report) = project::load_error_report(&loaded.environment) {
                     self.outgoing.log_message(&report, message_type::WARNING);
                 }
                 self.global_state.type_checking.set_environment(loaded);

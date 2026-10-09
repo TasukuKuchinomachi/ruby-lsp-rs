@@ -370,6 +370,8 @@ def render_report(project_name, steep_diagnostics, ruby_lsp_rs_diagnostics, unpa
         "steep_only_unimplemented": len(steep_only_unimplemented),
         "message_mismatches": len(message_mismatches),
         "severity_mismatches": sum(severity_mismatches.values()),
+        "differences": len(steep_only) + len(ruby_lsp_rs_only) + len(shifted_matches) + len(unparsed_lines)
+        + sum(1 for steep, ruby_lsp_rs in exact_matches if steep.severity != ruby_lsp_rs.severity),
         "by_code": {
             code: dict(
                 {name: counters[name][code] for name in counters},
@@ -386,14 +388,14 @@ def main():
     parser = argparse.ArgumentParser(description="Steep と ruby-lsp-rs の診断を比較する")
     parser.add_argument("--project", required=True, help="対象プロジェクトのパス (ソース行の表示に使う)")
     parser.add_argument("--steep-output", required=True, help="steep check --format=github --severity-level=hint の出力")
-    parser.add_argument("--ruby-lsp-rs-output", required=True, help="ruby-lsp-rs type-check の出力")
+    parser.add_argument("--ruby-lsp-rs-output", required=True, help="ruby-type-check --format line の出力")
     parser.add_argument("--ruby-lsp-rs-source", help="ruby-lsp-rs のリポジトリ (実装済み code の判定に使う)")
     parser.add_argument("--report", required=True, help="Markdown レポートの出力先")
     parser.add_argument("--summary-json", help="集計 JSON の出力先")
     parser.add_argument(
         "--steep-compatible",
         action="store_true",
-        help="ruby-lsp-rs type-check --steep-compatible の出力と比べる。Ruby::UnexpectedError のあるファイルも除外しない",
+        help="ruby-type-check --steep-compatible の出力と比べる。Ruby::UnexpectedError のあるファイルも除外しない",
     )
     arguments = parser.parse_args()
 
@@ -420,7 +422,7 @@ def main():
         f"diagnostics: excluded_files={summary['excluded_files']} exact={summary['exact']} "
         f"severity_mismatches={summary['severity_mismatches']} shifted={summary['shifted']} "
         f"ruby_lsp_rs_only={summary['ruby_lsp_rs_only']} steep_only_implemented={summary['steep_only_implemented']} "
-        f"steep_only_unimplemented={summary['steep_only_unimplemented']}",
+        f"steep_only_unimplemented={summary['steep_only_unimplemented']} differences={summary['differences']}",
         file=sys.stderr,
     )
 

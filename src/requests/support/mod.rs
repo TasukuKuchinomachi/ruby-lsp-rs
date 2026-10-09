@@ -1,6 +1,5 @@
 pub mod common;
 pub mod document_symbol_response_builder;
-pub mod file_glob;
 pub mod formatter;
 pub mod hover_response_builder;
 pub mod implementation_lookup;

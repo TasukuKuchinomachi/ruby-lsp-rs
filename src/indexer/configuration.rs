@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use globset::{GlobBuilder, GlobMatcher};
+use ruby_environment::RubyEnvironment;
 
 use crate::position::Encoding;
-use crate::ruby_environment::RubyEnvironment;
 
 #[derive(Debug, Clone)]
 pub struct IndexablePath {
