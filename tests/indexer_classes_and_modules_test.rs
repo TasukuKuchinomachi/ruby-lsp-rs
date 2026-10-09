@@ -45,9 +45,7 @@ fn index_lazily_from_file(test: &mut TestCase, test_name: &str, source: &str) ->
 }
 
 fn reference_repository() -> PathBuf {
-    PathBuf::from(
-        "tests/fixtures/ruby-lsp",
-    )
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ruby-lsp")
 }
 
 #[test]
@@ -412,9 +410,6 @@ fn test_indexing_namespaces_inside_nested_top_level_references() {
 #[test]
 fn test_lazy_comment_fetching_uses_correct_line_breaks_for_rendering() {
     let path = reference_repository().join("lib/ruby_lsp/node_context.rb");
-    if !path.exists() {
-        return;
-    }
     let mut test = TestCase::new();
     let source = std::fs::read_to_string(&path).unwrap();
     index_single(&mut test.index, &ruby_lsp_rs::uri::from_path_buf(&path), &source, false);
