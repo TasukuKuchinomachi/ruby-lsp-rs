@@ -15,6 +15,8 @@ Rust で書いた Ruby の language server です。[Shopify Ruby LSP](https://g
 
 Steep 2.1.0 と rbs 4.2.0 に合わせています。RBS のパーサは [ruby-rbs](https://crates.io/crates/ruby-rbs) crate 0.3.0（RBS 4.0.2 相当）を使うため、RBS 4.1 で書けるようになった非 ASCII の名前は読めません。
 
+`Steepfile` に `check "lib", inline: true` と書いたファイルは、Steep と同じく inline RBS（`# @rbs` や `#:` のコメント）から型を読み込み、型検査もします。
+
 ## ビルド
 
 ```sh
