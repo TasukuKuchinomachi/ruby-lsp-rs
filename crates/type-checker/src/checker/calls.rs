@@ -463,40 +463,6 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         );
     }
 
-    /// `it` is a method call to Steep, whose parser follows Ruby 3.3
-    pub(crate) fn infer_it_as_method_call(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
-        let span = Span::of_node(node);
-        if let Some(error) = self.definition_error_of(&context.self_type) {
-            self.record_unexpected_error(span, error);
-            return Type::Untyped;
-        }
-        let site = CallSite {
-            method_name: "it".to_string(),
-            name_span: span,
-            block: CallBlock::Absent,
-            is_self_call: true,
-            reports_diagnostics: true,
-            deferred_lambdas: Vec::new(),
-            expression_span: span,
-            send_span: span,
-            no_method_span: span,
-        };
-        let self_type = context.self_type.clone();
-        self.dispatch_call(
-            &self_type,
-            &self_type,
-            &site,
-            &CallArguments { values: Vec::new() },
-            context,
-            locals,
-        )
-    }
-
     fn call_block(
         &mut self,
         block_node: Option<Node<'pr>>,

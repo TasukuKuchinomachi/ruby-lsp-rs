@@ -79,9 +79,6 @@ impl<'pr> Checker<'_, 'pr> {
                 self.record_type_hover(Span::of_node(node), &variable_type);
                 variable_type
             }
-            Node::ItLocalVariableReadNode { .. } if self.options.steep_compatible => {
-                self.infer_it_as_method_call(node, context, locals)
-            }
             Node::ItLocalVariableReadNode { .. } => {
                 let variable_type = self.local_variable_type(IT_PARAMETER_KEY, context, locals);
                 self.record_type_hover(Span::of_node(node), &variable_type);

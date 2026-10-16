@@ -11,10 +11,6 @@ class Time
   def to_fs: (?Symbol format) -> String
 end
 
-class Object
-  def it: () -> untyped
-end
-
 module Worker
   module ClassMethods
     def worker_options: (**untyped) -> void
@@ -212,14 +208,15 @@ end
 }
 
 #[test]
-fn it_is_a_method_call() {
+fn it_is_the_block_parameter() {
     let environment = steep_compatible_environment_or_skip!();
     let (default, compatible) = both_modes(environment, "[1].map { it.no_such_method }\n");
-    assert_eq!(diagnostics(&compatible), Vec::<(&str, String)>::new());
-    assert_eq!(
-        diagnostics_with_code(&default, "Ruby::NoMethod"),
-        vec!["no_such_method"]
-    );
+    for checked in [&default, &compatible] {
+        assert_eq!(
+            diagnostics_with_code(checked, "Ruby::NoMethod"),
+            vec!["no_such_method"]
+        );
+    }
 }
 
 #[test]
