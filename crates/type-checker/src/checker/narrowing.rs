@@ -266,6 +266,81 @@ impl<'pr> Checker<'_, 'pr> {
         Checker::set_target_type(target, narrowed, locals);
     }
 
+    /// Steep replaces `==` of the core value classes with `ReceiverIsArg`, so `receiver == literal` splits the
+    /// receiver type into what can be equal and what cannot by `literal_var_type_case_select` with `for_receiver`:
+    /// only an equal literal type can be equal, and a non-literal type can be equal only when an integer, string or
+    /// symbol literal can be its value, as `Symbol` for `:fatal`. `None` when Steep does not split the type
+    pub(crate) fn literal_equality_split(
+        &mut self,
+        receiver_type: &Type,
+        argument: &Node<'pr>,
+        context: &Context,
+    ) -> Option<(Vec<Type>, Vec<Type>)> {
+        use rbs_environment::Literal;
+        let literal = match argument {
+            Node::NilNode { .. } => None,
+            Node::TrueNode { .. } => Some(Literal::True),
+            Node::FalseNode { .. } => Some(Literal::False),
+            Node::IntegerNode { .. } | Node::StringNode { .. } | Node::SymbolNode { .. } => {
+                match super::arguments::literal_type_of(argument)? {
+                    Type::Literal(literal) => Some(literal),
+                    _ => return None,
+                }
+            }
+            _ => return None,
+        };
+        let receiver_type = self.expand_alias_deeply(receiver_type, 0);
+        let mut equal_types = Vec::new();
+        let mut unequal_types = Vec::new();
+        for member in members_of(&receiver_type) {
+            match &member {
+                Type::Untyped | Type::Top | Type::Bool => return None,
+                _ => {}
+            }
+            let owner_is_primitive = match self.lookup_member(&member, "==", context, 0) {
+                super::calls::Lookup::Found(found) => matches!(
+                    found.owner.as_str(),
+                    "BasicObject"
+                        | "Object"
+                        | "Kernel"
+                        | "String"
+                        | "Integer"
+                        | "Symbol"
+                        | "TrueClass"
+                        | "FalseClass"
+                        | "NilClass"
+                ),
+                _ => false,
+            };
+            if !owner_is_primitive {
+                return None;
+            }
+            let matches = match (&literal, &member) {
+                (None, Type::Nil) => true,
+                (None, Type::ClassInstance { name, .. }) => name == "NilClass",
+                (Some(Literal::True), Type::ClassInstance { name, .. }) => name == "TrueClass",
+                (Some(Literal::False), Type::ClassInstance { name, .. }) => name == "FalseClass",
+                (Some(expected), Type::Literal(actual)) => expected == actual,
+                _ => false,
+            };
+            if matches {
+                equal_types.push(member);
+                continue;
+            }
+            if let Some(literal @ (Literal::Integer(_) | Literal::String(_) | Literal::Symbol(_))) =
+                &literal
+                && !matches!(member, Type::Literal(_))
+            {
+                let literal_type = Type::Literal(literal.clone());
+                if is_subtype(self.environment, &literal_type, &member) != Certainty::No {
+                    equal_types.push(literal_type);
+                }
+            }
+            unequal_types.push(member);
+        }
+        Some((equal_types, unequal_types))
+    }
+
     /// Refines `locals` assuming `condition` evaluated to a truthy (or falsy) value. The condition itself must
     /// already have been inferred, so nothing here records hovers or diagnostics
     pub(crate) fn narrow(
@@ -405,6 +480,17 @@ impl<'pr> Checker<'_, 'pr> {
                 let is_equal = (method_name == "==") == truthy;
                 let compares_with_nil = matches!(argument, Node::NilNode { .. });
                 if !compares_with_nil {
+                    if method_name == "=="
+                        && let Some(target) = self.narrowing_target_in(&receiver, context, locals)
+                    {
+                        let current = self.target_type(&target, context, locals);
+                        if let Some((equal_types, unequal_types)) =
+                            self.literal_equality_split(&current, argument, context)
+                        {
+                            let narrowed = if is_equal { equal_types } else { unequal_types };
+                            Checker::set_target_type(&target, Type::union(narrowed), locals);
+                        }
+                    }
                     return;
                 }
                 if let Some(target) = self.narrowing_target_in(&receiver, context, locals) {

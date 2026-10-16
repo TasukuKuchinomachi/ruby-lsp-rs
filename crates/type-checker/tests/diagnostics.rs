@@ -534,6 +534,37 @@ end
 }
 
 #[test]
+fn comparing_with_a_literal_narrows_to_the_literal_when_it_can_be_a_value_of_the_type() {
+    let environment = environment_or_skip!();
+    let checked = support::check(
+        environment,
+        r#"
+name = Greeter.new("a").name
+if name == "Alice"
+  name.no_such_method
+else
+  name.no_such_method
+end
+greeter = Greeter.new("a")
+if greeter == :fatal
+  greeter
+end
+"#,
+    );
+    assert_eq!(
+        checked.messages_with_code("Ruby::NoMethod"),
+        vec![
+            "Type `\"Alice\"` does not have method `no_such_method`",
+            "Type `String` does not have method `no_such_method`",
+        ]
+    );
+    assert_eq!(
+        checked.diagnostic_text("Ruby::UnreachableBranch"),
+        Some("if")
+    );
+}
+
+#[test]
 fn lambda_arguments_take_self_from_the_proc_type_of_the_parameter() {
     let environment = environment_or_skip!();
     let checked = support::check(

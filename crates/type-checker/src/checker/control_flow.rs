@@ -200,9 +200,6 @@ impl<'pr> Checker<'_, 'pr> {
         }
     }
 
-    /// Steep replaces `==` of the core value classes with `ReceiverIsArg`, so comparing with a literal splits the
-    /// receiver by `literal_var_type_case_select`: only an equal literal type can be truthy, and a non-literal
-    /// type such as `String` can only be falsy
     fn equality_possibilities(
         &mut self,
         receiver: &Node<'pr>,
@@ -210,63 +207,12 @@ impl<'pr> Checker<'_, 'pr> {
         context: &Context,
         locals: &Locals,
     ) -> Option<(bool, bool)> {
-        use rbs_environment::Literal;
-        let literal = match argument {
-            Node::NilNode { .. } => None,
-            Node::TrueNode { .. } => Some(Literal::True),
-            Node::FalseNode { .. } => Some(Literal::False),
-            Node::IntegerNode { .. } | Node::StringNode { .. } | Node::SymbolNode { .. } => {
-                match super::arguments::literal_type_of(argument)? {
-                    Type::Literal(literal) => Some(literal),
-                    _ => return None,
-                }
-            }
-            _ => return None,
-        };
         let mut scratch_locals = locals.clone();
         let receiver_type =
             self.silently(|checker| checker.infer(receiver, context, &mut scratch_locals))?;
-        let receiver_type = self.expand_alias_deeply(&receiver_type, 0);
-        let mut truthy_possible = false;
-        let mut falsy_possible = false;
-        for member in members_of(&receiver_type) {
-            match &member {
-                Type::Untyped | Type::Top | Type::Bool => return None,
-                _ => {}
-            }
-            let owner_is_primitive = match self.lookup_member(&member, "==", context, 0) {
-                super::calls::Lookup::Found(found) => matches!(
-                    found.owner.as_str(),
-                    "BasicObject"
-                        | "Object"
-                        | "Kernel"
-                        | "String"
-                        | "Integer"
-                        | "Symbol"
-                        | "TrueClass"
-                        | "FalseClass"
-                        | "NilClass"
-                ),
-                _ => false,
-            };
-            if !owner_is_primitive {
-                return None;
-            }
-            let matches = match (&literal, &member) {
-                (None, Type::Nil) => true,
-                (None, Type::ClassInstance { name, .. }) => name == "NilClass",
-                (Some(Literal::True), Type::ClassInstance { name, .. }) => name == "TrueClass",
-                (Some(Literal::False), Type::ClassInstance { name, .. }) => name == "FalseClass",
-                (Some(expected), Type::Literal(actual)) => expected == actual,
-                _ => false,
-            };
-            if matches {
-                truthy_possible = true;
-            } else {
-                falsy_possible = true;
-            }
-        }
-        Some((truthy_possible, falsy_possible))
+        let (equal_types, unequal_types) =
+            self.literal_equality_split(&receiver_type, argument, context)?;
+        Some((!equal_types.is_empty(), !unequal_types.is_empty()))
     }
 
     fn report_unreachable_branches(
