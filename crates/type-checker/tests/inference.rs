@@ -179,6 +179,32 @@ with_it‸ = -> { it.to_s }
 }
 
 #[test]
+fn an_array_literal_returned_from_a_block_is_a_tuple_when_the_block_returns_a_pair() {
+    let environment = environment_or_skip!();
+    let checked = support::check(
+        environment,
+        r#"
+maker = PairMaker.new
+from_interface‸ = maker.make { |string| [string, string.size] }
+from_tuple‸ = maker.make_from_tuple { |string| [string.to_sym, string] }
+converted‸ = maker.pair.to_ary
+"#,
+    );
+    assert_eq!(
+        checked.hint(0, VariableType).as_deref(),
+        Some("Hash[String, Integer]")
+    );
+    assert_eq!(
+        checked.hint(1, VariableType).as_deref(),
+        Some("Hash[Symbol, String]")
+    );
+    assert_eq!(
+        checked.hint(2, VariableType).as_deref(),
+        Some("[Symbol, Integer]")
+    );
+}
+
+#[test]
 fn new_returns_an_instance_and_checks_initialize_arguments() {
     let environment = environment_or_skip!();
     let checked = support::check(

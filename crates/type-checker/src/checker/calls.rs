@@ -1994,6 +1994,7 @@ fn tuple_element(elements: &[Type], method_name: &str, call: &CallNode<'_>) -> O
         .map(|arguments| arguments.arguments().iter().collect())
         .unwrap_or_default();
     let index: i64 = match (method_name, arguments.as_slice()) {
+        ("to_ary", []) => return Some(Type::Tuple(elements.to_vec())),
         ("first", []) => 0,
         ("last", []) => -1,
         ("[]", [argument]) => {

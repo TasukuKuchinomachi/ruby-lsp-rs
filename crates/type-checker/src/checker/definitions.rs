@@ -337,7 +337,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         self.is_certain_mismatch(&hinted, declared)
     }
 
-    fn hinted_last_statement_type(
+    pub(crate) fn hinted_last_statement_type(
         &mut self,
         body: Option<Node<'pr>>,
         declared: &Type,

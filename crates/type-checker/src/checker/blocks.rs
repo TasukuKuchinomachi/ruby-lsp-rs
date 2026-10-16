@@ -195,8 +195,19 @@ impl<'pr> Checker<'_, 'pr> {
                         .as_ref()
                         .map(|function| function.return_type.clone()),
                 });
-                let body = body.as_ref().map(prism_child_nodes::copy_node);
-                let body_type = checker.infer_optional_node(body, &block_context, iteration_locals);
+                let body_node = body.as_ref().map(prism_child_nodes::copy_node);
+                let body_type =
+                    checker.infer_optional_node(body_node, &block_context, iteration_locals);
+                let body_type = match &signature.function {
+                    Some(function) => checker.hinted_last_statement_type(
+                        body.as_ref().map(prism_child_nodes::copy_node),
+                        &function.return_type,
+                        &body_type,
+                        &block_context,
+                        iteration_locals,
+                    ),
+                    None => body_type,
+                };
                 checker.jump_expectations.pop();
                 let next_types = checker.block_next_frames.pop().unwrap_or_default();
                 (body_type, next_types)
