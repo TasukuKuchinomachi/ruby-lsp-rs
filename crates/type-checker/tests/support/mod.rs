@@ -76,6 +76,11 @@ end
 class DailyReport < Report
 end
 
+class TagCounter
+  def optional_count: () ?{ (String tag) -> Integer } -> Array[Integer]
+  def required_count: () { (String tag) -> Integer } -> Array[Integer]
+end
+
 interface _KeyValue[K, V]
   def to_ary: () -> [K, V]
 end

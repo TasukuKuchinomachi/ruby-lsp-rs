@@ -508,6 +508,32 @@ greeter.greet("b") { 1 }
 }
 
 #[test]
+fn a_symbol_block_argument_is_checked_against_the_block_return_type() {
+    let environment = environment_or_skip!();
+    let checked = support::check(
+        environment,
+        r#"
+counter = TagCounter.new
+counter.optional_count(&:size)
+counter.required_count(&:size)
+counter.optional_count(&:upcase)
+counter.required_count(&:upcase)
+"#,
+    );
+    assert_eq!(
+        checked.messages_with_code("Ruby::BlockTypeMismatch"),
+        vec![
+            "Cannot pass a value of type `^(String) -> String` as a block-pass-argument of type `^(String tag) -> Integer`",
+            "Cannot pass a value of type `^(String) -> String` as a block-pass-argument of type `^(String tag) -> Integer`",
+        ]
+    );
+    assert_eq!(
+        checked.diagnostic_text("Ruby::BlockTypeMismatch"),
+        Some("&:upcase")
+    );
+}
+
+#[test]
 fn unreachable_branches_and_unsupported_syntax_are_hints() {
     let environment = environment_or_skip!();
     let checked = support::check(
