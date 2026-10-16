@@ -84,8 +84,16 @@ fn type_diagnostics(global_state: &mut GlobalState, document: &Document) -> Vec<
     else {
         return Vec::new();
     };
-    let Some(analysis) = global_state.type_checking.analysis_for(document) else { return Vec::new() };
-    type_checking::diagnostics(&analysis, &configuration, &document.line_index())
+    let inline_signature_diagnostics = match &type_checking.environment {
+        Some(environment) if type_checking.is_inline_source_path(Path::new(&workspace_path), Path::new(&path)) => {
+            type_checking::inline_signature_diagnostics(environment, Path::new(&path), document.encoding())
+        }
+        _ => Vec::new(),
+    };
+    let Some(analysis) = global_state.type_checking.analysis_for(document) else { return inline_signature_diagnostics };
+    let mut diagnostics = type_checking::diagnostics(&analysis, &configuration, &document.line_index());
+    diagnostics.extend(inline_signature_diagnostics);
+    diagnostics
 }
 
 /// `None` for a file outside the `Steepfile` signature directories, which Steep doesn't validate
