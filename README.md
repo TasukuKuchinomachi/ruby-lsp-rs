@@ -13,6 +13,8 @@ Rust で書いた Ruby の language server です。[Shopify Ruby LSP](https://g
 - 対象プロジェクトの Bundler で `rbs` gem が入っていること。core と stdlib の RBS はこの gem から読み込みます
 - `Steepfile` と `sig/`、`rbs_collection.lock.yaml`（あれば読み込みます）
 
+Steep 2.1.0 と rbs 4.2.0 に合わせています。RBS のパーサは [ruby-rbs](https://crates.io/crates/ruby-rbs) crate 0.3.0（RBS 4.0.2 相当）を使うため、RBS 4.1 で書けるようになった非 ASCII の名前は読めません。
+
 ## ビルド
 
 ```sh

@@ -243,7 +243,7 @@ impl SteepfileReader<'_> {
         }
     }
 
-    /// Follows `TargetDSL#configure_code_diagnostics` and `GroupDSL#configure_code_diagnostics` in steep 2.0.0
+    /// Follows `TargetDSL#configure_code_diagnostics` and `GroupDSL#configure_code_diagnostics` in steep 2.1.0
     /// `lib/steep/project/dsl.rb`: a target merges the argument into its configuration (which starts as `Ruby.default`),
     /// while a group without a block replaces its configuration with the argument
     fn configure_code_diagnostics(&self, call: &ruby_prism::CallNode, scope: &mut Scope) {

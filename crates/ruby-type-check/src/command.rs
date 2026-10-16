@@ -179,7 +179,7 @@ pub fn check_signatures(environment: &Environment, workspace_path: &Path, paths:
     FileResult { error_count: reported.len(), diagnostics: reported, has_unexpected_error: false }
 }
 
-/// steep 2.0.0 `Drivers::Check#print_result` fails when any diagnostic survives `--severity-level`, errors or not
+/// steep 2.1.0 `Drivers::Check#print_result` fails when any diagnostic survives `--severity-level`, errors or not
 pub fn exit_code(diagnostic_count: usize) -> i32 {
     if diagnostic_count > 0 { 1 } else { 0 }
 }
