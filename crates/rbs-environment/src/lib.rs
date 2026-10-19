@@ -12,7 +12,7 @@ pub use diagnostic_configuration::{
     DiagnosticConfiguration, DiagnosticSeverity, DiagnosticTemplate, ruby_diagnostic_codes,
 };
 pub use environment::*;
-pub use loader::{Loader, parse_type};
+pub use loader::{Loader, parse_method_type, parse_type};
 pub use lookup::SingletonAncestor;
 pub use navigation::SignatureTarget;
 pub use signature_validation::{SignatureDiagnostic, signature_syntax_error};

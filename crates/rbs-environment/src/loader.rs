@@ -335,6 +335,8 @@ struct ClassFragment {
     class_variables: Vec<(String, Type)>,
     location: Location,
     comment: Option<String>,
+    /// Members other than nested declarations, which RBS's `each_member` yields
+    has_members: bool,
 }
 
 struct MethodFragment {
@@ -1061,6 +1063,7 @@ impl<'source> Converter<'source> {
             class_variables: Vec::new(),
             location: self.location(location),
             comment: comment_text(comment),
+            has_members: false,
         }
     }
 
@@ -1090,6 +1093,24 @@ impl<'source> Converter<'source> {
         nested_fragments: &mut Vec<Fragment>,
     ) -> ClassFragment {
         let mut default_visibility = Visibility::Public;
+        fragment.has_members = members.iter().any(|member| {
+            matches!(
+                member,
+                Node::MethodDefinition(_)
+                    | Node::Alias(_)
+                    | Node::AttrAccessor(_)
+                    | Node::AttrReader(_)
+                    | Node::AttrWriter(_)
+                    | Node::InstanceVariable(_)
+                    | Node::ClassInstanceVariable(_)
+                    | Node::ClassVariable(_)
+                    | Node::Include(_)
+                    | Node::Extend(_)
+                    | Node::Prepend(_)
+                    | Node::Private(_)
+                    | Node::Public(_)
+            )
+        });
         for member in members.iter() {
             match member {
                 Node::MethodDefinition(method) => {
@@ -2178,7 +2199,11 @@ fn merge_class(environment: &mut Environment, class: ClassFragment, state: &mut 
             class_variables: HashMap::new(),
             locations: Vec::new(),
             comment: None,
+            member_declaration_count: 0,
         });
+    if class.has_members {
+        declaration.member_declaration_count += 1;
+    }
     if declaration.type_parameters.is_empty() {
         declaration.type_parameters = class.type_parameters;
     }
@@ -2423,6 +2448,26 @@ pub fn parse_type(source: &str) -> Result<Type, String> {
         return Err(format!("not a type: {source}"));
     }
     Ok(overloads.remove(0).function.return_type)
+}
+
+/// Parses a single RBS method type such as `[T] (T) { (T) -> void } -> T`. Names are left as written; resolve them
+/// with `Environment::resolve_type_names`
+pub fn parse_method_type(source: &str) -> Result<MethodType, String> {
+    let wrapped_source = format!("class TypeWrapper\n  def type_wrapper: {source}\nend\n");
+    let signature = ruby_rbs::node::parse(&wrapped_source)?;
+    let converter = Converter::new(&wrapped_source, Arc::new(PathBuf::new()));
+    let declarations: Vec<Node> = signature.declarations().iter().collect();
+    let [Node::Class(class)] = declarations.as_slice() else {
+        return Err(format!("not a method type: {source}"));
+    };
+    let Some(Node::MethodDefinition(method)) = class.members().iter().next() else {
+        return Err(format!("not a method type: {source}"));
+    };
+    let mut overloads = converter.convert_overloads(method.overloads());
+    if overloads.len() != 1 || class.members().iter().count() != 1 {
+        return Err(format!("not a method type: {source}"));
+    }
+    Ok(overloads.remove(0))
 }
 
 fn annotation_texts(annotations: NodeList) -> Vec<String> {

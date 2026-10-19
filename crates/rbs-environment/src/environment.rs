@@ -80,6 +80,8 @@ pub struct ClassDeclaration {
     pub class_variables: HashMap<String, Type>,
     pub locations: Vec<Location>,
     pub comment: Option<String>,
+    /// How many of the declarations have members, which Steep's `validate_method_definitions` needs to be one
+    pub member_declaration_count: usize,
 }
 
 #[derive(Debug, Clone)]

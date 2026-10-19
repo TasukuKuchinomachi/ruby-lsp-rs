@@ -530,6 +530,10 @@ impl Environment {
     pub fn resolve_type_names(&self, parsed_type: &mut Type, nesting: &[String]) {
         parsed_type.map_names(&mut |kind, name| self.resolve_type_name(kind, nesting, name));
     }
+
+    pub fn resolve_method_type_names(&self, method_type: &mut MethodType, nesting: &[String]) {
+        method_type.map_names(&mut |kind, name| self.resolve_type_name(kind, nesting, name));
+    }
 }
 
 fn deduplicate_ancestors(ancestors: Vec<Ancestor>) -> Vec<Ancestor> {

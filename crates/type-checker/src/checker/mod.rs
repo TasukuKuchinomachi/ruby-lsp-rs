@@ -11,11 +11,11 @@ mod variables;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use rbs_environment::{Block, Environment, Location, Type};
+use rbs_environment::{Block, Environment, Location, MethodType, Type};
 use ruby_prism::Node;
 
-use crate::annotations::{AnnotationTarget, Annotations};
-use crate::file_index::{FileIndex, InstanceVariableKey, ScopeKind};
+use crate::annotations::{AnnotationTarget, Annotations, DynamicKind};
+use crate::file_index::{FileIndex, InstanceVariableKey, ScopeKind, ScopeRange};
 use crate::source::{LineIndex, Span};
 use crate::{
     Analysis, AnalysisOptions, DefinitionEntry, HoverEntry, HoverKind, ReceiverEntry, Severity,
@@ -76,6 +76,17 @@ struct ResolvedAnnotation {
     self_scope_start: usize,
 }
 
+/// Steep attaches an annotation to the innermost `def`, `class`, `module` or block around it, and reads the
+/// annotations of a block together with those of the scope around it
+pub(crate) struct ScopedAnnotations {
+    /// `@type method`: scope start, method name, method type
+    pub(crate) method_types: Vec<(usize, String, MethodType)>,
+    /// `@implements`: scope start to the name as written; the last one in a scope wins
+    pub(crate) implements: HashMap<usize, String>,
+    /// `@dynamic`: scope start to the names
+    pub(crate) dynamics: HashMap<usize, Vec<(String, DynamicKind)>>,
+}
+
 pub(crate) struct Checker<'environment, 'pr> {
     pub(crate) environment: &'environment Environment,
     pub(crate) options: AnalysisOptions,
@@ -83,6 +94,7 @@ pub(crate) struct Checker<'environment, 'pr> {
     pub(crate) line_index: LineIndex,
     pub(crate) analysis: Analysis,
     annotations: Vec<ResolvedAnnotation>,
+    pub(crate) scoped_annotations: ScopedAnnotations,
     inline_assertions: HashMap<usize, Type>,
     silent_depth: usize,
     expression_depth: usize,
@@ -141,6 +153,28 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 }
             })
             .collect();
+        let attached_scope_start = |offset: usize| {
+            file_index.innermost_scope(offset, |_| true).map(|scope| scope.span.start).unwrap_or(0)
+        };
+        let mut scoped_annotations = ScopedAnnotations {
+            method_types: annotations
+                .method_type_annotations
+                .into_iter()
+                .map(|annotation| (attached_scope_start(annotation.offset), annotation.name, annotation.method_type))
+                .collect(),
+            implements: HashMap::new(),
+            dynamics: HashMap::new(),
+        };
+        for annotation in annotations.implements_annotations {
+            scoped_annotations.implements.insert(attached_scope_start(annotation.offset), annotation.name);
+        }
+        for annotation in annotations.dynamic_annotations {
+            scoped_annotations
+                .dynamics
+                .entry(attached_scope_start(annotation.offset))
+                .or_default()
+                .extend(annotation.names);
+        }
         let inline_assertions = annotations
             .inline_assertions
             .into_iter()
@@ -153,6 +187,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             line_index,
             analysis: Analysis::default(),
             annotations: resolved_annotations,
+            scoped_annotations,
             inline_assertions,
             silent_depth: 0,
             expression_depth: 0,
@@ -442,6 +477,50 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         self.inline_assertions
             .get(&line)
             .map(|asserted_type| self.resolve_annotation_type(asserted_type, nesting))
+    }
+
+    /// The scopes whose annotations a node spanning `node_span` reads, innermost first: the blocks around it and the
+    /// first scope that is not a block. The node's own scope is not one of them
+    pub(crate) fn annotation_scopes(&self, node_span: Span) -> Vec<ScopeRange> {
+        let mut enclosing: Vec<ScopeRange> = self
+            .file_index
+            .scopes
+            .iter()
+            .filter(|scope| {
+                scope.span.start <= node_span.start
+                    && node_span.start < scope.span.end
+                    && (scope.span.start, scope.span.end) != (node_span.start, node_span.end)
+            })
+            .copied()
+            .collect();
+        enclosing.sort_by_key(|scope| scope.span.end - scope.span.start);
+        let first_non_block = enclosing.iter().position(|scope| scope.kind != ScopeKind::Block);
+        enclosing.truncate(first_non_block.map_or(enclosing.len(), |index| index + 1));
+        enclosing
+    }
+
+    /// `@type method name: ...` that a `def` spanning `definition_span` reads
+    pub(crate) fn annotated_method_type(&self, definition_span: Span, method_name: &str, nesting: &[String]) -> Option<MethodType> {
+        self.annotation_scopes(definition_span).iter().find_map(|scope| {
+            self.scoped_annotations
+                .method_types
+                .iter()
+                .rev()
+                .find(|(scope_start, name, _)| *scope_start == scope.span.start && name == method_name)
+                .map(|(_, _, method_type)| {
+                    let mut resolved = method_type.clone();
+                    self.environment.resolve_method_type_names(&mut resolved, nesting);
+                    resolved
+                })
+        })
+    }
+
+    /// The module that `@implements` names in the class or module body starting at `scope_start`, when RBS declares
+    /// it, as Steep's `implement_module` resolves it
+    pub(crate) fn implemented_module(&self, scope_start: usize, nesting: &[String]) -> Option<String> {
+        let written = self.scoped_annotations.implements.get(&scope_start)?;
+        let name = self.environment.resolve_constant_name(nesting, written)?;
+        self.environment.classes.contains_key(&name).then_some(name)
     }
 
     pub(crate) fn is_fully_known(&mut self, class_name: &str) -> bool {
