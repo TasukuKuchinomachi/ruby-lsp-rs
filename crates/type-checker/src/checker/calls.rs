@@ -619,10 +619,25 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         }
         let block_result = match &site.block {
             CallBlock::Literal(block_node) => {
-                let signature = primary_prepared
+                let mut signature = primary_prepared
                     .as_ref()
                     .map(PreparedCall::block_signature)
                     .unwrap_or_else(BlockSignature::untyped);
+                // Steep's shape of a union joins the block self types of the members' method types
+                if self.options.steep_compatible && signature.self_type.is_some() && lookups.len() > 1 {
+                    let self_types: Vec<Type> = lookups
+                        .iter()
+                        .filter_map(|lookup| match lookup {
+                            Lookup::Found(found) => {
+                                PreparedCall::new(self.environment, found, arguments, has_block)
+                                    .block_signature()
+                                    .self_type
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                    signature.self_type = Some(Type::union(self_types));
+                }
                 let block_type = self.infer_block(block_node, &signature, context, locals);
                 let declared_block_return = primary_prepared
                     .as_ref()
@@ -746,11 +761,17 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         if has_unknown || has_unreportable_missing {
             results.push(Type::Untyped);
         }
-        let result = if results.is_empty() {
+        let mut result = if results.is_empty() {
             Type::Untyped
         } else {
             Type::union(results)
         };
+        if let CallBlock::Literal(block_node) = &site.block
+            && let Some(annotated_break) =
+                self.annotated_break_type(block_node.location().start_offset(), &context.nesting)
+        {
+            result = Type::union(vec![annotated_break, result]);
+        }
         // Steep's hover on `receiver&.name` shows what the method returns, without the `nil` that `&.` adds
         let displayed_result = result.clone();
         if site.reports_diagnostics {

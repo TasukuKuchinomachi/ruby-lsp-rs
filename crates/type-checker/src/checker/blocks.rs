@@ -167,6 +167,11 @@ impl<'pr> Checker<'_, 'pr> {
         if let Some(annotated_self) = self.annotated_self_type(scope_start, &context.nesting) {
             block_context.self_type = annotated_self;
         }
+        // Steep's `for_block`: `break` may also give the annotated type, which the call then returns too
+        let break_type = match (self.annotated_break_type(scope_start, &context.nesting), &signature.break_type) {
+            (Some(annotated), Some(declared)) => Some(Type::union(vec![declared.clone(), annotated])),
+            (annotated, declared) => annotated.or_else(|| declared.clone()),
+        };
         let mut parameter_locals = locals.clone();
         // A block can run after the code that follows it, so a variable that is still `nil` here is usually assigned
         // later; typing it as `nil` inside the block would report every use
@@ -214,7 +219,7 @@ impl<'pr> Checker<'_, 'pr> {
             |checker, iteration_locals| {
                 checker.block_next_frames.push(Vec::new());
                 checker.jump_expectations.push(super::JumpExpectation {
-                    break_type: signature.break_type.clone(),
+                    break_type: break_type.clone(),
                     next_type: signature
                         .function
                         .as_ref()

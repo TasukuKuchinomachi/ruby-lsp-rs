@@ -500,6 +500,17 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             .map(|annotation| self.resolve_annotation_type(&annotation.annotated_type, nesting))
     }
 
+    pub(crate) fn annotated_break_type(&self, scope_start: usize, nesting: &[String]) -> Option<Type> {
+        self.annotations
+            .iter()
+            .find(|annotation| {
+                annotation.self_scope_start == scope_start
+                    && annotation.attached_kind != ScopeKind::Branch
+                    && annotation.target == AnnotationTarget::Break
+            })
+            .map(|annotation| self.resolve_annotation_type(&annotation.annotated_type, nesting))
+    }
+
     pub(crate) fn instance_variable_annotation(
         &self,
         class_name: &str,
