@@ -49,7 +49,8 @@ impl CallArguments {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ArityMismatch {
     InsufficientPositional,
-    UnexpectedPositional(Span),
+    /// Every positional argument no parameter takes
+    UnexpectedPositional(Vec<Span>),
     InsufficientKeywords(Vec<String>),
     UnexpectedKeyword(Span),
 }
@@ -135,7 +136,10 @@ pub(crate) fn match_arguments(
         let middle_count = count - required_count - trailing_count;
         if middle_count > optional_count && function.rest_positionals.is_none() {
             return Err(ArityMismatch::UnexpectedPositional(
-                positionals[required_count + optional_count].span,
+                positionals[required_count + optional_count..count - trailing_count]
+                    .iter()
+                    .map(|positional| positional.span)
+                    .collect(),
             ));
         }
         for (index, positional) in positionals.iter().enumerate() {

@@ -5,7 +5,7 @@ use ruby_prism::{DefNode, Node, ParametersNode};
 
 use super::variables::is_obvious_value;
 use super::{CacheState, Checker, Context, Locals, MethodContext};
-use crate::annotations::DynamicKind;
+use crate::annotations::{AnnotationTarget, DynamicKind};
 use crate::file_index::{InstanceVariableKey, ScopeKind};
 use crate::source::{ConstantPath, Span, constant_text};
 use crate::steep_relation;
@@ -160,6 +160,35 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             ))
         };
         self.report_definition_declaration(definition, &declared_owner, &method_name, &overloads);
+        let annotated_return_type = self
+            .type_annotations_in(scope_start)
+            .filter_map(|(target, annotated_type)| (*target == AnnotationTarget::Return).then(|| annotated_type.clone()))
+            .last()
+            .map(|mut annotated_type| {
+                self.environment.resolve_type_names(&mut annotated_type, &nesting);
+                annotated_type
+            });
+        if let (Some(annotated), Some(declared)) = (&annotated_return_type, &single_return_type)
+            && !steep_relation::is_subtype(self.environment, annotated, declared)
+        {
+            let message = steep_relation::with_detail_lines(
+                format!(
+                    "Annotation `@type return` specifies type `{}` where declared as type `{}`",
+                    annotated.steep_display(),
+                    declared.steep_display()
+                ),
+                self.environment,
+                annotated,
+                declared,
+            );
+            self.record_diagnostic(
+                Span::of_location(&definition.location()),
+                Severity::Error,
+                "Ruby::MethodReturnTypeAnnotationMismatch",
+                message,
+            );
+        }
+        let single_return_type = annotated_return_type.or(single_return_type);
         let block = match overloads.as_slice() {
             [overload] => overload.block.clone(),
             _ => overloads.iter().find_map(|overload| overload.block.clone()),
@@ -191,7 +220,9 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         }
         self.instance_variable_write_frames.push(Vec::new());
         self.method_return_frames.push(Vec::new());
+        let outer_jump_expectations = std::mem::take(&mut self.jump_expectations);
         let body_type = self.infer_optional_node(definition.body(), &context, &mut locals);
+        self.jump_expectations = outer_jump_expectations;
         let returned_types = self.method_return_frames.pop().unwrap_or_default();
         let writes = self
             .instance_variable_write_frames
@@ -325,10 +356,13 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         let [overload] = overloads else {
             return;
         };
-        let parameter_span = definition
-            .parameters()
-            .map(|parameters| Span::of_location(&parameters.location()))
-            .unwrap_or(name_span);
+        let parameter_span = match (definition.lparen_loc(), definition.rparen_loc(), definition.parameters()) {
+            (Some(left_parenthesis), Some(right_parenthesis), _) => {
+                Span { start: left_parenthesis.start_offset(), end: right_parenthesis.end_offset() }
+            }
+            (_, _, Some(parameters)) => Span::of_location(&parameters.location()),
+            _ => name_span,
+        };
         let overload = overload.steep_display();
         for (kind, span) in parameter_kind_errors(definition.parameters(), &overloads[0].function) {
             let (code, severity, message) = match kind {
@@ -885,6 +919,22 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             return Type::Untyped;
         };
         let expression_type = self.infer(&singleton_class.expression(), context, locals);
+        let receiver_type = match &expression_type {
+            Type::SelfType => &context.self_type,
+            other => other,
+        };
+        if self.options.steep_compatible && !matches!(receiver_type, Type::ClassSingleton { .. } | Type::ClassInstance { .. }) {
+            self.record_diagnostic(
+                Span::of_node(node),
+                Severity::Hint,
+                "Ruby::UnsupportedSyntax",
+                format!(
+                    "sclass receiver must be instance type or singleton type, but type given `{}`",
+                    expression_type.steep_display()
+                ),
+            );
+            return Type::Nil;
+        }
         let mut singleton_context = context.clone();
         singleton_context.method = None;
         singleton_context.self_type = match expression_type {
@@ -1002,10 +1052,7 @@ fn parameter_kind_errors(
         }
     }
     for optional in parameters.optionals().iter() {
-        let span = optional
-            .as_optional_parameter_node()
-            .map(|optional| Span::of_location(&optional.name_loc()))
-            .unwrap_or_else(|| Span::of_node(&optional));
+        let span = Span::of_node(&optional);
         let head = if positional_exhausted {
             None
         } else {

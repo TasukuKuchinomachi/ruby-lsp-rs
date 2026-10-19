@@ -594,7 +594,35 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                     .as_ref()
                     .map(PreparedCall::block_signature)
                     .unwrap_or_else(BlockSignature::untyped);
-                Some(self.infer_block(block_node, &signature, context, locals))
+                let block_type = self.infer_block(block_node, &signature, context, locals);
+                let declared_block_return = primary_prepared
+                    .as_ref()
+                    .and_then(|prepared| prepared.overload.as_ref())
+                    .filter(|_| site.reports_diagnostics)
+                    .and_then(|overload| {
+                        let type_parameter_names: Vec<String> =
+                            overload.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
+                        let return_type = overload.block.as_ref()?.function.return_type.clone();
+                        (!contains_variable_in(&return_type, &type_parameter_names) && !contains_uncertain_part(&return_type))
+                            .then_some(return_type)
+                    });
+                if let Some(expected) = declared_block_return
+                    && !matches!(expected, Type::Void)
+                    && self.is_certain_mismatch(&block_type, &expected)
+                {
+                    let message = steep_relation::with_detail_lines(
+                        format!(
+                            "Cannot allow block body have type `{}` because declared as type `{}`",
+                            block_type.steep_display(),
+                            expected.steep_display()
+                        ),
+                        self.environment,
+                        &block_type,
+                        &expected,
+                    );
+                    self.record_diagnostic(Span::of_node(block_node), Severity::Error, "Ruby::BlockBodyTypeMismatch", message);
+                }
+                Some(block_type)
             }
             CallBlock::Argument {
                 argument_type,
@@ -891,13 +919,16 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 "Ruby::InsufficientPositionalArguments",
                 "More positional arguments are required".to_string(),
             ),
-            OverloadError::Arity(ArityMismatch::UnexpectedPositional(span)) => self
-                .record_diagnostic(
-                    *span,
-                    Severity::Error,
-                    "Ruby::UnexpectedPositionalArgument",
-                    "Unexpected positional argument".to_string(),
-                ),
+            OverloadError::Arity(ArityMismatch::UnexpectedPositional(spans)) => {
+                for span in spans {
+                    self.record_diagnostic(
+                        *span,
+                        Severity::Error,
+                        "Ruby::UnexpectedPositionalArgument",
+                        "Unexpected positional argument".to_string(),
+                    );
+                }
+            }
             OverloadError::Arity(ArityMismatch::InsufficientKeywords(names)) => self
                 .record_diagnostic(
                     site.send_span,
@@ -1944,12 +1975,16 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 "Ruby::InsufficientPositionalArguments",
                 "More positional arguments are required".to_string(),
             ),
-            Err(ArityMismatch::UnexpectedPositional(argument_span)) => self.record_diagnostic(
-                argument_span,
-                Severity::Error,
-                "Ruby::UnexpectedPositionalArgument",
-                "Unexpected positional argument".to_string(),
-            ),
+            Err(ArityMismatch::UnexpectedPositional(argument_spans)) => {
+                for argument_span in argument_spans {
+                    self.record_diagnostic(
+                        argument_span,
+                        Severity::Error,
+                        "Ruby::UnexpectedPositionalArgument",
+                        "Unexpected positional argument".to_string(),
+                    );
+                }
+            }
             Err(_) => {}
             Ok(pairs) => {
                 for pair in pairs {

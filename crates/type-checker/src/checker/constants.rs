@@ -331,6 +331,22 @@ impl<'pr> Checker<'_, 'pr> {
                     return Type::Untyped;
                 };
                 let value_type = self.infer(&write.value(), context, locals);
+                let written = constant_text(&write.name());
+                if let Some(annotated) = self.annotated_constant_type(Span::of_node(node), &written, &context.nesting) {
+                    let snapshot = locals.clone();
+                    self.assignment_span = Some(Span::of_node(node));
+                    self.report_incompatible_assignment(
+                        Span::of_location(&write.name_loc()),
+                        &annotated,
+                        &value_type,
+                        Some(&write.value()),
+                        "a constant",
+                        context,
+                        &snapshot,
+                    );
+                    self.assignment_span = None;
+                    return value_type;
+                }
                 let name = qualify(context.namespace(), &constant_text(&write.name()));
                 if !self.constant_cache.contains_key(&name) {
                     self.constant_cache
@@ -373,6 +389,29 @@ impl<'pr> Checker<'_, 'pr> {
                     &value_type,
                 );
                 value_type
+            }
+            Node::ConstantPathWriteNode { .. } => {
+                let Some(write) = node.as_constant_path_write_node() else {
+                    return Type::Untyped;
+                };
+                let target = write.target();
+                let name_span = Span::of_location(&target.name_loc());
+                let name = target.name().map(|name| constant_text(&name)).unwrap_or_default();
+                let parent_name = match target.parent() {
+                    Some(parent) => match self.infer(&parent, context, locals) {
+                        Type::ClassSingleton { name } => Some(name),
+                        _ => None,
+                    },
+                    None => Some(String::new()),
+                };
+                if let Some(parent_name) = parent_name {
+                    let full_name = qualify(&parent_name, &name);
+                    let declared = self.classify_constant(&full_name).is_some_and(|resolved| resolved.is_declared_in_signature());
+                    if !declared {
+                        self.report_unknown_constant(name_span, &name, &[]);
+                    }
+                }
+                self.infer(&write.value(), context, locals)
             }
             _ => {
                 let mut value_type = Type::Untyped;

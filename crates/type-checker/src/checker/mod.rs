@@ -510,13 +510,10 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             if name != variable_name {
                 return None;
             }
-            let class_scope = self
-                .file_index
-                .innermost_scope(annotation.offset, |kind| kind == ScopeKind::Class)?;
-            let annotated_class = self
-                .file_index
-                .class_names_by_offset
-                .get(&class_scope.span.start)?;
+            let annotated_class = match self.file_index.innermost_scope(annotation.offset, |kind| kind == ScopeKind::Class) {
+                Some(class_scope) => self.file_index.class_names_by_offset.get(&class_scope.span.start)?.as_str(),
+                None => "Object",
+            };
             if annotated_class != class_name {
                 return None;
             }

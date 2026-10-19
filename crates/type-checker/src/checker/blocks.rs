@@ -5,7 +5,7 @@ use ruby_prism::{Node, ParametersNode};
 
 use super::variables::IT_PARAMETER_KEY;
 use super::{Checker, Context, Locals};
-use crate::TypeHintKind;
+use crate::{Severity, TypeHintKind};
 use crate::annotations::AnnotationTarget;
 use crate::source::{Span, constant_text};
 use crate::type_utilities::{array_of, hash_of, is_bottom};
@@ -177,6 +177,7 @@ impl<'pr> Checker<'_, 'pr> {
                 relaxed_names.push(name.clone());
             }
         }
+        let block_parameter_info = block_parameter(parameters.as_ref());
         let parameter_names = self.assign_block_parameters(
             parameters,
             signature,
@@ -194,6 +195,17 @@ impl<'pr> Checker<'_, 'pr> {
                 _ => None,
             })
             .collect();
+        if let Some((block_parameter_name, block_parameter_span)) = block_parameter_info
+            && let Some((_, annotated_type)) = annotated_parameters.iter().find(|(name, _)| *name == block_parameter_name)
+            && !is_proc_or_optional_proc(&self.expand_alias_deeply(annotated_type, 0))
+        {
+            self.record_diagnostic(
+                block_parameter_span,
+                Severity::Error,
+                "Ruby::ProcTypeExpected",
+                format!("Proc type is expected but `{}` is specified", annotated_type.steep_display()),
+            );
+        }
         parameter_locals.extend(annotated_parameters);
         let (block_locals, (body_type, next_types)) = self.infer_repeatedly(
             &parameter_locals,
@@ -506,6 +518,25 @@ impl<'pr> Checker<'_, 'pr> {
             block: None,
             self_type: signature.self_type.clone(),
         }))
+    }
+}
+
+/// The name and the node of `&block` among the parameters of a block or lambda
+fn block_parameter(parameters: Option<&Node<'_>>) -> Option<(String, Span)> {
+    let block_parameters = parameters?.as_block_parameters_node()?;
+    let block = block_parameters.parameters()?.block()?;
+    Some((constant_text(&block.name()?), Span::of_node(&block.as_node())))
+}
+
+/// Steep's block parameter types: a proc type, or one that is optional
+fn is_proc_or_optional_proc(parameter_type: &Type) -> bool {
+    match parameter_type {
+        Type::Proc(_) | Type::Untyped => true,
+        Type::Union(members) => {
+            members.iter().any(|member| matches!(member, Type::Proc(_)))
+                && members.iter().all(|member| matches!(member, Type::Proc(_) | Type::Nil))
+        }
+        _ => false,
     }
 }
 

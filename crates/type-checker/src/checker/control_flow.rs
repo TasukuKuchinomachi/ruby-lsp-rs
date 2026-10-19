@@ -966,7 +966,7 @@ impl<'pr> Checker<'_, 'pr> {
             self.infer_repeatedly(&body_locals, &[], &[], |checker, iteration_locals| {
                 checker.block_next_frames.push(Vec::new());
                 checker.jump_expectations.push(super::JumpExpectation {
-                    break_type: None,
+                    break_type: Some(Type::Nil),
                     next_type: None,
                 });
                 let statements = statements
@@ -1005,7 +1005,7 @@ impl<'pr> Checker<'_, 'pr> {
             self.infer_repeatedly(&body_locals, &[], &[], |checker, iteration_locals| {
                 checker.block_next_frames.push(Vec::new());
                 checker.jump_expectations.push(super::JumpExpectation {
-                    break_type: None,
+                    break_type: Some(Type::Nil),
                     next_type: None,
                 });
                 checker.infer_optional_statements(for_node.statements(), context, iteration_locals);
@@ -1190,6 +1190,9 @@ impl<'pr> Checker<'_, 'pr> {
             return Type::Bottom;
         };
         let next_type = self.infer_jump_value(next_node.arguments(), context, locals);
+        if self.jump_expectations.is_empty() {
+            self.report_unexpected_jump(node);
+        }
         if let Some(expected) = self
             .jump_expectations
             .last()
@@ -1216,6 +1219,9 @@ impl<'pr> Checker<'_, 'pr> {
         };
         let has_value = break_node.arguments().is_some();
         let break_type = self.infer_jump_value(break_node.arguments(), context, locals);
+        if self.jump_expectations.is_empty() {
+            self.report_unexpected_jump(node);
+        }
         let Some(expected) = self
             .jump_expectations
             .last()
@@ -1242,6 +1248,10 @@ impl<'pr> Checker<'_, 'pr> {
             self.record_diagnostic(Span::of_node(node), Severity::Hint, "Ruby::ImplicitBreakValueMismatch", message);
         }
         Type::Bottom
+    }
+
+    fn report_unexpected_jump(&mut self, node: &Node<'pr>) {
+        self.record_diagnostic(Span::of_node(node), Severity::Error, "Ruby::UnexpectedJump", "Cannot jump from here".to_string());
     }
 
     fn break_type_mismatch_message(&self, actual: &Type, expected: &Type) -> String {
