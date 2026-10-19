@@ -689,6 +689,12 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             };
             lookups.push(lookup);
         }
+        if self.options.steep_compatible
+            && lookups.len() > 1
+            && let Some(merged) = union_found_method(&lookups)
+        {
+            lookups = vec![Lookup::Found(Box::new(merged))];
+        }
         let has_block = !matches!(site.block, CallBlock::Absent);
         let primary_index = lookups
             .iter()
@@ -1183,6 +1189,12 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 }
             })
             .collect();
+        // Steep reports the receiver type after `deep_expand_alias`
+        let receiver_type = if self.options.steep_compatible {
+            expand_aliases(self.environment, receiver_type, 0)
+        } else {
+            receiver_type.clone()
+        };
         self.record_diagnostic(
             site.expression_span,
             Severity::Error,
@@ -2397,6 +2409,87 @@ fn record_field(
     } else {
         Type::optional(field.field_type.clone())
     })
+}
+
+/// Steep's `union_shape`: the method of a union joins the method types of its members, accepting what every member
+/// accepts and returning what any of them returns. `None` when a member lacks the method or has a method type this
+/// does not join, which leaves the members checked one by one
+fn union_found_method(lookups: &[Lookup]) -> Option<FoundMethod> {
+    let mut found_methods = lookups.iter().map(|lookup| match lookup {
+        Lookup::Found(found) => Some(found.as_ref()),
+        _ => None,
+    });
+    let first = found_methods.next()??;
+    let mut merged = first.clone();
+    for found in found_methods {
+        let found = found?;
+        merged.overloads = union_overloads(&merged.overloads, &found.overloads)?;
+        merged.is_private |= found.is_private;
+    }
+    Some(merged)
+}
+
+fn union_overloads(overloads: &[MethodType], other_overloads: &[MethodType]) -> Option<Vec<MethodType>> {
+    if overloads == other_overloads {
+        return Some(overloads.to_vec());
+    }
+    let mut merged: Vec<MethodType> = Vec::new();
+    for overload in overloads {
+        for other_overload in other_overloads {
+            let joined = if overload == other_overload {
+                overload.clone()
+            } else {
+                union_method_type(overload, other_overload)?
+            };
+            if !merged.contains(&joined) {
+                merged.push(joined);
+            }
+        }
+    }
+    (!merged.is_empty()).then_some(merged)
+}
+
+/// Steep's `MethodType#|` for method types without type parameters, blocks and parameters but required positionals
+fn union_method_type(overload: &MethodType, other_overload: &MethodType) -> Option<MethodType> {
+    let takes_only_required_positionals = |method_type: &MethodType| {
+        let function = &method_type.function;
+        method_type.type_parameters.is_empty()
+            && method_type.block.is_none()
+            && !function.untyped_parameters
+            && function.optional_positionals.is_empty()
+            && function.rest_positionals.is_none()
+            && function.trailing_positionals.is_empty()
+            && function.required_keywords.is_empty()
+            && function.optional_keywords.is_empty()
+            && function.rest_keywords.is_none()
+    };
+    if !takes_only_required_positionals(overload)
+        || !takes_only_required_positionals(other_overload)
+        || overload.function.required_positionals.len() != other_overload.function.required_positionals.len()
+    {
+        return None;
+    }
+    let mut joined = overload.clone();
+    for (parameter, other_parameter) in joined
+        .function
+        .required_positionals
+        .iter_mut()
+        .zip(&other_overload.function.required_positionals)
+    {
+        let mut members = match &parameter.parameter_type {
+            Type::Intersection(members) => members.clone(),
+            single => vec![single.clone()],
+        };
+        if !members.contains(&other_parameter.parameter_type) {
+            members.push(other_parameter.parameter_type.clone());
+        }
+        if members.len() > 1 {
+            parameter.parameter_type = Type::Intersection(members);
+        }
+    }
+    joined.function.return_type =
+        Type::union(vec![overload.function.return_type.clone(), other_overload.function.return_type.clone()]);
+    Some(joined)
 }
 
 /// Steep's special case applies to the `compact` of `Array`, `Enumerable` and `Hash`, not to a `compact` that a class
