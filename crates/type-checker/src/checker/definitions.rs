@@ -9,7 +9,7 @@ use crate::annotations::{AnnotationTarget, DynamicKind};
 use crate::file_index::{InstanceVariableKey, ScopeKind};
 use crate::source::{ConstantPath, Span, constant_text};
 use crate::steep_relation;
-use crate::type_utilities::{array_of, hash_of, self_instance_type};
+use crate::type_utilities::{array_of, hash_of, module_instance_self_type, self_instance_type};
 use crate::{HoverKind, Severity, TypeHintKind};
 
 struct DefinitionOwner {
@@ -133,6 +133,10 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             Type::ClassSingleton {
                 name: self_owner.to_string(),
             }
+        } else if self.options.steep_compatible
+            && let Some(module_self_type) = module_instance_self_type(self.environment, self_owner)
+        {
+            module_self_type
         } else {
             self_instance_type(self.environment, self_owner)
         };

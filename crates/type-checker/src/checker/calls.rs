@@ -1205,15 +1205,32 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 }
                 self.lookup_instance("Proc", &[], member, method_name, context, depth)
             }
+            // Steep merges the shapes of the members in order, so a later member's method wins unless it turns a
+            // public method private
             Type::Intersection(members) => {
+                let mut found_method: Option<Box<FoundMethod>> = None;
+                let mut all_missing = true;
+                let mut reportable_missing = true;
                 for intersection_member in members {
-                    if let Lookup::Found(found) =
-                        self.lookup_member(intersection_member, method_name, context, depth + 1)
-                    {
-                        return Lookup::Found(found);
+                    match self.lookup_member(intersection_member, method_name, context, depth + 1) {
+                        Lookup::Found(found) => {
+                            all_missing = false;
+                            let keeps_public = found_method
+                                .as_ref()
+                                .is_some_and(|previous| !previous.is_private && found.is_private);
+                            if !keeps_public {
+                                found_method = Some(found);
+                            }
+                        }
+                        Lookup::Missing { reportable } => reportable_missing &= reportable,
+                        _ => all_missing = false,
                     }
                 }
-                Lookup::Unknown
+                match found_method {
+                    Some(found) => Lookup::Found(found),
+                    None if all_missing => Lookup::Missing { reportable: reportable_missing },
+                    None => Lookup::Unknown,
+                }
             }
             Type::Union(_) => Lookup::Unknown,
         }
@@ -1931,23 +1948,29 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             infer_untyped_block(self, locals);
             return Type::Untyped;
         };
+        let (expression_span, displayed_receiver) = if self.options.steep_compatible {
+            (Span::of_node(node), context.self_type.clone())
+        } else {
+            (keyword_span, receiver.clone())
+        };
         let site = CallSite {
             method_name: method.name.clone(),
             name_span: keyword_span,
             block,
             is_self_call: true,
-            reports_diagnostics: false,
+            reports_diagnostics: self.options.steep_compatible,
             deferred_lambdas: Vec::new(),
-            expression_span: keyword_span,
-            send_span: keyword_span,
-            no_method_span: keyword_span,
+            expression_span,
+            send_span: expression_span,
+            no_method_span: expression_span,
         };
-        self.dispatch_call(&receiver, &receiver, &site, &arguments, context, locals)
+        self.dispatch_call(&receiver, &displayed_receiver, &site, &arguments, context, locals)
     }
 
     /// A receiver whose lookup finds Steep's `super_method`: the method the class's own declaration overrides, which
-    /// the next ancestor declaring it has (an included module comes before the superclass), or the inherited one when
-    /// the class does not declare it. `None` when there is no such method
+    /// the next ancestor declaring it has (an included module comes before the superclass, and a module's self types
+    /// come after its ancestors), or the whole method when the class does not declare it or extends it with `...`.
+    /// `None` when there is no such method
     fn super_method_receiver(&self, owner: &str, singleton: bool, method_name: &str) -> Option<Type> {
         let declaration = self.environment.classes.get(owner)?;
         let declared_here = if singleton {
@@ -1965,21 +1988,31 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 .find_singleton_method(superclass, method_name)
                 .map(|_| Type::ClassSingleton { name: superclass.clone() });
         }
-        if !declared_here {
+        let extends_inherited_overloads = declaration
+            .instance_methods
+            .get(method_name)
+            .is_some_and(|method| method.ends_with_inherited_overloads);
+        if !declared_here || extends_inherited_overloads {
             return Some(instance_type_of_class(self.environment, owner));
         }
         self.environment
-            .ancestors(owner)
-            .iter()
+            .instance_lookup_chain(owner)
+            .into_iter()
             .skip_while(|ancestor| ancestor.name != owner)
             .skip(1)
-            .find(|ancestor| {
-                self.environment
-                    .classes
-                    .get(&ancestor.name)
-                    .is_some_and(|ancestor_declaration| ancestor_declaration.instance_methods.contains_key(method_name))
+            .find_map(|ancestor| {
+                if let Some(ancestor_declaration) = self.environment.classes.get(&ancestor.name) {
+                    return ancestor_declaration
+                        .instance_methods
+                        .contains_key(method_name)
+                        .then(|| instance_type_of_class(self.environment, &ancestor.name));
+                }
+                let interface = self.environment.interfaces.get(&ancestor.name)?;
+                interface.methods.contains_key(method_name).then(|| Type::Interface {
+                    name: ancestor.name.clone(),
+                    arguments: ancestor.arguments.clone(),
+                })
             })
-            .map(|ancestor| instance_type_of_class(self.environment, &ancestor.name))
     }
 
     pub(crate) fn infer_yield(

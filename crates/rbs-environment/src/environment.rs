@@ -59,6 +59,9 @@ pub struct MethodDefinition {
     pub annotations: Vec<String>,
     /// Defined by `attr_reader` or `attr_accessor`
     pub is_attribute_reader: bool,
+    /// `def foo: (A) -> B | ...` extending a method of an ancestor, so the last overload comes from the ancestor as
+    /// RBS orders them, which makes Steep take the whole method as the super method
+    pub ends_with_inherited_overloads: bool,
 }
 
 #[derive(Debug, Clone)]

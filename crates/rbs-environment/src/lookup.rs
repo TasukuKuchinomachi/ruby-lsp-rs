@@ -230,7 +230,7 @@ impl Environment {
 
     /// Instance ancestors followed, for modules, by the ancestors of the module self types and of `Object`, since a
     /// module's instance is always some object
-    pub(crate) fn instance_lookup_chain(&self, name: &str) -> Vec<Ancestor> {
+    pub fn instance_lookup_chain(&self, name: &str) -> Vec<Ancestor> {
         let mut chain = self.ancestors(name);
         let module = self
             .resolve_class_name(name)

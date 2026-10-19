@@ -917,6 +917,7 @@ impl<'source> Converter<'source> {
                                 comment: comment_text(method.comment()),
                                 annotations: method_annotations(&method),
                                 is_attribute_reader: false,
+                                ends_with_inherited_overloads: false,
                             };
                             self.insert_interface_method(&mut declaration, definition);
                         }
@@ -940,6 +941,7 @@ impl<'source> Converter<'source> {
                                 comment: comment_text(alias.comment()),
                                 annotations: annotation_texts(alias.annotations()),
                                 is_attribute_reader: false,
+                                ends_with_inherited_overloads: false,
                             };
                             self.insert_interface_method(&mut declaration, definition);
                         }
@@ -1239,6 +1241,7 @@ impl<'source> Converter<'source> {
                                 comment: comment_text(method.comment()),
                                 annotations: method_annotations(&method),
                                 is_attribute_reader: false,
+                                ends_with_inherited_overloads: false,
                             },
                             overloading: method.overloading(),
                         });
@@ -1293,6 +1296,7 @@ impl<'source> Converter<'source> {
                             comment: comment_text(alias.comment()),
                             annotations: annotation_texts(alias.annotations()),
                             is_attribute_reader: false,
+                            ends_with_inherited_overloads: false,
                         },
                         overloading: false,
                     });
@@ -1882,6 +1886,7 @@ impl Attribute {
                     comment: self.comment.clone(),
                     annotations: self.annotations.clone(),
                     is_attribute_reader,
+                    ends_with_inherited_overloads: false,
                 },
                 overloading: false,
             })
@@ -2527,6 +2532,7 @@ fn synthesize_new_methods(environment: &mut Environment) {
             comment: initialize.comment.clone(),
             annotations: initialize.annotations.clone(),
             is_attribute_reader: false,
+            ends_with_inherited_overloads: false,
         };
         declaration
             .singleton_methods
@@ -2592,6 +2598,7 @@ fn apply_inherited_overloadings(
         };
         if let Some(method) = methods.get_mut(&pending.method_name) {
             method.overloads.extend(overloads);
+            method.ends_with_inherited_overloads = true;
         }
     }
     diagnostics
