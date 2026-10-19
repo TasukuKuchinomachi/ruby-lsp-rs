@@ -9,6 +9,7 @@ use ruby_rbs_sys::bindings::{
 
 use crate::environment::{ClassKind, Environment, Location, MethodKind, SourcePosition};
 use crate::loader::{UseClause, is_interface_name, parallel_map};
+use crate::navigation::SignatureTarget;
 use crate::types::{NameKind, TypeName, TypeParameter};
 
 pub const SYNTAX_ERROR: &str = "RBS::SyntaxError";
@@ -195,6 +196,12 @@ pub(crate) enum ValidationOwner {
     Global(String),
 }
 
+/// A name a signature file defines, kept for jumping from the signature to its implementation
+pub(crate) struct DefinedNameRecord {
+    pub(crate) target: SignatureTarget,
+    pub(crate) location: Location,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ValidationMember {
     Declaration,
@@ -222,6 +229,7 @@ pub(crate) struct FileValidation {
     pub(crate) references: Vec<TypeReference>,
     pub(crate) declarations: Vec<DeclarationRecord>,
     pub(crate) method_aliases: Vec<MethodAliasRecord>,
+    pub(crate) defined_names: Vec<DefinedNameRecord>,
     pub(crate) diagnostics: Vec<SignatureDiagnostic>,
 }
 
@@ -346,9 +354,17 @@ pub(crate) fn finish_diagnostics(diagnostics: &mut Vec<SignatureDiagnostic>) {
     });
 }
 
-struct FileValidator<'a> {
-    environment: &'a Environment,
-    uses: &'a [UseClause],
+fn interface_or_class(written_name: &str) -> NameKind {
+    if is_interface_name(written_name) {
+        NameKind::Interface
+    } else {
+        NameKind::Class
+    }
+}
+
+pub(crate) struct FileValidator<'a> {
+    pub(crate) environment: &'a Environment,
+    pub(crate) uses: &'a [UseClause],
 }
 
 impl FileValidator<'_> {
@@ -378,11 +394,7 @@ impl FileValidator<'_> {
                 format!("Cannot find type `{}`", reference.written_name),
             )
         };
-        let interface_or_class = if is_interface_name(&reference.written_name) {
-            NameKind::Interface
-        } else {
-            NameKind::Class
-        };
+        let interface_or_class = interface_or_class(&reference.written_name);
         match &reference.kind {
             ReferenceKind::Type(kind) => match self.resolve(*kind, reference) {
                 Some(name) => self.check_arity(*kind, &name, reference, diagnostics),
@@ -432,6 +444,23 @@ impl FileValidator<'_> {
                 }
             }
         }
+    }
+
+    pub(crate) fn resolve_reference(
+        &self,
+        reference: &TypeReference,
+    ) -> Option<(NameKind, TypeName)> {
+        let kind = match &reference.kind {
+            ReferenceKind::Type(kind) => *kind,
+            ReferenceKind::Singleton
+            | ReferenceKind::ClassAliasTarget
+            | ReferenceKind::SuperClass { .. } => NameKind::Class,
+            ReferenceKind::InterfaceInclude => NameKind::Interface,
+            ReferenceKind::Mixin { .. } | ReferenceKind::ModuleSelfType => {
+                interface_or_class(&reference.written_name)
+            }
+        };
+        self.resolve(kind, reference).map(|name| (kind, name))
     }
 
     fn class_kind(&self, name: &str) -> Option<ClassKind> {

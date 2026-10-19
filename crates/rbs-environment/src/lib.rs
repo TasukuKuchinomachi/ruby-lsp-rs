@@ -2,6 +2,7 @@ pub mod diagnostic_configuration;
 pub mod environment;
 pub mod loader;
 pub mod lookup;
+pub mod navigation;
 pub mod signature_validation;
 pub mod steep_compatibility;
 pub mod types;
@@ -13,6 +14,7 @@ pub use diagnostic_configuration::{
 pub use environment::*;
 pub use loader::{Loader, parse_type};
 pub use lookup::SingletonAncestor;
+pub use navigation::SignatureTarget;
 pub use signature_validation::{SignatureDiagnostic, signature_syntax_error};
 pub use steep_compatibility::{DefinitionError, DuplicatedMethodDefinition};
 pub use types::*;
