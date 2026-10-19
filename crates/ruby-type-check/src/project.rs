@@ -4,15 +4,34 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
-use rbs_environment::{DiagnosticConfiguration, DiagnosticSeverity, Environment, SteepfileConfiguration, WorkspaceSources};
+use rbs_environment::{
+    DiagnosticConfiguration, DiagnosticSeverity, Environment, SteepfileConfiguration, SteepfileTarget, WorkspaceSources,
+};
 use ruby_environment::RubyEnvironment;
 use ruby_file_glob::fnmatch;
 use type_checker::{Analysis, AnalysisOptions, Severity, TypeDiagnostic};
 
 pub struct LoadedEnvironment {
-    pub environment: Arc<Environment>,
+    /// One for each target of the `Steepfile`, as Steep loads one environment for each target. A single one without
+    /// a name serves every target when the environments would be the same, or when there is no target
+    pub targets: Vec<LoadedTarget>,
     pub steepfile: Option<SteepfileConfiguration>,
     pub duration: Duration,
+}
+
+pub struct LoadedTarget {
+    pub name: Option<String>,
+    pub environment: Arc<Environment>,
+}
+
+impl LoadedEnvironment {
+    /// The environment of the target named `target_name`, or the shared one
+    pub fn environment_for(&self, target_name: Option<&str>) -> Option<&Arc<Environment>> {
+        self.targets
+            .iter()
+            .find(|target| target.name.is_none() || target.name.as_deref() == target_name)
+            .map(|target| &target.environment)
+    }
 }
 
 pub fn workspace_sources(ruby_environment: &RubyEnvironment) -> WorkspaceSources {
@@ -33,31 +52,76 @@ pub fn missing_core_warning(sources: &WorkspaceSources) -> Option<String> {
     (!found).then(|| "The rbs gem was not found, so core signatures are not loaded and most types will be untyped".to_string())
 }
 
-pub fn load_environment(workspace_path: &Path, sources: &WorkspaceSources) -> LoadedEnvironment {
+/// The `Steepfile` as Ruby runs it, or as `rbs_environment::read_steepfile` reads it when Ruby cannot
+pub fn read_steepfile(workspace_path: &Path, ruby_command: &[String]) -> Option<SteepfileConfiguration> {
+    rbs_environment::evaluate_steepfile(workspace_path, ruby_command)
+        .unwrap_or_else(|_| rbs_environment::read_steepfile(workspace_path))
+}
+
+pub fn load_environment(workspace_path: &Path, sources: &WorkspaceSources, ruby_command: &[String]) -> LoadedEnvironment {
     let started_at = Instant::now();
-    let steepfile = rbs_environment::read_steepfile(workspace_path);
-    let environment = rbs_environment::load_workspace(workspace_path, sources);
-    LoadedEnvironment { environment: Arc::new(environment), steepfile, duration: started_at.elapsed() }
+    let steepfile = read_steepfile(workspace_path, ruby_command);
+    let load = |target: Option<&SteepfileTarget>| {
+        Arc::new(rbs_environment::load_target(workspace_path, sources, steepfile.as_ref(), target))
+    };
+    let targets = match &steepfile {
+        Some(configuration) if !has_same_environment_for_every_target(configuration) => configuration
+            .targets
+            .iter()
+            .map(|target| LoadedTarget { name: Some(target.name.clone()), environment: load(Some(target)) })
+            .collect(),
+        _ => vec![LoadedTarget { name: None, environment: load(None) }],
+    };
+    LoadedEnvironment { targets, steepfile, duration: started_at.elapsed() }
+}
+
+/// Without `unreferenced!`, every target loads the signatures of all the targets, so their environments differ only
+/// when `implicitly_returns_nil!` does
+fn has_same_environment_for_every_target(configuration: &SteepfileConfiguration) -> bool {
+    let mut targets = configuration.targets.iter();
+    let Some(first) = targets.next() else { return true };
+    !first.unreferenced
+        && targets.all(|target| !target.unreferenced && target.implicitly_returns_nil == first.implicitly_returns_nil)
 }
 
 pub fn load_summary(loaded: &LoadedEnvironment) -> String {
-    let environment = &loaded.environment;
+    let count = |measure: fn(&Environment) -> usize| {
+        loaded.targets.iter().map(|target| measure(&target.environment)).max().unwrap_or_default()
+    };
     format!(
         "Loaded RBS environment in {} ms ({} classes, {} interfaces, {} errors)",
         loaded.duration.as_millis(),
-        environment.classes.len(),
-        environment.interfaces.len(),
-        environment.errors.len()
+        count(|environment| environment.classes.len()),
+        count(|environment| environment.interfaces.len()),
+        count(|environment| environment.errors.len())
     )
 }
 
-pub fn load_error_report(environment: &Environment) -> Option<String> {
-    if environment.errors.is_empty() {
-        return None;
+/// The target `code_diagnostics_for` looks the configuration up from
+pub fn target_for<'a>(
+    workspace_path: &Path,
+    steepfile: Option<&'a SteepfileConfiguration>,
+    path: &Path,
+) -> Option<&'a SteepfileTarget> {
+    let relative_path = path.strip_prefix(workspace_path).ok()?;
+    group_for(workspace_path, steepfile?, relative_path).map(|(target, _)| target)
+}
+
+/// Whether `path` is a signature file of `target` itself, which Steep validates for that target
+pub fn is_signature_path_of(workspace_path: &Path, target: &SteepfileTarget, path: &Path) -> bool {
+    let Ok(relative_path) = path.strip_prefix(workspace_path) else { return false };
+    target.signature_patterns.iter().any(|pattern| pattern_matches(workspace_path, pattern, relative_path))
+}
+
+pub fn load_error_report(loaded: &LoadedEnvironment) -> Option<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for error in loaded.targets.iter().flat_map(|target| &target.environment.errors) {
+        let line = format!("{}: {}", error.path.display(), error.message);
+        if !lines.contains(&line) {
+            lines.push(line);
+        }
     }
-    let lines: Vec<String> =
-        environment.errors.iter().map(|error| format!("{}: {}", error.path.display(), error.message)).collect();
-    Some(format!("RBS errors:\n{}", lines.join("\n")))
+    (!lines.is_empty()).then(|| format!("RBS errors:\n{}", lines.join("\n")))
 }
 
 /// Without a `Steepfile` every file in the workspace is checked, like Steep's default `check "."`
@@ -87,6 +151,15 @@ pub fn code_diagnostics_for<'a>(
 ) -> Option<&'a DiagnosticConfiguration> {
     let relative_path = path.strip_prefix(workspace_path).ok()?;
     let Some(steepfile) = steepfile else { return Some(&DEFAULT_CODE_DIAGNOSTICS) };
+    group_for(workspace_path, steepfile, relative_path).map(|(_, code_diagnostics)| code_diagnostics)
+}
+
+/// The target and the diagnostics configuration of the group or target that takes the file
+fn group_for<'a>(
+    workspace_path: &Path,
+    steepfile: &'a SteepfileConfiguration,
+    relative_path: &Path,
+) -> Option<(&'a SteepfileTarget, &'a DiagnosticConfiguration)> {
     let takes = |check_paths: &[PathBuf], ignore_paths: &[PathBuf]| {
         let matches = |pattern: &PathBuf| pattern_matches(workspace_path, pattern, relative_path);
         check_paths.iter().any(matches) && !ignore_paths.iter().any(matches)
@@ -98,6 +171,7 @@ pub fn code_diagnostics_for<'a>(
             .find(|group| takes(&group.check_paths, &group.ignore_paths))
             .map(|group| &group.code_diagnostics)
             .or_else(|| takes(&target.check_paths, &target.ignore_paths).then_some(&target.code_diagnostics))
+            .map(|code_diagnostics| (target, code_diagnostics))
     })
 }
 
@@ -180,6 +254,8 @@ mod tests {
             code_diagnostics,
             groups: Vec::new(),
             implicitly_returns_nil: false,
+            signature_patterns: Vec::new(),
+            unreferenced: false,
         }
     }
 

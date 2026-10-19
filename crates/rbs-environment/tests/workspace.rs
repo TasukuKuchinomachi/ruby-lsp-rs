@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rbs_environment::{
     DiagnosticConfiguration, DiagnosticSeverity, DiagnosticTemplate, SteepfileConfiguration,
-    SteepfileGroup, SteepfileTarget, WorkspaceSources, load_workspace, read_steepfile,
+    SteepfileGroup, SteepfileTarget, WorkspaceSources, evaluate_steepfile, load_workspace, read_steepfile,
 };
 
 struct TemporaryDirectory {
@@ -84,6 +84,8 @@ fn read_steepfile_merges_every_target() {
                     code_diagnostics: strict_with_information_no_method(),
                     groups: Vec::new(),
                     implicitly_returns_nil: false,
+                    signature_patterns: vec![root.join("sig"), root.join("sig-private")],
+                    unreferenced: false,
                 },
                 SteepfileTarget {
                     name: "test".to_string(),
@@ -92,9 +94,64 @@ fn read_steepfile_merges_every_target() {
                     code_diagnostics: DiagnosticConfiguration::default(),
                     groups: Vec::new(),
                     implicitly_returns_nil: false,
+                    signature_patterns: vec![root.join("sig-test")],
+                    unreferenced: false,
                 },
             ],
         })
+    );
+}
+
+#[test]
+fn evaluate_steepfile_reads_what_read_steepfile_reads() {
+    let workspace = TemporaryDirectory::new("evaluated-steepfile");
+    workspace.write("Steepfile", STEEPFILE);
+    let ruby_command = vec!["ruby".to_string()];
+    let Ok(evaluated) = evaluate_steepfile(&workspace.path, &ruby_command) else {
+        eprintln!("skipped: Ruby is not found");
+        return;
+    };
+    assert_eq!(evaluated, read_steepfile(&workspace.path));
+}
+
+#[test]
+fn evaluate_steepfile_runs_ruby_written_in_the_steepfile() {
+    let workspace = TemporaryDirectory::new("ruby-steepfile");
+    workspace.write("a.rbs", "class A\nend\n");
+    workspace.write("b.rbs", "class B\nend\n");
+    workspace.write(
+        "Steepfile",
+        r#"
+Pathname.glob("*.rbs").sort.each do |path|
+  target path.basename(".rbs").to_s.to_sym do
+    unreferenced!
+    signature path.to_s
+    implicitly_returns_nil! true
+    configure_code_diagnostics(Steep::Diagnostic::Ruby.all_error)
+  end
+end
+"#,
+    );
+    let ruby_command = vec!["ruby".to_string()];
+    let Ok(Some(configuration)) = evaluate_steepfile(&workspace.path, &ruby_command) else {
+        eprintln!("skipped: Ruby is not found");
+        return;
+    };
+    let targets: Vec<(&str, &[PathBuf], bool, bool)> = configuration
+        .targets
+        .iter()
+        .map(|target| {
+            (target.name.as_str(), target.signature_patterns.as_slice(), target.unreferenced, target.implicitly_returns_nil)
+        })
+        .collect();
+    let root = &workspace.path;
+    assert_eq!(targets, vec![
+        ("a", [root.join("a.rbs")].as_slice(), true, true),
+        ("b", [root.join("b.rbs")].as_slice(), true, true),
+    ]);
+    assert_eq!(
+        configuration.targets[0].code_diagnostics,
+        DiagnosticConfiguration::from_template(DiagnosticTemplate::AllError)
     );
 }
 
@@ -275,6 +332,8 @@ end
                     },
                 ],
                 implicitly_returns_nil: false,
+                signature_patterns: Vec::new(),
+                unreferenced: false,
             },
             SteepfileTarget {
                 name: "test".to_string(),
@@ -285,6 +344,8 @@ end
                 ),
                 groups: Vec::new(),
                 implicitly_returns_nil: false,
+                signature_patterns: Vec::new(),
+                unreferenced: false,
             },
         ]
     );

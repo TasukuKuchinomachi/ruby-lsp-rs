@@ -43,6 +43,10 @@ pub struct SteepfileTarget {
     pub groups: Vec<SteepfileGroup>,
     /// `implicitly_returns_nil!`, which takes `true` without an argument
     pub implicitly_returns_nil: bool,
+    /// The `signature` patterns of the target alone
+    pub signature_patterns: Vec<PathBuf>,
+    /// `unreferenced!`: the other targets do not load the signatures of this target
+    pub unreferenced: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -162,7 +166,12 @@ impl SteepfileReader<'_> {
                 .and_then(|block| block.body())
                 .and_then(|body| body.as_statements_node());
             match call.name().as_slice() {
-                b"signature" => self.configuration.signature_patterns.extend(paths()),
+                b"signature" => {
+                    self.configuration.signature_patterns.extend(paths());
+                    if let Scope::Target(builder) = scope {
+                        builder.target.signature_patterns.extend(paths());
+                    }
+                }
                 b"check" => {
                     self.configuration.check_paths.extend(paths());
                     if let Some((check_paths, _)) = scope.pattern_lists() {
@@ -197,6 +206,14 @@ impl SteepfileReader<'_> {
                     }
                     continue;
                 }
+                b"unreferenced!" => {
+                    if let Scope::Target(builder) = scope {
+                        let argument = call.arguments().and_then(|arguments| arguments.arguments().iter().next());
+                        builder.target.unreferenced =
+                            argument.is_none_or(|argument| argument.as_false_node().is_none() && argument.as_nil_node().is_none());
+                    }
+                    continue;
+                }
                 b"target" if matches!(scope, Scope::TopLevel) => {
                     let mut builder = TargetBuilder {
                         target: SteepfileTarget {
@@ -206,6 +223,8 @@ impl SteepfileReader<'_> {
                             code_diagnostics: DiagnosticConfiguration::default(),
                             groups: Vec::new(),
                             implicitly_returns_nil: false,
+                            signature_patterns: Vec::new(),
+                            unreferenced: false,
                         },
                         groups: Vec::new(),
                     };
@@ -464,7 +483,7 @@ fn string_arguments(call: &ruby_prism::CallNode) -> Vec<String> {
 }
 
 /// `rbs_collection.yaml` locks into `rbs_collection.lock.yaml` next to it
-fn collection_lockfile_path(config_path: &Path) -> PathBuf {
+pub(crate) fn collection_lockfile_path(config_path: &Path) -> PathBuf {
     let stem = config_path
         .file_stem()
         .map(|stem| stem.to_string_lossy().into_owned())
@@ -666,7 +685,18 @@ fn manifest_dependencies(manifest_path: &Path) -> Vec<String> {
 
 /// Loads core, the libraries from the `Steepfile`, `rbs_collection.lock.yaml` and the project signatures
 pub fn load_workspace(workspace_path: &Path, sources: &WorkspaceSources) -> Environment {
-    let configuration = read_steepfile(workspace_path);
+    load_target(workspace_path, sources, read_steepfile(workspace_path).as_ref(), None)
+}
+
+/// Loads the environment Steep type checks `target` with: core, the libraries, and the signatures of `target` and of
+/// every target that is not `unreferenced!`, of which only those of `target` are validated. Without `target`, the
+/// signatures of every target are loaded and validated
+pub fn load_target(
+    workspace_path: &Path,
+    sources: &WorkspaceSources,
+    configuration: Option<&SteepfileConfiguration>,
+    target: Option<&SteepfileTarget>,
+) -> Environment {
     let mut workspace_loader = WorkspaceLoader {
         loader: Loader::new(),
         sources,
@@ -678,9 +708,10 @@ pub fn load_workspace(workspace_path: &Path, sources: &WorkspaceSources) -> Envi
             .loader
             .add_library_directory(core_directory);
     }
-    workspace_loader.loader.set_implicitly_returns_nil(
-        configuration.iter().flat_map(|configuration| &configuration.targets).any(|target| target.implicitly_returns_nil),
-    );
+    workspace_loader.loader.set_implicitly_returns_nil(match target {
+        Some(target) => target.implicitly_returns_nil,
+        None => configuration.iter().flat_map(|configuration| &configuration.targets).any(|target| target.implicitly_returns_nil),
+    });
     for library in configuration
         .iter()
         .flat_map(|configuration| configuration.libraries.iter())
@@ -692,7 +723,6 @@ pub fn load_workspace(workspace_path: &Path, sources: &WorkspaceSources) -> Envi
         workspace_loader.add_stdlib_library(name, version);
     }
     let lockfile_path = configuration
-        .as_ref()
         .and_then(|configuration| configuration.collection_lockfile.clone())
         .unwrap_or_else(|| workspace_path.join("rbs_collection.lock.yaml"));
     workspace_loader.add_collection(workspace_path, &lockfile_path);
@@ -702,15 +732,21 @@ pub fn load_workspace(workspace_path: &Path, sources: &WorkspaceSources) -> Envi
         workspace_loader.add_stdlib_library("stringio", None);
     }
 
-    match &configuration {
+    match configuration {
         Some(configuration) => {
-            for pattern in &configuration.signature_patterns {
-                let paths = pattern_files(workspace_path, std::slice::from_ref(pattern), &[], ".rbs");
-                if paths.is_empty() {
-                    workspace_loader.loader.add_signature_directory(pattern);
-                }
-                for path in paths {
-                    workspace_loader.loader.add_signature_directory(&path);
+            for (patterns, validated) in signature_patterns_of(configuration, target) {
+                for pattern in patterns {
+                    let paths = pattern_files(workspace_path, std::slice::from_ref(pattern), &[], ".rbs");
+                    if paths.is_empty() && validated {
+                        workspace_loader.loader.add_signature_directory(pattern);
+                    }
+                    for path in paths {
+                        if validated {
+                            workspace_loader.loader.add_signature_directory(&path);
+                        } else {
+                            workspace_loader.loader.add_directory(&path);
+                        }
+                    }
                 }
             }
         }
@@ -801,6 +837,27 @@ fn normalized_relative_path(path: &str) -> String {
         .collect::<PathBuf>()
         .to_string_lossy()
         .into_owned()
+}
+
+/// The signature patterns `load_target` loads for `target`, each with whether its files are validated
+fn signature_patterns_of<'a>(
+    configuration: &'a SteepfileConfiguration,
+    target: Option<&SteepfileTarget>,
+) -> Vec<(&'a [PathBuf], bool)> {
+    let Some(target) = target else {
+        return vec![(configuration.signature_patterns.as_slice(), true)];
+    };
+    configuration
+        .targets
+        .iter()
+        .filter_map(|other| {
+            if other.name == target.name {
+                Some((other.signature_patterns.as_slice(), true))
+            } else {
+                (!other.unreferenced).then_some((other.signature_patterns.as_slice(), false))
+            }
+        })
+        .collect()
 }
 
 /// The files with the extension that the patterns take, as Steep's `Services::FileLoader#each_path_in_patterns` lists

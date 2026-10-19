@@ -143,8 +143,8 @@ fn merge_boolean(target: &mut bool, value: Option<&Value>) {
 
 pub type EnvironmentLoadOutcome = Result<LoadedEnvironment, String>;
 
-pub fn load_environment(workspace_path: &Path, sources: &WorkspaceSources) -> EnvironmentLoadOutcome {
-    catch_unwind(AssertUnwindSafe(|| project::load_environment(workspace_path, sources)))
+pub fn load_environment(workspace_path: &Path, sources: &WorkspaceSources, ruby_command: &[String]) -> EnvironmentLoadOutcome {
+    catch_unwind(AssertUnwindSafe(|| project::load_environment(workspace_path, sources, ruby_command)))
         .map_err(|payload| crate::server::panic_message(&payload))
 }
 
@@ -192,7 +192,9 @@ impl TypeCheckingState {
     }
 
     pub fn set_environment(&mut self, loaded: LoadedEnvironment) {
-        self.environment = Some(loaded.environment);
+        // Every target shares one environment unless `unreferenced!` or `implicitly_returns_nil!` differs among them,
+        // and the language server does not pick the environment of the target of each file yet
+        self.environment = loaded.targets.into_iter().next().map(|target| target.environment);
         self.steepfile = loaded.steepfile;
         self.analyses.clear();
     }

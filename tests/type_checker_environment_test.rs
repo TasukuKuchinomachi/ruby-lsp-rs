@@ -92,7 +92,7 @@ fn start_server() -> Option<TypeCheckedServer> {
         core_directory: Some(core_directory.clone()),
         gem_directories: Default::default(),
     };
-    let loaded = type_checking::load_environment(&workspace_path(), &sources).expect("Failed to load the RBS environment");
+    let loaded = type_checking::load_environment(&workspace_path(), &sources, &["ruby".to_string()]).expect("Failed to load the RBS environment");
 
     let (server_connection, client) = Connection::memory();
     let mut server = Server::new(server_connection, ServerOptions { test_mode: true });
