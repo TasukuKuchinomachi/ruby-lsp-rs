@@ -436,7 +436,9 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         {
             result = field_type;
         }
-        if let Some(compacted) = compact_result(&method_name, &arguments, call, &result) {
+        if is_collection_compact(self.environment, &structural_receiver, &method_name)
+            && let Some(compacted) = compact_result(&method_name, &arguments, call, &result)
+        {
             result = compacted;
         }
         if let Type::Tuple(elements) = &structural_receiver
@@ -2217,6 +2219,22 @@ fn record_field(
         field.field_type.clone()
     } else {
         Type::optional(field.field_type.clone())
+    })
+}
+
+/// Steep's special case applies to the `compact` of `Array`, `Enumerable` and `Hash`, not to a `compact` that a class
+/// declares itself
+fn is_collection_compact(environment: &rbs_environment::Environment, receiver: &Type, method_name: &str) -> bool {
+    members_of(receiver).iter().any(|member| {
+        let class_name = match member {
+            Type::ClassInstance { name, .. } => name.as_str(),
+            Type::Tuple(_) => "Array",
+            Type::Record(_) => "Hash",
+            _ => return false,
+        };
+        environment
+            .find_instance_method(class_name, method_name)
+            .is_some_and(|resolved| matches!(resolved.definition.owner.as_str(), "Array" | "Enumerable" | "Hash"))
     })
 }
 
