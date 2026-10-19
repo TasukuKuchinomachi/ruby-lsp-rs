@@ -38,7 +38,7 @@ fn method_implementations(index: &mut Index, receiver_type: &Type, owner: &str, 
     implementations
 }
 
-fn resolve_ruby_method(index: &mut Index, method_name: &str, class_name: &str, singleton: bool) -> Vec<EntryId> {
+pub fn resolve_ruby_method(index: &mut Index, method_name: &str, class_name: &str, singleton: bool) -> Vec<EntryId> {
     let receiver_name = if singleton {
         let unqualified_name = class_name.rsplit("::").next().unwrap_or(class_name);
         format!("{class_name}::<Class:{unqualified_name}>")
@@ -49,7 +49,7 @@ fn resolve_ruby_method(index: &mut Index, method_name: &str, class_name: &str, s
     methods.into_iter().filter(|id| is_ruby_entry(index.entry(*id))).collect()
 }
 
-fn constant_implementations(index: &Index, name: &str) -> Vec<EntryId> {
+pub fn constant_implementations(index: &Index, name: &str) -> Vec<EntryId> {
     let name = name.strip_prefix("::").unwrap_or(name);
     let entries = index.get(name).unwrap_or_default();
     entries.iter().copied().filter(|id| is_ruby_entry(index.entry(*id))).collect()

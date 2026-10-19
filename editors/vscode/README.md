@@ -53,6 +53,8 @@ inlay hint は rust-analyzer と同じく、キーを押している間だけ表
 | 型定義へ移動 | 変数や式の型のクラス |
 | hover 内のリンク | `Signature` は RBS、`Implementation` は Ruby の実装 |
 
+RBS ファイルの中で定義へ移動すると、メソッド名・`attr_*`・`alias`・クラス名・定数名からは Ruby の実装へ、型名からは Ruby の実装と RBS の宣言の両方へ飛びます。
+
 ## コマンド
 
 | コマンド | 内容 |

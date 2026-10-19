@@ -1,17 +1,22 @@
+use std::path::{Path, PathBuf};
+
+use rbs_environment::{MethodKind, NameKind, SignatureTarget};
 use ruby_prism::Node;
 use serde_json::Value;
 
 use super::support::common::{delegate_request_if_needed, determine_target, location_covers_position};
 use super::support::sorbet_level::SorbetLevel;
 use super::{RequestContext, RequestResult, TextDocumentPositionParams, parse_params, to_result};
-use crate::document::ParsedDocument;
+use crate::document::{Document, LanguageId, ParsedDocument};
+use crate::global_state::GlobalState;
+use crate::indexer::Index;
 use crate::listeners::definition::{Definition, variable_name};
 use crate::position::Position;
 use crate::prism::NodeExt;
 use crate::requests::support::implementation_lookup;
 use crate::requests::support::local_variable_definition;
 use crate::requests::support::interface::{LocationLink, LocationOrLink};
-use crate::type_checking::{self, DefinitionTarget};
+use crate::type_checking::{self, DefinitionTarget, NamedType};
 use crate::type_inferrer::TypeInferrer;
 
 pub const NODE_TYPES: &[&str] = &[
@@ -46,6 +51,9 @@ pub const NODE_TYPES: &[&str] = &[
 pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult {
     let params: TextDocumentPositionParams = parse_params(params)?;
     let document = context.store.get(&params.text_document.uri)?;
+    if document.language_id() == LanguageId::Rbs {
+        return to_result(signature_definitions(context.global_state, document, params.position));
+    }
     if !document.is_ruby_or_erb() {
         return Ok(Value::Null);
     }
@@ -129,6 +137,58 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
         }
     };
     to_result(definitions)
+}
+
+/// A type name leads to both its implementation and its declaration, while the name of a method, class or constant being
+/// declared leads to its implementation, since its declaration is where the cursor already is
+fn signature_definitions(global_state: &GlobalState, document: &Document, position: Position) -> Vec<LocationLink> {
+    let (Some(environment), Some(path)) =
+        (global_state.type_checking.environment.as_ref(), crate::uri::to_path_buf(document.uri()))
+    else {
+        return Vec::new();
+    };
+    let encoding = global_state.encoding;
+    let targets = environment.signature_targets_at(&path, document.source(), |location| {
+        type_checking::signature_location_covers(location, position, encoding)
+    });
+    let workspace_path = PathBuf::from(global_state.workspace_path());
+    let core_directory = global_state.ruby_environment.rbs_core_path.as_deref().map(Path::new);
+    let class_implementations = |index: &Index, class_name: &str| {
+        let core_class = type_checking::is_core_class(environment, class_name, core_directory);
+        implementation_lookup::preferred_class_implementations(index, class_name, core_class.then_some(&workspace_path))
+    };
+    let mut index = global_state.index();
+    let mut links: Vec<LocationLink> = Vec::new();
+    for target in targets {
+        let (implementations, signature) = match target {
+            SignatureTarget::TypeReference { kind, name } => {
+                let named_type = match kind {
+                    NameKind::Class => NamedType::Class { name, singleton: false },
+                    NameKind::Interface => NamedType::Interface(name),
+                    NameKind::Alias => NamedType::Alias(name),
+                };
+                let implementations = match &named_type {
+                    NamedType::Class { name, .. } => class_implementations(&index, name),
+                    NamedType::Interface(_) | NamedType::Alias(_) => Vec::new(),
+                };
+                let signature = type_checking::type_declaration(environment, &named_type)
+                    .map(|location| type_checking::signature_location_link(location, encoding));
+                (implementations, signature)
+            }
+            SignatureTarget::ClassDeclaration(name) => (class_implementations(&index, &name), None),
+            SignatureTarget::ConstantDeclaration(name) => (implementation_lookup::constant_implementations(&index, &name), None),
+            SignatureTarget::Method { owner, kind, name } => {
+                (implementation_lookup::resolve_ruby_method(&mut index, &name, &owner, kind == MethodKind::Singleton), None)
+            }
+        };
+        let implementation_links = implementations.into_iter().map(|id| implementation_lookup::implementation_link(index.entry(id)));
+        for link in implementation_links.chain(signature) {
+            if !links.contains(&link) {
+                links.push(link);
+            }
+        }
+    }
+    links
 }
 
 /// Implementations found from the inferred type are exact, while the name based lookup may list methods of unrelated
