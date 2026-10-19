@@ -482,6 +482,7 @@ impl<'pr> Checker<'_, 'pr> {
                 singleton: method.singleton,
                 declared_return_type: None,
                 block: method.block.clone(),
+                has_method_type: method.has_method_type,
             })
         });
         self.method_return_frames.push(Vec::new());

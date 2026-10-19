@@ -911,20 +911,22 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 "Ruby::UnexpectedKeywordArgument",
                 "Unexpected keyword argument".to_string(),
             ),
-            OverloadError::TypeMismatch(pair) => {
-                let message = steep_relation::with_detail_lines(
-                    format!(
-                        "Cannot pass a value of type `{}` as an argument of type `{}`",
-                        pair.argument_type.steep_display(),
-                        pair.parameter_type.steep_display()
-                    ),
-                    self.environment,
-                    &pair.argument_type,
-                    &pair.parameter_type,
-                );
-                self.record_diagnostic(pair.span, Severity::Error, "Ruby::ArgumentTypeMismatch", message)
-            }
+            OverloadError::TypeMismatch(pair) => self.report_argument_type_mismatch(pair),
         }
+    }
+
+    fn report_argument_type_mismatch(&mut self, pair: &ArgumentPair) {
+        let message = steep_relation::with_detail_lines(
+            format!(
+                "Cannot pass a value of type `{}` as an argument of type `{}`",
+                pair.argument_type.steep_display(),
+                pair.parameter_type.steep_display()
+            ),
+            self.environment,
+            &pair.argument_type,
+            &pair.parameter_type,
+        );
+        self.record_diagnostic(pair.span, Severity::Error, "Ruby::ArgumentTypeMismatch", message)
     }
 
     fn report_unresolved_overloading(
@@ -1828,40 +1830,38 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             }
         };
         let block = self.call_block(block_node, context, locals);
-        let Some(method) = context.method.clone() else {
+        let infer_untyped_block = |checker: &mut Self, locals: &mut Locals| {
             if let CallBlock::Literal(block_node) = &block {
-                self.infer_block(block_node, &BlockSignature::untyped(), context, locals);
+                checker.infer_block(block_node, &BlockSignature::untyped(), context, locals);
             }
+        };
+        let declared = context.method.as_ref().is_some_and(|method| {
+            if method.singleton {
+                self.environment.find_singleton_method(&method.owner, &method.name).is_some()
+            } else {
+                self.environment.find_instance_method(&method.owner, &method.name).is_some()
+            }
+        });
+        // Steep falls back to `untyped` without a method definition in RBS to find the super method from
+        let Some(method) = context.method.clone().filter(|_| declared) else {
+            self.record_diagnostic(
+                Span::of_node(node),
+                Severity::Hint,
+                "Ruby::FallbackAny",
+                "Cannot detect the type of the expression".to_string(),
+            );
+            infer_untyped_block(self, locals);
             return Type::Untyped;
         };
-        if !self.super_method_exists(&method.owner, method.singleton, &method.name) {
+        let Some(receiver) = self.super_method_receiver(&method.owner, method.singleton, &method.name) else {
             self.record_diagnostic(
                 Span::of_node(node),
                 Severity::Information,
                 "Ruby::UnexpectedSuper",
                 format!("No superclass method `{}` defined", method.name),
             );
-        }
-        let superclass = self
-            .environment
-            .classes
-            .get(&method.owner)
-            .and_then(|declaration| {
-                declaration
-                    .super_class
-                    .as_ref()
-                    .map(|ancestor| ancestor.name.clone())
-            })
-            .or_else(|| {
-                self.file_index
-                    .classes
-                    .get(&method.owner)
-                    .and_then(|class| class.superclass.clone())
-            });
-        let receiver = match (superclass, method.singleton) {
-            (Some(superclass), true) => Type::ClassSingleton { name: superclass },
-            (Some(superclass), false) => instance_type_of_class(self.environment, &superclass),
-            (None, _) => Type::Untyped,
+            infer_untyped_block(self, locals);
+            return Type::Untyped;
         };
         let site = CallSite {
             method_name: method.name.clone(),
@@ -1877,50 +1877,41 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         self.dispatch_call(&receiver, &receiver, &site, &arguments, context, locals)
     }
 
-    /// Steep's `super_method`: the method the class's own declaration overrides, or the inherited one when the
-    /// class does not declare it
-    fn super_method_exists(&self, owner: &str, singleton: bool, method_name: &str) -> bool {
-        let Some(declaration) = self.environment.classes.get(owner) else {
-            return false;
-        };
+    /// A receiver whose lookup finds Steep's `super_method`: the method the class's own declaration overrides, which
+    /// the next ancestor declaring it has (an included module comes before the superclass), or the inherited one when
+    /// the class does not declare it. `None` when there is no such method
+    fn super_method_receiver(&self, owner: &str, singleton: bool, method_name: &str) -> Option<Type> {
+        let declaration = self.environment.classes.get(owner)?;
         let declared_here = if singleton {
             declaration.singleton_methods.contains_key(method_name)
         } else {
             declaration.instance_methods.contains_key(method_name)
         };
-        if !declared_here {
-            return if singleton {
-                self.environment
-                    .find_singleton_method(owner, method_name)
-                    .is_some()
-            } else {
-                self.environment
-                    .find_instance_method(owner, method_name)
-                    .is_some()
-            };
-        }
         if singleton {
-            return declaration.super_class.as_ref().is_some_and(|superclass| {
-                self.environment
-                    .find_singleton_method(&superclass.name, method_name)
-                    .is_some()
-            });
+            if !declared_here {
+                return Some(Type::ClassSingleton { name: owner.to_string() });
+            }
+            let superclass = &declaration.super_class.as_ref()?.name;
+            return self
+                .environment
+                .find_singleton_method(superclass, method_name)
+                .map(|_| Type::ClassSingleton { name: superclass.clone() });
+        }
+        if !declared_here {
+            return Some(instance_type_of_class(self.environment, owner));
         }
         self.environment
             .ancestors(owner)
             .iter()
             .skip_while(|ancestor| ancestor.name != owner)
             .skip(1)
-            .any(|ancestor| {
+            .find(|ancestor| {
                 self.environment
                     .classes
                     .get(&ancestor.name)
-                    .is_some_and(|ancestor_declaration| {
-                        ancestor_declaration
-                            .instance_methods
-                            .contains_key(method_name)
-                    })
+                    .is_some_and(|ancestor_declaration| ancestor_declaration.instance_methods.contains_key(method_name))
             })
+            .map(|ancestor| instance_type_of_class(self.environment, &ancestor.name))
     }
 
     pub(crate) fn infer_yield(
@@ -1932,21 +1923,49 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         let Some(yield_node) = node.as_yield_node() else {
             return Type::Untyped;
         };
-        self.infer_arguments(yield_node.arguments(), context, locals);
-        match context
-            .method
-            .as_ref()
-            .and_then(|method| method.block.as_ref())
-        {
-            Some(block) => {
-                let return_type = block.function.return_type.clone();
-                if contains_uncertain_part(&return_type) {
-                    Type::Untyped
-                } else {
-                    return_type
+        let arguments = self.infer_arguments(yield_node.arguments(), context, locals);
+        let span = Span::of_node(node);
+        let fallback_any = "Cannot detect the type of the expression".to_string();
+        let Some(method) = context.method.as_ref().filter(|method| method.has_method_type) else {
+            self.record_diagnostic(span, Severity::Hint, "Ruby::FallbackAny", fallback_any);
+            return Type::Untyped;
+        };
+        let Some(block) = &method.block else {
+            self.record_diagnostic(span, Severity::Error, "Ruby::UnexpectedYield", "No block given for `yield`".to_string());
+            self.record_diagnostic(span, Severity::Hint, "Ruby::FallbackAny", fallback_any);
+            return Type::Untyped;
+        };
+        let block_function = block.function.clone();
+        // Steep's `type_check_args` for `yield`, which checks the arguments against the block type like a method call
+        match match_arguments(&block_function, &arguments) {
+            Err(ArityMismatch::InsufficientPositional) => self.record_diagnostic(
+                span,
+                Severity::Error,
+                "Ruby::InsufficientPositionalArguments",
+                "More positional arguments are required".to_string(),
+            ),
+            Err(ArityMismatch::UnexpectedPositional(argument_span)) => self.record_diagnostic(
+                argument_span,
+                Severity::Error,
+                "Ruby::UnexpectedPositionalArgument",
+                "Unexpected positional argument".to_string(),
+            ),
+            Err(_) => {}
+            Ok(pairs) => {
+                for pair in pairs {
+                    if !contains_uncertain_part(&pair.parameter_type)
+                        && self.is_certain_mismatch(&pair.argument_type, &pair.parameter_type)
+                    {
+                        self.report_argument_type_mismatch(&pair);
+                    }
                 }
             }
-            None => Type::Untyped,
+        }
+        let return_type = block_function.return_type;
+        if contains_uncertain_part(&return_type) {
+            Type::Untyped
+        } else {
+            return_type
         }
     }
 

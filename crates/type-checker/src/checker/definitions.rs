@@ -173,6 +173,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 singleton: owner.singleton,
                 declared_return_type: single_return_type.clone(),
                 block,
+                has_method_type: !overloads.is_empty(),
             })),
             declared_locals: Rc::new(self.local_variable_annotations(scope_start, &nesting)),
         };

@@ -44,6 +44,8 @@ pub(crate) struct MethodContext {
     /// Present only when the RBS declaration has exactly one overload, so that a mismatch is certain
     pub(crate) declared_return_type: Option<Type>,
     pub(crate) block: Option<Block>,
+    /// RBS or `@type method` gives the method a type, so that `yield` is checked against its block
+    pub(crate) has_method_type: bool,
 }
 
 #[derive(Clone)]
