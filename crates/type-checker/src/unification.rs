@@ -136,6 +136,15 @@ impl Bindings {
                     self.unify_all(environment, parameter_elements, argument_elements, next);
                 }
             }
+            Type::Record(parameter_fields) => {
+                if let Type::Record(argument_fields) = argument {
+                    for parameter_field in parameter_fields {
+                        if let Some(argument_field) = argument_fields.iter().find(|field| field.name == parameter_field.name) {
+                            self.unify_at(environment, &parameter_field.field_type, &argument_field.field_type, next);
+                        }
+                    }
+                }
+            }
             Type::Proc(parameter_proc) => {
                 if let Type::Proc(argument_proc) = argument {
                     self.unify_function(

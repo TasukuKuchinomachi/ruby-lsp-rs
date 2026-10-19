@@ -128,7 +128,21 @@ impl PreparedCall {
         );
         if let Ok(pairs) = match_arguments(&overload.function, arguments) {
             for pair in &pairs {
-                bindings.unify(environment, &pair.parameter_type, &pair.argument_type);
+                // Steep types a hash literal passed to a record parameter as a record, whose values bind the type
+                // variables of the fields
+                let argument_type = match (&pair.parameter_type, &pair.literal_type) {
+                    (Type::Record(_), Some(Type::Record(fields))) => Type::Record(
+                        fields
+                            .iter()
+                            .map(|field| rbs_environment::RecordField {
+                                field_type: widen_literal(&field.field_type),
+                                ..field.clone()
+                            })
+                            .collect(),
+                    ),
+                    _ => pair.argument_type.clone(),
+                };
+                bindings.unify(environment, &pair.parameter_type, &argument_type);
             }
         }
         PreparedCall {
@@ -256,6 +270,19 @@ fn close_variables(names: &[String]) -> Substitution {
         substitution.variables.insert(name.clone(), Type::Untyped);
     }
     substitution
+}
+
+/// The class of a literal type, as Steep types a literal without a literal hint
+fn widen_literal(target: &Type) -> Type {
+    match target {
+        Type::Literal(literal) => Type::instance(literal_class_name(literal)),
+        Type::ClassInstance { name, arguments } => Type::ClassInstance {
+            name: name.clone(),
+            arguments: arguments.iter().map(widen_literal).collect(),
+        },
+        Type::Union(members) => Type::union(members.iter().map(widen_literal).collect()),
+        other => other.clone(),
+    }
 }
 
 fn substitute_overload(overload: &MethodType, substitution: &Substitution) -> MethodType {

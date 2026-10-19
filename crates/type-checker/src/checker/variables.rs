@@ -113,6 +113,7 @@ impl<'pr> Checker<'_, 'pr> {
                     &name,
                     &write.name_loc(),
                     value_type.clone(),
+                    Some(&value),
                     is_obvious,
                     context,
                     locals,
@@ -135,6 +136,7 @@ impl<'pr> Checker<'_, 'pr> {
                     &name,
                     &write.name_loc(),
                     combined.clone(),
+                    None,
                     is_obvious,
                     context,
                     locals,
@@ -357,11 +359,13 @@ impl<'pr> Checker<'_, 'pr> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn assign_local(
         &mut self,
         name: &str,
         name_location: &Location<'pr>,
         value_type: Type,
+        value_node: Option<&Node<'pr>>,
         is_obvious: bool,
         context: &Context,
         locals: &mut Locals,
@@ -375,7 +379,7 @@ impl<'pr> Checker<'_, 'pr> {
                 span,
                 &declared,
                 &value_type,
-                None,
+                value_node,
                 "a variable",
                 context,
                 &snapshot,
@@ -483,8 +487,10 @@ impl<'pr> Checker<'_, 'pr> {
         context: &Context,
         locals: &Locals,
     ) {
+        let is_hash_for_record = value_node.is_some_and(|value_node| matches!(value_node, Node::HashNode { .. }))
+            && matches!(self.expand_alias_deeply(declared, 0), Type::Record(_));
         if self.is_silent()
-            || !self.is_certain_assignment_mismatch(value_type, declared, value_node)
+            || !is_hash_for_record && !self.is_certain_assignment_mismatch(value_type, declared, value_node)
         {
             return;
         }
@@ -719,6 +725,50 @@ impl<'pr> Checker<'_, 'pr> {
                         return fallback.clone();
                     };
                     entries.push((association.key(), association.value()));
+                }
+                // Steep's `type_hash_record` for a record hint: a key the record does not have is reported and kept
+                // as an optional key, so that the assignment fails
+                if let Type::Record(fields) = &hint
+                    && entries.iter().all(|(key, _)| matches!(key, Node::SymbolNode { .. }))
+                {
+                    let mut record_fields = Vec::new();
+                    for (key, value) in &entries {
+                        let Some(symbol) = key.as_symbol_node() else {
+                            return fallback.clone();
+                        };
+                        let key_name = crate::source::bytes_text(symbol.unescaped());
+                        let value_fallback = silent_type(self, value);
+                        let field = fields.iter().find(|field| field.name == key_name);
+                        let value_type = match field {
+                            Some(field) => {
+                                let hinted =
+                                    self.hinted_value_type(value, &field.field_type, &value_fallback, context, locals, depth + 1);
+                                if hinted.is_untyped() { field.field_type.clone() } else { hinted }
+                            }
+                            None => {
+                                let key_span = symbol
+                                    .value_loc()
+                                    .map(|location| Span::of_location(&location))
+                                    .unwrap_or_else(|| Span::of_node(key));
+                                self.record_diagnostic(
+                                    key_span,
+                                    Severity::Error,
+                                    "Ruby::UnknownRecordKey",
+                                    format!(
+                                        "Unknown key `{}` is given to a record type",
+                                        Type::Literal(rbs_environment::Literal::Symbol(key_name.clone())).steep_display()
+                                    ),
+                                );
+                                value_fallback
+                            }
+                        };
+                        record_fields.push(rbs_environment::RecordField {
+                            name: key_name,
+                            field_type: value_type,
+                            required: field.is_some_and(|field| field.required),
+                        });
+                    }
+                    return Type::Record(record_fields);
                 }
                 for member in &hint_members {
                     match member {
@@ -1066,6 +1116,7 @@ impl<'pr> Checker<'_, 'pr> {
                     &constant_text(&local.name()),
                     &target.location(),
                     assigned_type,
+                    None,
                     false,
                     context,
                     locals,
