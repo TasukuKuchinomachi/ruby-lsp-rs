@@ -277,11 +277,13 @@ impl VarianceUsage {
     }
 
     fn compatible(&self, name: &str, annotation: Variance) -> bool {
-        match (self.usages.get(name).copied().unwrap_or(Usage::Unused), annotation) {
-            (Usage::Unused, _) | (_, Variance::Invariant) => true,
-            (Usage::Covariant, Variance::Covariant) | (Usage::Contravariant, Variance::Contravariant) => true,
-            _ => false,
-        }
+        matches!(
+            (self.usages.get(name).copied().unwrap_or(Usage::Unused), annotation),
+            (Usage::Unused, _)
+                | (_, Variance::Invariant)
+                | (Usage::Covariant, Variance::Covariant)
+                | (Usage::Contravariant, Variance::Contravariant)
+        )
     }
 }
 
