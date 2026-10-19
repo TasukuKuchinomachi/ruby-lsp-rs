@@ -1,3 +1,4 @@
+mod definition_validation;
 pub mod diagnostic_configuration;
 pub mod environment;
 pub mod loader;

@@ -19,9 +19,10 @@ use crate::environment::{
 use crate::lookup::SingletonAncestor;
 use crate::navigation::SignatureTarget;
 use crate::signature_validation::{
-    AliasOwner, DeclarationRecord, DefinedNameRecord, FileValidation, MethodAliasRecord, MixinKind,
-    ReferenceKind, SignatureDiagnostic, TypeReference, ValidationMember, ValidationOwner,
-    ValidationScope, duplicated_declaration, duplicated_method_definitions, finish_diagnostics,
+    AliasOwner, DeclarationRecord, DefinedNameRecord, FileValidation, MethodAliasRecord, MethodMemberRecord, MethodTypeRecord,
+    MixinKind, ReferenceKind, SignatureDiagnostic, TypeReference, ValidationMember, ValidationOwner,
+    ValidationScope, VariableRecord,
+    duplicated_declaration, duplicated_method_definitions, finish_diagnostics,
     generic_parameter_mismatch, invalid_method_overload, superclass_mismatch,
     syntax_error_diagnostic, validate_files,
 };
@@ -190,7 +191,9 @@ impl Loader {
             pending_overloadings,
             &signature_files,
         ));
-        signature_diagnostics.extend(validate_files(&environment, &validations));
+        let (validation_diagnostics, ancestor_phase_diagnostics) = validate_files(&environment, &validations);
+        signature_diagnostics.extend(validation_diagnostics);
+        environment.ancestor_phase_diagnostics = ancestor_phase_diagnostics;
         finish_diagnostics(&mut signature_diagnostics);
         environment.errors = load_errors;
         environment.signature_diagnostics = signature_diagnostics;
@@ -640,6 +643,7 @@ impl<'source> Converter<'source> {
         &self,
         owner_name: &TypeName,
         owner: AliasOwner,
+        new_name: &str,
         old_name: &str,
         range: RBSLocationRange,
     ) {
@@ -651,9 +655,62 @@ impl<'source> Converter<'source> {
                 .push(MethodAliasRecord {
                     owner_name: owner_name.clone(),
                     owner,
+                    new_name: new_name.to_string(),
                     old_name: old_name.to_string(),
                     location: self.location(range),
                 });
+        }
+    }
+
+    fn record_method_types(&self, owner_name: &TypeName, method: &MethodDefinitionNode) {
+        let Some(collector) = &self.validation else {
+            return;
+        };
+        for overload in method.overloads().iter() {
+            let Node::MethodDefinitionOverload(overload) = overload else {
+                continue;
+            };
+            let method_type_node = overload.method_type();
+            let location = self.location(method_type_node.location());
+            if let Some(method_type) = self.convert_method_type(method_type_node) {
+                collector.file.borrow_mut().method_types.push(MethodTypeRecord {
+                    owner_name: owner_name.clone(),
+                    method_type,
+                    location,
+                });
+            }
+        }
+    }
+
+    fn record_attribute_method_type(&self, owner_name: &TypeName, method_type: MethodType, location: &Location) {
+        if let Some(collector) = &self.validation {
+            collector.file.borrow_mut().method_types.push(MethodTypeRecord {
+                owner_name: owner_name.clone(),
+                method_type,
+                location: location.clone(),
+            });
+        }
+    }
+
+    fn record_variable(&self, owner_name: &TypeName, name: &str, kind: MethodKind, range: RBSLocationRange) {
+        if let Some(collector) = &self.validation {
+            collector.file.borrow_mut().variables.push(VariableRecord {
+                owner_name: owner_name.clone(),
+                name: name.to_string(),
+                kind,
+                location: self.location(range),
+            });
+        }
+    }
+
+    fn record_method_member(&self, owner_name: &TypeName, name: &str, overloading: bool, range: RBSLocationRange) {
+        if let Some(collector) = &self.validation {
+            collector.file.borrow_mut().method_members.push(MethodMemberRecord {
+                owner_name: owner_name.clone(),
+                name: name.to_string(),
+                overloading,
+                location: self.location(range),
+            });
         }
     }
 
@@ -842,6 +899,7 @@ impl<'source> Converter<'source> {
                         }
                         Node::MethodDefinition(method) => {
                             let method_name = method.name().as_str().to_string();
+                            self.record_method_types(&name, &method);
                             let mut overloads = self.convert_method_overloads(&method);
                             if method.overloading()
                                 && let Some(previous) = declaration.methods.remove(&method_name)
@@ -867,6 +925,7 @@ impl<'source> Converter<'source> {
                             self.record_method_alias(
                                 &name,
                                 AliasOwner::Interface,
+                                alias.new_name().as_str(),
                                 alias.old_name().as_str(),
                                 alias.location(),
                             );
@@ -1125,6 +1184,12 @@ impl<'source> Converter<'source> {
                         member,
                         method.location(),
                     );
+                    if member == ValidationMember::InstanceMethod {
+                        self.record_method_types(&fragment.name, &method);
+                    }
+                    if method.kind() == MethodDefinitionKind::Instance {
+                        self.record_method_member(&fragment.name, &method_name, method.overloading(), method.location());
+                    }
                     let overloads = self.convert_method_overloads(&method);
                     let explicit_visibility = match method.visibility() {
                         MethodDefinitionVisibility::Public => Some(Visibility::Public),
@@ -1200,6 +1265,7 @@ impl<'source> Converter<'source> {
                     self.record_method_alias(
                         &fragment.name,
                         AliasOwner::Class(kind),
+                        alias.new_name().as_str(),
                         alias.old_name().as_str(),
                         alias.location(),
                     );
@@ -1243,6 +1309,13 @@ impl<'source> Converter<'source> {
                         attribute_validation_member(attribute.kind()),
                         attribute.location(),
                     );
+                    self.record_attribute_method_types(
+                        &fragment.name,
+                        attribute.kind(),
+                        &self.convert_type(attribute.type_()),
+                        AttributeAccess::Reader,
+                        attribute.location(),
+                    );
                     Attribute {
                         name: attribute.name().as_str().to_string(),
                         attribute_type: self.convert_type(attribute.type_()),
@@ -1273,6 +1346,13 @@ impl<'source> Converter<'source> {
                     self.record_scope(
                         || ValidationOwner::Class(fragment.name.clone()),
                         attribute_validation_member(attribute.kind()),
+                        attribute.location(),
+                    );
+                    self.record_attribute_method_types(
+                        &fragment.name,
+                        attribute.kind(),
+                        &self.convert_type(attribute.type_()),
+                        AttributeAccess::Writer,
                         attribute.location(),
                     );
                     Attribute {
@@ -1307,6 +1387,13 @@ impl<'source> Converter<'source> {
                         attribute_validation_member(attribute.kind()),
                         attribute.location(),
                     );
+                    self.record_attribute_method_types(
+                        &fragment.name,
+                        attribute.kind(),
+                        &self.convert_type(attribute.type_()),
+                        AttributeAccess::Accessor,
+                        attribute.location(),
+                    );
                     Attribute {
                         name: attribute.name().as_str().to_string(),
                         attribute_type: self.convert_type(attribute.type_()),
@@ -1333,6 +1420,7 @@ impl<'source> Converter<'source> {
                         ValidationMember::InstanceVariable,
                         variable.location(),
                     );
+                    self.record_variable(&fragment.name, variable.name().as_str(), MethodKind::Instance, variable.location());
                     fragment.instance_variables.push((
                         variable.name().as_str().to_string(),
                         self.convert_type(variable.type_()),
@@ -1344,6 +1432,7 @@ impl<'source> Converter<'source> {
                         ValidationMember::SingletonMember,
                         variable.location(),
                     );
+                    self.record_variable(&fragment.name, variable.name().as_str(), MethodKind::Singleton, variable.location());
                     fragment.class_instance_variables.push((
                         variable.name().as_str().to_string(),
                         self.convert_type(variable.type_()),
@@ -1402,6 +1491,40 @@ impl<'source> Converter<'source> {
             }
         }
         fragment
+    }
+
+    /// The method types `RBS::DefinitionBuilder#validate_type_params` makes of an instance attribute: `() -> T` for
+    /// the reader and `(T) -> T` for the writer
+    fn record_attribute_method_types(
+        &self,
+        owner_name: &TypeName,
+        kind: AttributeKind,
+        attribute_type: &Type,
+        access: AttributeAccess,
+        range: RBSLocationRange,
+    ) {
+        if self.validation.is_none() || !matches!(kind, AttributeKind::Instance) {
+            return;
+        }
+        let location = self.location(range);
+        if matches!(access, AttributeAccess::Reader | AttributeAccess::Accessor) {
+            let method_type = MethodType {
+                type_parameters: Vec::new(),
+                function: Function::returning(attribute_type.clone()),
+                block: None,
+            };
+            self.record_attribute_method_type(owner_name, method_type, &location);
+        }
+        if matches!(access, AttributeAccess::Writer | AttributeAccess::Accessor) {
+            let mut function = Function::returning(attribute_type.clone());
+            function.required_positionals.push(Parameter::new(attribute_type.clone()));
+            let method_type = MethodType {
+                type_parameters: Vec::new(),
+                function,
+                block: None,
+            };
+            self.record_attribute_method_type(owner_name, method_type, &location);
+        }
     }
 
     fn attribute_instance_variable(
@@ -1463,6 +1586,7 @@ impl<'source> Converter<'source> {
                         TypeParamVariance::Covariant => Variance::Covariant,
                         TypeParamVariance::Contravariant => Variance::Contravariant,
                     },
+                    unchecked: type_parameter.unchecked(),
                 }),
                 _ => None,
             })

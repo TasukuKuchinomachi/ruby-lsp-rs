@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -10,7 +10,7 @@ use ruby_rbs_sys::bindings::{
 use crate::environment::{ClassKind, Environment, Location, MethodKind, SourcePosition};
 use crate::loader::{UseClause, is_interface_name, parallel_map};
 use crate::navigation::SignatureTarget;
-use crate::types::{NameKind, TypeName, TypeParameter};
+use crate::types::{MethodType, NameKind, TypeName, TypeParameter};
 
 pub const SYNTAX_ERROR: &str = "RBS::SyntaxError";
 pub const DUPLICATED_DECLARATION: &str = "RBS::DuplicatedDeclaration";
@@ -159,6 +159,30 @@ pub(crate) enum ReferenceKind {
     ClassAliasTarget,
 }
 
+/// Where `RBS::DefinitionBuilder::AncestorBuilder#one_instance_ancestors`, `#one_singleton_ancestors` or
+/// `#one_interface_ancestors` reads a reference. Each of them stops at its first error
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum AncestorStep {
+    SuperClass,
+    SelfType,
+    InstanceMixin,
+    Extend,
+    InterfaceInclude,
+}
+
+impl ReferenceKind {
+    fn ancestor_step(&self) -> Option<AncestorStep> {
+        match self {
+            ReferenceKind::SuperClass { .. } => Some(AncestorStep::SuperClass),
+            ReferenceKind::ModuleSelfType => Some(AncestorStep::SelfType),
+            ReferenceKind::Mixin { kind: MixinKind::Extend, .. } => Some(AncestorStep::Extend),
+            ReferenceKind::Mixin { .. } => Some(AncestorStep::InstanceMixin),
+            ReferenceKind::InterfaceInclude => Some(AncestorStep::InterfaceInclude),
+            _ => None,
+        }
+    }
+}
+
 /// A type name written in a signature file, before name resolution
 pub(crate) struct TypeReference {
     /// Fully qualified names of the enclosing declarations, innermost last
@@ -182,7 +206,34 @@ pub(crate) enum AliasOwner {
 pub(crate) struct MethodAliasRecord {
     pub(crate) owner_name: TypeName,
     pub(crate) owner: AliasOwner,
+    pub(crate) new_name: String,
     pub(crate) old_name: String,
+    pub(crate) location: Location,
+}
+
+/// A method type whose use of the owner's type parameters `RBS::DefinitionBuilder#validate_type_params` checks against
+/// their variance: an instance method other than `initialize` or an instance attribute of a class, or a method of an
+/// interface
+pub(crate) struct MethodTypeRecord {
+    pub(crate) owner_name: TypeName,
+    pub(crate) method_type: MethodType,
+    pub(crate) location: Location,
+}
+
+/// `@name: T` or `self.@name: T` in a class body
+pub(crate) struct VariableRecord {
+    pub(crate) owner_name: TypeName,
+    pub(crate) name: String,
+    pub(crate) kind: MethodKind,
+    pub(crate) location: Location,
+}
+
+/// A `def` member in a class body, which `RBS::DefinitionBuilder#define_method` rejects when an included interface
+/// already defines the method
+pub(crate) struct MethodMemberRecord {
+    pub(crate) owner_name: TypeName,
+    pub(crate) name: String,
+    pub(crate) overloading: bool,
     pub(crate) location: Location,
 }
 
@@ -230,6 +281,9 @@ pub(crate) struct FileValidation {
     pub(crate) declarations: Vec<DeclarationRecord>,
     pub(crate) method_aliases: Vec<MethodAliasRecord>,
     pub(crate) defined_names: Vec<DefinedNameRecord>,
+    pub(crate) method_types: Vec<MethodTypeRecord>,
+    pub(crate) variables: Vec<VariableRecord>,
+    pub(crate) method_members: Vec<MethodMemberRecord>,
     pub(crate) diagnostics: Vec<SignatureDiagnostic>,
 }
 
@@ -312,20 +366,33 @@ pub(crate) fn generic_parameter_mismatch(location: &Location, name: &str) -> Sig
     )
 }
 
+/// The problems of the signature files, and which of them `RBS::DefinitionBuilder::AncestorBuilder` raises while Steep
+/// preloads the ancestors of every class, before the validator runs
 pub(crate) fn validate_files(
     environment: &Environment,
     validations: &[FileValidation],
-) -> Vec<SignatureDiagnostic> {
-    parallel_map(validations, |validation| {
+) -> (Vec<SignatureDiagnostic>, HashMap<DiagnosticKey, AncestorStep>) {
+    let mut diagnostics = Vec::new();
+    let mut ancestor_keys = HashMap::new();
+    let results = parallel_map(validations, |validation| {
         FileValidator {
             environment,
             uses: &validation.uses,
         }
         .validate(validation)
-    })
-    .into_iter()
-    .flatten()
-    .collect()
+    });
+    for (file_diagnostics, file_ancestor_keys) in results {
+        diagnostics.extend(file_diagnostics);
+        ancestor_keys.extend(file_ancestor_keys);
+    }
+    (diagnostics, ancestor_keys)
+}
+
+/// Where a diagnostic starts and its code, which tells it apart from the others
+pub(crate) type DiagnosticKey = (PathBuf, SourcePosition, &'static str);
+
+pub(crate) fn diagnostic_key(diagnostic: &SignatureDiagnostic) -> DiagnosticKey {
+    (diagnostic.path.clone(), diagnostic.start, diagnostic.code)
 }
 
 /// Sorted by file and position, without the same problem reported twice at one place
@@ -368,10 +435,16 @@ pub(crate) struct FileValidator<'a> {
 }
 
 impl FileValidator<'_> {
-    fn validate(&self, validation: &FileValidation) -> Vec<SignatureDiagnostic> {
+    fn validate(&self, validation: &FileValidation) -> (Vec<SignatureDiagnostic>, Vec<(DiagnosticKey, AncestorStep)>) {
         let mut diagnostics = validation.diagnostics.clone();
+        let mut ancestor_keys = Vec::new();
         for reference in &validation.references {
+            let first_new_diagnostic = diagnostics.len();
             self.validate_reference(reference, &mut diagnostics);
+            if let Some(step) = reference.kind.ancestor_step() {
+                ancestor_keys
+                    .extend(diagnostics[first_new_diagnostic..].iter().map(|diagnostic| (diagnostic_key(diagnostic), step)));
+            }
         }
         for declaration in &validation.declarations {
             self.validate_namespace(declaration, &mut diagnostics);
@@ -379,7 +452,8 @@ impl FileValidator<'_> {
         for method_alias in &validation.method_aliases {
             self.validate_method_alias(method_alias, &mut diagnostics);
         }
-        diagnostics
+        diagnostics.extend(crate::definition_validation::validate_definitions(self.environment, validation));
+        (diagnostics, ancestor_keys)
     }
 
     fn validate_reference(

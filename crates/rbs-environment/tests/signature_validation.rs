@@ -597,6 +597,125 @@ end
 }
 
 #[test]
+fn reports_errors_of_building_definitions() {
+    let environment = load(
+        r#"
+class Foo < Bar
+end
+
+class Bar < Foo
+end
+
+type looping = other_looping | String
+type other_looping = looping
+
+type nonregular[T] = Array[nonregular[Array[T]]]
+
+class Aliased
+  alias first second
+  alias second first
+end
+
+class Box[out T]
+  def put: (T) -> void
+  def get: () -> T
+  attr_accessor value: T
+end
+
+class Variables
+  @name: String
+  @name: String
+  self.@count: Integer
+  self.@count: Integer
+end
+
+interface _Named
+  def name: () -> String
+end
+
+class Person
+  include _Named
+
+  def name: () -> String
+end
+"#,
+    );
+    assert_eq!(
+        summaries(&environment),
+        vec![
+            (
+                "RBS::RecursiveAncestor",
+                2,
+                1,
+                "Circular inheritance/mix-in is detected: ::Foo <: ::Bar <: ::Foo".to_string()
+            ),
+            (
+                "RBS::RecursiveAncestor",
+                5,
+                1,
+                "Circular inheritance/mix-in is detected: ::Bar <: ::Foo <: ::Bar".to_string()
+            ),
+            (
+                "RBS::RecursiveTypeAlias",
+                8,
+                1,
+                "Type aliases cannot be *directly recursive*: ::looping".to_string()
+            ),
+            (
+                "RBS::RecursiveTypeAlias",
+                9,
+                1,
+                "Type aliases cannot be *directly recursive*: ::other_looping".to_string()
+            ),
+            (
+                "RBS::NonregularTypeAlias",
+                11,
+                1,
+                "Type alias ::nonregular is defined *non-regular*: ::nonregular[::Array[T]]".to_string()
+            ),
+            (
+                "RBS::RecursiveAlias",
+                14,
+                3,
+                "Circular method alias is detected in `::Aliased`: first -> second".to_string()
+            ),
+            (
+                "RBS::InvalidVarianceAnnotation",
+                19,
+                12,
+                "The variance of type parameter `T` is covariant, but used in incompatible position here"
+                    .to_string()
+            ),
+            (
+                "RBS::InvalidVarianceAnnotation",
+                21,
+                3,
+                "The variance of type parameter `T` is covariant, but used in incompatible position here"
+                    .to_string()
+            ),
+            (
+                "RBS::InstanceVariableDuplicationError",
+                26,
+                3,
+                "Duplicated instance variable name `@name` in `::Variables`".to_string()
+            ),
+            (
+                "RBS::ClassInstanceVariableDuplicationError",
+                28,
+                3,
+                "Duplicated class instance variable name `@count` in `::Variables`".to_string()
+            ),
+            (
+                "RBS::DuplicatedMethodDefinition",
+                38,
+                3,
+                "Non-overloading method definition of `name` in `::Person` cannot be duplicated".to_string()
+            ),
+        ]
+    );
+}
+
+#[test]
 fn reports_syntax_errors_at_the_token() {
     let environment = load("class Broken\n  def run: () -> \nend\n");
     let [diagnostic] = environment.signature_diagnostics.as_slice() else {

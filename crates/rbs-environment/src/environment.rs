@@ -148,6 +148,9 @@ pub struct Environment {
     /// Methods defined twice without `...`, in every loaded file in load order
     pub duplicated_method_definitions: Vec<crate::steep_compatibility::DuplicatedMethodDefinition>,
     pub(crate) signature_validation_scopes: Vec<crate::signature_validation::ValidationScope>,
+    /// The `signature_diagnostics` RBS raises while it loads the ancestors of the classes, modules and interfaces
+    pub(crate) ancestor_phase_diagnostics:
+        HashMap<crate::signature_validation::DiagnosticKey, crate::signature_validation::AncestorStep>,
     pub(crate) definition_errors: std::sync::OnceLock<crate::steep_compatibility::DefinitionErrors>,
     pub(crate) ancestor_cache: crate::lookup::AncestorCache,
 }

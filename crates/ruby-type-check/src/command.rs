@@ -157,17 +157,17 @@ pub fn unexpected_error_warning(file_count: usize) -> Option<String> {
 /// them to the signature files under those paths
 pub fn check_signatures(environment: &Environment, workspace_path: &Path, paths: &[PathBuf], steep_compatible: bool) -> FileResult {
     let roots: Vec<PathBuf> = paths.iter().map(|path| workspace_path.join(path)).collect();
-    let diagnostics: Vec<&SignatureDiagnostic> = if steep_compatible {
+    let diagnostics: Vec<SignatureDiagnostic> = if steep_compatible {
         environment.steep_compatible_signature_diagnostics()
     } else {
-        environment.signature_diagnostics.iter().collect()
+        environment.signature_diagnostics.clone()
     };
-    let mut sources: HashMap<&Path, Vec<u8>> = HashMap::new();
+    let mut sources: HashMap<PathBuf, Vec<u8>> = HashMap::new();
     let reported: Vec<ReportedDiagnostic> = diagnostics
         .into_iter()
         .filter(|diagnostic| roots.is_empty() || roots.iter().any(|root| diagnostic.path.starts_with(root)))
         .map(|diagnostic| {
-            let source = sources.entry(&diagnostic.path).or_insert_with(|| std::fs::read(&diagnostic.path).unwrap_or_default());
+            let source = sources.entry(diagnostic.path.clone()).or_insert_with(|| std::fs::read(&diagnostic.path).unwrap_or_default());
             let line_offset = |line: u32| {
                 source.split_inclusive(|byte| *byte == b'\n').take(line as usize).map(<[u8]>::len).sum::<usize>()
             };

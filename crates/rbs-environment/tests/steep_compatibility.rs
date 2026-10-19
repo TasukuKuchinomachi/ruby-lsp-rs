@@ -233,6 +233,71 @@ end
     );
 }
 
+fn steep_compatible_messages(environment: &Environment) -> Vec<(u32, String)> {
+    environment
+        .steep_compatible_signature_diagnostics()
+        .into_iter()
+        .map(|diagnostic| (diagnostic.start.line + 1, diagnostic.message))
+        .collect()
+}
+
+#[test]
+fn steep_compatible_signature_diagnostics_show_only_the_errors_of_loading_ancestors_when_there_are_some() {
+    let environment = load(
+        r#"
+class Child < MissingParent
+end
+
+class Child < String
+end
+
+type json = MissingJson
+
+class Other < MissingOther
+end
+"#,
+    );
+    assert_eq!(
+        steep_compatible_messages(&environment),
+        vec![
+            (2, "Different superclasses are specified for `::Child`".to_string()),
+            (10, "Cannot find type `MissingOther`".to_string()),
+        ]
+    );
+    assert!(environment.steep_fails_to_load_signatures());
+}
+
+#[test]
+fn steep_compatible_signature_diagnostics_show_names_the_validator_cannot_find_as_absolute() {
+    let environment = load(
+        r#"
+class Searcher
+  def self.build: () -> MissingBuilder
+end
+
+class Finder
+  def find: () -> MissingRecord
+end
+
+interface _Each
+  def each: () -> MissingElement
+end
+
+type json = MissingJson
+"#,
+    );
+    assert_eq!(
+        steep_compatible_messages(&environment),
+        vec![
+            (3, "Cannot find type `::MissingBuilder`".to_string()),
+            (7, "Cannot find type `MissingRecord`".to_string()),
+            (11, "Cannot find type `MissingElement`".to_string()),
+            (14, "Cannot find type `::MissingJson`".to_string()),
+        ]
+    );
+    assert!(!environment.steep_fails_to_load_signatures());
+}
+
 #[test]
 fn steep_compatible_signature_diagnostics_report_a_duplicated_method_at_its_first_definition() {
     let environment = load(

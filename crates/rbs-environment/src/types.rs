@@ -106,6 +106,8 @@ pub struct TypeParameter {
     pub upper_bound: Option<Type>,
     pub default_type: Option<Type>,
     pub variance: Variance,
+    /// `unchecked out T`, whose variance RBS does not check
+    pub unchecked: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

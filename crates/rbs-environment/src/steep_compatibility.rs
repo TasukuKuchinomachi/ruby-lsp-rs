@@ -1,10 +1,15 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::definition_validation::{
+    CLASS_INSTANCE_VARIABLE_DUPLICATION, INSTANCE_VARIABLE_DUPLICATION, INVALID_VARIANCE_ANNOTATION,
+    NONREGULAR_TYPE_ALIAS, RECURSIVE_ALIAS, RECURSIVE_ANCESTOR, RECURSIVE_TYPE_ALIAS,
+};
 use crate::environment::{Ancestor, ClassKind, Environment, Location, MethodKind};
 use crate::signature_validation::{
-    DUPLICATED_METHOD_DEFINITION, INVALID_METHOD_OVERLOAD, INVALID_TYPE_APPLICATION,
-    SignatureDiagnostic, UNKNOWN_METHOD_ALIAS, UNKNOWN_TYPE_NAME, ValidationMember,
-    ValidationOwner, ValidationScope,
+    AncestorStep, DUPLICATED_DECLARATION, DUPLICATED_METHOD_DEFINITION, GENERIC_PARAMETER_MISMATCH,
+    INVALID_METHOD_OVERLOAD, INVALID_TYPE_APPLICATION, SUPERCLASS_MISMATCH, SYNTAX_ERROR,
+    SignatureDiagnostic, UNKNOWN_METHOD_ALIAS, UNKNOWN_TYPE_NAME, ValidationMember, ValidationOwner,
+    ValidationScope, absolute_name, diagnostic_key,
 };
 use crate::types::{MethodType, Type, TypeName};
 
@@ -86,6 +91,13 @@ const FIRST_ERROR_ONLY_CODES: &[&str] = &[
     INVALID_METHOD_OVERLOAD,
     UNKNOWN_METHOD_ALIAS,
     DUPLICATED_METHOD_DEFINITION,
+    RECURSIVE_ANCESTOR,
+    RECURSIVE_TYPE_ALIAS,
+    NONREGULAR_TYPE_ALIAS,
+    RECURSIVE_ALIAS,
+    INVALID_VARIANCE_ANNOTATION,
+    INSTANCE_VARIABLE_DUPLICATION,
+    CLASS_INSTANCE_VARIABLE_DUPLICATION,
 ];
 
 impl Environment {
@@ -108,9 +120,126 @@ impl Environment {
             .get_or_init(|| DefinitionErrorCalculator::new(self).calculate())
     }
 
-    /// `signature_diagnostics` as `steep check` reports them: the validator stops a declaration at its first error,
-    /// and RBS reports a duplicated method at its first definition only, which is dropped when it is in a library
-    pub fn steep_compatible_signature_diagnostics(&self) -> Vec<&SignatureDiagnostic> {
+    /// `signature_diagnostics` as `steep check` reports them, following the status of Steep's
+    /// `Services::SignatureService`: a syntax error hides the other problems, then the errors of loading the
+    /// declarations, then those of loading the ancestors, and only without any of them the validator runs
+    pub fn steep_compatible_signature_diagnostics(&self) -> Vec<SignatureDiagnostic> {
+        let syntax_errors: Vec<&SignatureDiagnostic> =
+            self.signature_diagnostics.iter().filter(|diagnostic| diagnostic.code == SYNTAX_ERROR).collect();
+        if !syntax_errors.is_empty() {
+            return syntax_errors.into_iter().cloned().collect();
+        }
+        let loading_errors = self.loading_errors();
+        if !loading_errors.is_empty() {
+            return loading_errors;
+        }
+        let ancestor_errors = self.ancestor_errors();
+        if !ancestor_errors.is_empty() {
+            return ancestor_errors;
+        }
+        self.validator_errors()
+            .into_iter()
+            .map(|diagnostic| self.with_validator_type_name(diagnostic))
+            .collect()
+    }
+
+    /// Whether Steep fails to load the signatures, in which case it type checks no Ruby file of the target
+    pub fn steep_fails_to_load_signatures(&self) -> bool {
+        self.signature_diagnostics.iter().any(|diagnostic| diagnostic.code == SYNTAX_ERROR)
+            || !self.loading_errors().is_empty()
+            || !self.ancestor_errors().is_empty()
+    }
+
+    /// `Services::SignatureService#update_env` collects `RBS::Environment#add_source`, which stops a file at its first
+    /// duplicated declaration, and `RBS::Environment#validate_type_params`, which stops at the first mismatch
+    fn loading_errors(&self) -> Vec<SignatureDiagnostic> {
+        let mut files_with_duplicated_declaration = HashSet::new();
+        let mut generic_parameter_mismatch_found = false;
+        self.signature_diagnostics
+            .iter()
+            .filter(|diagnostic| match diagnostic.code {
+                DUPLICATED_DECLARATION => files_with_duplicated_declaration.insert(&diagnostic.path),
+                GENERIC_PARAMETER_MISMATCH => !std::mem::replace(&mut generic_parameter_mismatch_found, true),
+                _ => false,
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// The errors of `RBS::DefinitionBuilder::AncestorBuilder` that Steep preloads, without the same error twice. Both
+    /// `#one_instance_ancestors` and `#one_singleton_ancestors` stop at the first error of a declaration, a superclass
+    /// mismatch coming before anything else
+    fn ancestor_errors(&self) -> Vec<SignatureDiagnostic> {
+        let mut steps_of_owner: HashMap<&ValidationOwner, Vec<(Option<AncestorStep>, &SignatureDiagnostic)>> =
+            HashMap::new();
+        for diagnostic in &self.signature_diagnostics {
+            let step = if diagnostic.code == SUPERCLASS_MISMATCH {
+                None
+            } else {
+                match self.ancestor_phase_diagnostics.get(&diagnostic_key(diagnostic)) {
+                    Some(step) => Some(*step),
+                    None => continue,
+                }
+            };
+            let Some(scope) = self.innermost_validation_scope(diagnostic) else {
+                continue;
+            };
+            steps_of_owner.entry(&scope.owner).or_default().push((step, diagnostic));
+        }
+        let mut errors: Vec<&SignatureDiagnostic> = Vec::new();
+        for steps in steps_of_owner.values_mut() {
+            steps.sort_by_key(|(step, diagnostic)| (*step, diagnostic.start.line, diagnostic.start.byte_column));
+            let first_of = |accepted: &[AncestorStep]| {
+                steps.iter().find(|(step, _)| step.is_none_or(|step| accepted.contains(&step))).map(|(_, diagnostic)| *diagnostic)
+            };
+            errors.extend(first_of(&[
+                AncestorStep::SuperClass,
+                AncestorStep::SelfType,
+                AncestorStep::InstanceMixin,
+                AncestorStep::InterfaceInclude,
+            ]));
+            errors.extend(first_of(&[AncestorStep::SuperClass, AncestorStep::Extend]));
+        }
+        errors.sort_by(|left, right| {
+            (&left.path, left.start.line, left.start.byte_column).cmp(&(&right.path, right.start.line, right.start.byte_column))
+        });
+        let mut seen = HashSet::new();
+        errors
+            .into_iter()
+            .filter(|diagnostic| seen.insert((diagnostic.code, diagnostic.message.as_str())))
+            .cloned()
+            .collect()
+    }
+
+    /// `RBS::Validator#validate_type` resolves a name with no context and makes a name it cannot find absolute, while
+    /// `RBS::DefinitionBuilder` reports the name of an instance method type or an interface method type as written,
+    /// since it fails on those before the validator looks at them
+    fn with_validator_type_name(&self, diagnostic: &SignatureDiagnostic) -> SignatureDiagnostic {
+        let mut diagnostic = diagnostic.clone();
+        if diagnostic.code != UNKNOWN_TYPE_NAME {
+            return diagnostic;
+        }
+        let written_by_definition_builder = self.innermost_validation_scope(&diagnostic).is_some_and(|scope| {
+            matches!(scope.owner, ValidationOwner::Interface(_))
+                || matches!(scope.owner, ValidationOwner::Class(_)) && scope.member == ValidationMember::InstanceMethod
+        });
+        let name = diagnostic
+            .message
+            .strip_prefix("Cannot find type `")
+            .and_then(|rest| rest.strip_suffix('`'))
+            .map(str::to_string);
+        if let Some(name) = name
+            && !written_by_definition_builder
+            && !name.starts_with("::")
+        {
+            diagnostic.message = format!("Cannot find type `{}`", absolute_name(&name));
+        }
+        diagnostic
+    }
+
+    /// The validator stops a declaration at its first error, and RBS reports a duplicated method at its first
+    /// definition only, which is dropped when it is in a library
+    fn validator_errors(&self) -> Vec<&SignatureDiagnostic> {
         let mut kept = vec![true; self.signature_diagnostics.len()];
         let mut first_of_owner: HashMap<&ValidationOwner, (ValidationOrder, usize)> =
             HashMap::new();
@@ -190,7 +319,10 @@ struct ValidationOrder {
 /// variable types, `build_singleton` (duplicated singleton methods), then the singleton member types
 fn validation_phase(member: ValidationMember, code: &str) -> u8 {
     match member {
+        ValidationMember::Declaration if code == NONREGULAR_TYPE_ALIAS => 1,
         ValidationMember::Declaration => 0,
+        ValidationMember::InstanceMethod if code == INVALID_VARIANCE_ANNOTATION => 1,
+        ValidationMember::SingletonMember if code == CLASS_INSTANCE_VARIABLE_DUPLICATION => 4,
         ValidationMember::InstanceMethod
         | ValidationMember::Initializer
         | ValidationMember::InstanceAlias
