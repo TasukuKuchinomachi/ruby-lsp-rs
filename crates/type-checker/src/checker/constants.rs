@@ -4,7 +4,9 @@ use rbs_environment::{Location, Type};
 use ruby_prism::Node;
 
 use super::{CacheState, Checker, Context, Locals};
-use crate::source::{Span, constant_text, qualify};
+use crate::annotations::AnnotationTarget;
+use crate::file_index::{ScopeKind, ScopeRange};
+use crate::source::{ConstantPath, Span, constant_text, qualify};
 use crate::{HoverKind, Severity};
 
 enum ConstantKind {
@@ -193,6 +195,13 @@ impl<'pr> Checker<'_, 'pr> {
         context: &Context,
         locals: &mut Locals,
     ) -> Type {
+        if let Some(path) = ConstantPath::of_node(node) {
+            let written = if path.absolute { format!("::{}", path.joined()) } else { path.joined() };
+            if let Some(annotated) = self.annotated_constant_type(Span::of_node(node), &written, &context.nesting) {
+                self.record_type_hover(Span::of_node(node), &annotated);
+                return annotated;
+            }
+        }
         match node {
             Node::ConstantReadNode { .. } => {
                 let Some(read) = node.as_constant_read_node() else {
@@ -267,6 +276,32 @@ impl<'pr> Checker<'_, 'pr> {
         }
     }
 
+    /// `@type const Name: T` of the class, module or program around the node. Steep imports these annotations into the
+    /// type environment of a class or module body, which its methods and blocks inherit, and matches the name as
+    /// written
+    fn annotated_constant_type(&self, node_span: Span, written: &str, nesting: &[String]) -> Option<Type> {
+        let mut enclosing: Vec<ScopeRange> = self
+            .file_index
+            .scopes
+            .iter()
+            .filter(|scope| scope.span.start <= node_span.start && node_span.start < scope.span.end)
+            .copied()
+            .collect();
+        enclosing.sort_by_key(|scope| scope.span.end - scope.span.start);
+        let scope = enclosing.iter().find(|scope| matches!(scope.kind, ScopeKind::Class | ScopeKind::Program))?;
+        self.type_annotations_in(scope.span.start)
+            .filter_map(|(target, annotated_type)| match target {
+                AnnotationTarget::Constant(name) if name == written => Some(annotated_type),
+                _ => None,
+            })
+            .last()
+            .map(|annotated_type| {
+                let mut resolved = annotated_type.clone();
+                self.environment.resolve_type_names(&mut resolved, nesting);
+                resolved
+            })
+    }
+
     /// `Parent::NAME` also finds a constant declared in an ancestor of `Parent`, as Ruby and Steep do
     fn constant_in_ancestors(&self, parent_name: &str, name: &str) -> Option<String> {
         if parent_name.is_empty() {
@@ -305,6 +340,13 @@ impl<'pr> Checker<'_, 'pr> {
                     name,
                     kind: ConstantKind::FileConstant,
                 });
+                if !resolved.is_declared_in_signature() {
+                    self.report_unknown_constant(
+                        Span::of_location(&write.name_loc()),
+                        &constant_text(&write.name()),
+                        &context.nesting,
+                    );
+                }
                 if matches!(resolved.kind, ConstantKind::RbsConstant)
                     && let Some(declared) = self
                         .environment

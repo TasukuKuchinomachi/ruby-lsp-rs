@@ -252,6 +252,7 @@ Defined
             "Cannot find the declaration of constant: `MissingThing`",
             "Cannot find the declaration of constant: `String::Missing`",
             "Cannot find the declaration of constant: `LOCAL_VALUE`",
+            "Cannot find the declaration of constant: `LOCAL_VALUE`",
             "Cannot find the declaration of class: `Defined`",
             "Cannot find the declaration of constant: `Defined`",
         ]

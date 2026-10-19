@@ -6,6 +6,7 @@ use ruby_prism::{Node, ParametersNode};
 use super::variables::IT_PARAMETER_KEY;
 use super::{Checker, Context, Locals};
 use crate::TypeHintKind;
+use crate::annotations::AnnotationTarget;
 use crate::source::{Span, constant_text};
 use crate::type_utilities::{array_of, hash_of, is_bottom};
 
@@ -182,6 +183,18 @@ impl<'pr> Checker<'_, 'pr> {
             &block_context,
             &mut parameter_locals,
         );
+        let annotated_parameters: Vec<(String, Type)> = self
+            .type_annotations_in(scope_start)
+            .filter_map(|(target, annotated_type)| match target {
+                AnnotationTarget::LocalVariable(name) if parameter_names.contains(name) => {
+                    let mut resolved = annotated_type.clone();
+                    self.environment.resolve_type_names(&mut resolved, &context.nesting);
+                    Some((name.clone(), resolved))
+                }
+                _ => None,
+            })
+            .collect();
+        parameter_locals.extend(annotated_parameters);
         let (block_locals, (body_type, next_types)) = self.infer_repeatedly(
             &parameter_locals,
             &parameter_names,

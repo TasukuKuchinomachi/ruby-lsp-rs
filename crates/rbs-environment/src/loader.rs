@@ -28,7 +28,7 @@ use crate::signature_validation::{
 use crate::steep_compatibility::DuplicatedMethodDefinition;
 use crate::types::{
     Block, Function, Literal, MethodType, NameKind, Parameter, ProcType, RecordField, Type,
-    TypeName, TypeParameter, Variance,
+    Substitution, TypeName, TypeParameter, Variance,
 };
 
 enum PendingSource {
@@ -2178,6 +2178,49 @@ fn validate_class_fragment(
     }
 }
 
+/// A class reopened as `class Array[X]` after `class Array[Elem]` refers to `Elem` by `X`, which RBS's definition
+/// builder maps back to the type parameters of the first declaration
+fn rename_type_parameters(class: &mut ClassFragment, declared_parameters: &[TypeParameter]) {
+    if class.type_parameters.len() != declared_parameters.len() {
+        return;
+    }
+    let variables: HashMap<String, Type> = class
+        .type_parameters
+        .iter()
+        .zip(declared_parameters)
+        .filter(|(written, declared)| written.name != declared.name)
+        .map(|(written, declared)| (written.name.clone(), Type::Variable(declared.name.clone())))
+        .collect();
+    if variables.is_empty() {
+        return;
+    }
+    let substitution = Substitution { variables, ..Substitution::default() };
+    let rename_ancestor = |ancestor: &mut Ancestor| {
+        ancestor.arguments = ancestor.arguments.iter().map(|argument| argument.substitute(&substitution)).collect();
+    };
+    class.super_class.iter_mut().for_each(rename_ancestor);
+    class
+        .includes
+        .iter_mut()
+        .chain(class.prepends.iter_mut())
+        .chain(class.extends.iter_mut())
+        .chain(class.module_self_types.iter_mut())
+        .for_each(rename_ancestor);
+    for (_, variable_type) in &mut class.instance_variables {
+        *variable_type = variable_type.substitute(&substitution);
+    }
+    for method in &mut class.methods {
+        for overload in &mut method.definition.overloads {
+            let mut narrowed = substitution.clone();
+            for type_parameter in &overload.type_parameters {
+                narrowed.variables.remove(&type_parameter.name);
+            }
+            *overload = overload.substitute(&narrowed);
+        }
+    }
+    class.type_parameters = declared_parameters.to_vec();
+}
+
 fn merge_class(environment: &mut Environment, class: ClassFragment, state: &mut MergeState) {
     validate_class_fragment(environment, &class, state);
     let declaration = environment
@@ -2205,8 +2248,10 @@ fn merge_class(environment: &mut Environment, class: ClassFragment, state: &mut 
         declaration.member_declaration_count += 1;
     }
     if declaration.type_parameters.is_empty() {
-        declaration.type_parameters = class.type_parameters;
+        declaration.type_parameters = class.type_parameters.clone();
     }
+    let mut class = class;
+    rename_type_parameters(&mut class, &declaration.type_parameters);
     if declaration.super_class.is_none() {
         declaration.super_class = class.super_class;
     }

@@ -425,6 +425,14 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             .collect()
     }
 
+    /// The type annotations attached to the scope starting at `scope_start`, in source order
+    pub(crate) fn type_annotations_in(&self, scope_start: usize) -> impl Iterator<Item = (&AnnotationTarget, &Type)> {
+        self.annotations
+            .iter()
+            .filter(move |annotation| annotation.self_scope_start == scope_start)
+            .map(|annotation| (&annotation.target, &annotation.annotated_type))
+    }
+
     pub(crate) fn annotated_self_type(
         &self,
         scope_start: usize,

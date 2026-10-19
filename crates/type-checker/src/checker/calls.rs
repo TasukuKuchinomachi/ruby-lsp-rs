@@ -294,6 +294,16 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             self.infer_arguments(call.arguments(), context, locals);
             return self.infer_lambda(block, context, locals);
         }
+        // The parser gem Steep uses reads `/regexp/ =~ value` as `match_with_lvasgn`, which Steep types as `untyped`
+        // without looking the method up
+        if self.options.steep_compatible
+            && method_name == "=~"
+            && let Some(receiver) = receiver.as_ref().filter(|receiver| matches!(receiver, Node::RegularExpressionNode { .. }))
+        {
+            self.infer(receiver, context, locals);
+            self.infer_arguments(call.arguments(), context, locals);
+            return Type::Untyped;
+        }
         let receiver_type = match &receiver {
             Some(receiver) => {
                 let receiver_type = self.infer(receiver, context, locals);
