@@ -1,20 +1,27 @@
 use rbs_environment::Type;
 use ruby_prism::{Node, RescueNode};
 
-use super::narrowing::{merge_locals, narrow_to_class};
+use super::narrowing::{NarrowingTarget, merge_locals, narrow_to_class};
 use super::{Checker, Context, Locals};
 use crate::Severity;
 use crate::source::Span;
 use crate::steep_relation;
 use crate::subtyping::{Certainty, is_subtype};
 use crate::type_utilities::{
-    array_of, can_be_falsy, element_type, falsy_part, instance_type_of_class_value, is_bottom,
+    array_of, can_be_falsy, element_type, falsy_part, instance_type_of_class, instance_type_of_class_value, is_bottom,
     members_of, remove_nil, truthy_part,
 };
 
 struct Branch {
     locals: Locals,
     result_type: Type,
+}
+
+struct CaseSelection {
+    truthy: Type,
+    falsy: Type,
+    truthy_unreachable: bool,
+    falsy_unreachable: bool,
 }
 
 fn merge_branches(base: &Locals, branches: Vec<Branch>) -> (Locals, Type) {
@@ -76,19 +83,29 @@ impl<'pr> Checker<'_, 'pr> {
         self.narrow(&predicate, !negated, context, &mut then_locals);
         let mut else_locals = locals.clone();
         self.narrow(&predicate, negated, context, &mut else_locals);
-        let then_type = self.infer_optional_statements(statements, context, &mut then_locals);
+        let then_context = match &statements {
+            Some(statements) => self.branch_context(Span::of_location(&statements.location()), context, &mut then_locals),
+            None => context.clone(),
+        };
+        let then_type = self.infer_optional_statements(statements, &then_context, &mut then_locals);
         let else_type = match subsequent {
             Some(Node::ElseNode { .. }) => {
-                let else_node = subsequent
+                let else_statements = subsequent
                     .as_ref()
-                    .and_then(|subsequent| subsequent.as_else_node());
-                self.infer_optional_statements(
-                    else_node.and_then(|else_node| else_node.statements()),
-                    context,
-                    &mut else_locals,
-                )
+                    .and_then(|subsequent| subsequent.as_else_node())
+                    .and_then(|else_node| else_node.statements());
+                let else_context = match &else_statements {
+                    Some(statements) => {
+                        self.branch_context(Span::of_location(&statements.location()), context, &mut else_locals)
+                    }
+                    None => context.clone(),
+                };
+                self.infer_optional_statements(else_statements, &else_context, &mut else_locals)
             }
-            Some(other) => self.infer(&other, context, &mut else_locals),
+            Some(other) => {
+                let else_context = self.branch_context(Span::of_node(&other), context, &mut else_locals);
+                self.infer(&other, &else_context, &mut else_locals)
+            }
             None => Type::Nil,
         };
         let (merged, result_type) = merge_branches(
@@ -441,6 +458,12 @@ impl<'pr> Checker<'_, 'pr> {
             return Type::Untyped;
         };
         let predicate = case.predicate();
+        if let Some(predicate) = &predicate
+            && self.options.steep_compatible
+        {
+            let subject_type = self.infer(predicate, context, locals);
+            return self.infer_case_when(&case, predicate, subject_type, context, locals);
+        }
         if let Some(predicate) = &predicate {
             self.infer(predicate, context, locals);
         }
@@ -527,6 +550,226 @@ impl<'pr> Checker<'_, 'pr> {
         let (merged, result_type) = merge_branches(locals, branches);
         *locals = merged;
         result_type
+    }
+
+    /// Steep's `CaseWhen.type_check`: each pattern tests `pattern === subject` with the subject narrowed by the patterns
+    /// before it, a clause sees the subject as any of its patterns let it through, and a clause or `else` no value can
+    /// reach is `UnreachableValueBranch`
+    fn infer_case_when(
+        &mut self,
+        case: &ruby_prism::CaseNode<'pr>,
+        predicate: &Node<'pr>,
+        subject_type: Type,
+        context: &Context,
+        locals: &mut Locals,
+    ) -> Type {
+        let target = Checker::narrowing_target(predicate);
+        let mut current_locals = locals.clone();
+        let mut current_subject = subject_type;
+        let mut next_unreachable = false;
+        let mut branches = Vec::new();
+        for condition_node in case.conditions().iter() {
+            let Some(when) = condition_node.as_when_node() else {
+                continue;
+            };
+            let clause_start_locals = current_locals.clone();
+            let clause_unreachable = next_unreachable;
+            let mut truthy_subjects = Vec::new();
+            let mut all_patterns_unreachable = true;
+            for pattern in when.conditions().iter() {
+                let pattern_type = self.infer(&pattern, context, &mut current_locals);
+                let selection = self.case_pattern_selection(&pattern, &pattern_type, &current_subject);
+                all_patterns_unreachable &= selection.truthy_unreachable;
+                truthy_subjects.push(selection.truthy);
+                next_unreachable = clause_unreachable || selection.falsy_unreachable;
+                current_subject = selection.falsy;
+                if let Some(target) = &target {
+                    Checker::assign_case_subject(target, current_subject.clone(), &mut current_locals);
+                }
+            }
+            let mut body_locals = clause_start_locals;
+            if let Some(target) = &target {
+                Checker::assign_case_subject(target, Type::union(truthy_subjects), &mut body_locals);
+            }
+            let body_context = match when.statements() {
+                Some(statements) => self.branch_context(Span::of_location(&statements.location()), context, &mut body_locals),
+                None => context.clone(),
+            };
+            let body_type = self.infer_optional_statements(when.statements(), &body_context, &mut body_locals);
+            if clause_unreachable || all_patterns_unreachable {
+                if !is_bottom(&body_type) {
+                    self.report_unreachable_value_branch(Span::of_location(&when.keyword_loc()), &body_type);
+                }
+                continue;
+            }
+            branches.push(Branch { locals: body_locals, result_type: body_type });
+        }
+        match case.else_clause() {
+            Some(else_clause) => {
+                let mut else_locals = current_locals;
+                let else_type = self.infer_optional_statements(else_clause.statements(), context, &mut else_locals);
+                if next_unreachable {
+                    if !is_bottom(&else_type) {
+                        self.report_unreachable_value_branch(Span::of_location(&else_clause.else_keyword_loc()), &else_type);
+                    }
+                } else {
+                    branches.push(Branch { locals: else_locals, result_type: else_type });
+                }
+            }
+            None if !next_unreachable => branches.push(Branch { locals: current_locals, result_type: Type::Nil }),
+            None => {}
+        }
+        if branches.is_empty() {
+            return Type::Bottom;
+        }
+        let (merged, result_type) = merge_branches(locals, branches);
+        *locals = merged;
+        result_type
+    }
+
+    fn report_unreachable_value_branch(&mut self, span: Span, branch_type: &Type) {
+        self.record_diagnostic(
+            span,
+            Severity::Hint,
+            "Ruby::UnreachableValueBranch",
+            format!("The branch may evaluate to a value of `{}` but unreachable", branch_type.steep_display()),
+        );
+    }
+
+    /// Steep refines the subject to `bot` in a branch nothing reaches, which keeps the branch from reporting errors
+    fn assign_case_subject(target: &NarrowingTarget<'pr>, subject: Type, locals: &mut Locals) {
+        if is_bottom(&subject) {
+            match target {
+                NarrowingTarget::Local(name) => {
+                    locals.insert(name.clone(), Type::Bottom);
+                }
+                NarrowingTarget::InstanceVariable(name) => {
+                    locals.insert(super::variables::instance_variable_local_key(name), Type::Bottom);
+                }
+                NarrowingTarget::PureCall { key, .. } => {
+                    locals.insert(key.clone(), Type::Bottom);
+                }
+            }
+        } else {
+            Checker::set_target_type(target, subject, locals);
+        }
+    }
+
+    /// What `pattern === subject` tells about the subject: a class pattern is Steep's `ArgIsReceiver` with
+    /// `type_case_select`, a literal pattern its `ArgEqualsReceiver` with `literal_var_type_case_select`, and any other
+    /// pattern tells nothing
+    fn case_pattern_selection(&mut self, pattern: &Node<'pr>, pattern_type: &Type, subject: &Type) -> CaseSelection {
+        let unchanged = CaseSelection {
+            truthy: subject.clone(),
+            falsy: subject.clone(),
+            truthy_unreachable: false,
+            falsy_unreachable: false,
+        };
+        let pattern_type = self.expand_alias_deeply(pattern_type, 0);
+        if let Type::ClassSingleton { name } = &pattern_type {
+            let instance = instance_type_of_class(self.environment, name);
+            let (truthy, falsy) = self.type_case_select(subject, &instance);
+            return CaseSelection {
+                truthy_unreachable: truthy.is_empty(),
+                falsy_unreachable: falsy.is_empty(),
+                truthy: if truthy.is_empty() { instance } else { Type::union(truthy) },
+                falsy: if falsy.is_empty() { Type::Untyped } else { Type::union(falsy) },
+            };
+        }
+        match self.literal_case_select(pattern, subject) {
+            Some((truthy, falsy)) => CaseSelection {
+                truthy_unreachable: truthy.is_empty(),
+                falsy_unreachable: falsy.is_empty(),
+                truthy: Type::union(truthy),
+                falsy: Type::union(falsy),
+            },
+            None => unchanged,
+        }
+    }
+
+    /// Steep's `type_case_select0`
+    fn type_case_select(&mut self, subject: &Type, instance: &Type) -> (Vec<Type>, Vec<Type>) {
+        match subject {
+            Type::Union(members) => {
+                let mut truthy = Vec::new();
+                let mut falsy = Vec::new();
+                for member in members {
+                    let (member_truthy, member_falsy) = self.type_case_select(member, instance);
+                    if member_truthy.is_empty() {
+                        falsy.push(member.clone());
+                    } else {
+                        truthy.extend(member_truthy);
+                        falsy.extend(member_falsy);
+                    }
+                }
+                (truthy, falsy)
+            }
+            Type::Alias { name, arguments } => match self.environment.expand_alias(name, arguments) {
+                Some(expanded) => self.type_case_select(&expanded, instance),
+                None => (vec![subject.clone()], vec![subject.clone()]),
+            },
+            Type::Untyped | Type::Top | Type::Variable(_) | Type::Interface { .. } => {
+                (vec![instance.clone()], vec![subject.clone()])
+            }
+            _ => {
+                if steep_relation::is_subtype(self.environment, subject, instance) {
+                    (vec![subject.clone()], Vec::new())
+                } else if steep_relation::is_subtype(self.environment, instance, subject) {
+                    (vec![instance.clone()], vec![subject.clone()])
+                } else {
+                    (Vec::new(), vec![subject.clone()])
+                }
+            }
+        }
+    }
+
+    /// Steep's `literal_var_type_case_select` for `literal === subject`. `None` when the pattern is not a literal or
+    /// a member of the subject type is not decided
+    fn literal_case_select(&self, pattern: &Node<'pr>, subject: &Type) -> Option<(Vec<Type>, Vec<Type>)> {
+        use rbs_environment::Literal;
+        match subject {
+            Type::Union(members) => {
+                let mut truthy = Vec::new();
+                let mut falsy = Vec::new();
+                for member in members {
+                    let (member_truthy, member_falsy) = self.literal_case_select(pattern, member)?;
+                    truthy.extend(member_truthy);
+                    falsy.extend(member_falsy);
+                }
+                return Some((truthy, falsy));
+            }
+            Type::Alias { name, arguments } => {
+                if let Some(expanded) = self.environment.expand_alias(name, arguments) {
+                    return self.literal_case_select(pattern, &expanded);
+                }
+            }
+            Type::Bool | Type::Top | Type::Untyped => return Some((vec![subject.clone()], vec![subject.clone()])),
+            _ => {}
+        }
+        let is_instance_of = |class_name: &str| matches!(subject, Type::ClassInstance { name, .. } if name == class_name);
+        let partition = |matches: bool| {
+            if matches { (vec![subject.clone()], Vec::new()) } else { (Vec::new(), vec![subject.clone()]) }
+        };
+        match pattern {
+            Node::NilNode { .. } => Some(partition(matches!(subject, Type::Nil) || is_instance_of("NilClass"))),
+            Node::TrueNode { .. } => {
+                Some(partition(is_instance_of("TrueClass") || matches!(subject, Type::Literal(Literal::True))))
+            }
+            Node::FalseNode { .. } => {
+                Some(partition(is_instance_of("FalseClass") || matches!(subject, Type::Literal(Literal::False))))
+            }
+            Node::IntegerNode { .. } | Node::StringNode { .. } | Node::SymbolNode { .. } => {
+                let Type::Literal(literal) = super::arguments::literal_type_of(pattern)? else {
+                    return None;
+                };
+                Some(match subject {
+                    Type::Literal(subject_literal) if *subject_literal == literal => (vec![subject.clone()], Vec::new()),
+                    Type::Literal(_) => (Vec::new(), vec![subject.clone()]),
+                    _ => (vec![Type::Literal(literal)], vec![subject.clone()]),
+                })
+            }
+            _ => None,
+        }
     }
 
     pub(crate) fn infer_case_match(

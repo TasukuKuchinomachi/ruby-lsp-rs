@@ -28,6 +28,11 @@ pub(crate) fn detail_lines(environment: &Environment, subtype: &Type, supertype:
     (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
+/// Whether Steep's check of `subtype <: supertype` succeeds
+pub(crate) fn is_subtype(environment: &Environment, subtype: &Type, supertype: &Type) -> bool {
+    RelationChecker { environment, assumptions: HashSet::new() }.check(subtype, supertype).is_none()
+}
+
 /// `header` followed by the detail lines of `subtype <: supertype`, as Steep's `Helper#full_message`
 pub(crate) fn with_detail_lines(header: String, environment: &Environment, subtype: &Type, supertype: &Type) -> String {
     match detail_lines(environment, subtype, supertype) {

@@ -4,7 +4,7 @@ use prism_child_nodes::child_nodes;
 use rbs_environment::{ClassKind, Environment};
 use ruby_prism::Node;
 
-use crate::source::{ConstantPath, Span, bytes_text, constant_text, qualify};
+use crate::source::{ConstantPath, LineIndex, Span, bytes_text, constant_text, qualify};
 
 pub(crate) const MAXIMUM_NODE_DEPTH: usize = 1000;
 
@@ -54,6 +54,9 @@ pub(crate) enum ScopeKind {
     Class,
     Method,
     Block,
+    /// The lines of a branch body of `if`, `unless`, `when`, `while` or `until`, which Steep's
+    /// `Source.construct_mapping` gives the annotations written there
+    Branch,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -80,6 +83,8 @@ pub(crate) struct FileIndex<'pr> {
     pub(crate) instance_variable_writers: HashMap<InstanceVariableKey, Vec<usize>>,
     pub(crate) constants: HashMap<String, FileConstant<'pr>>,
     pub(crate) scopes: Vec<ScopeRange>,
+    /// The start of a branch body (its statements, or the `elsif` node) to its `ScopeKind::Branch` scope
+    pub(crate) branch_scopes: HashMap<usize, ScopeRange>,
 }
 
 #[derive(Clone)]
@@ -106,11 +111,12 @@ impl WalkState {
 }
 
 impl<'pr> FileIndex<'pr> {
-    pub(crate) fn build(environment: &Environment, root: &Node<'pr>) -> FileIndex<'pr> {
+    pub(crate) fn build(environment: &Environment, root: &Node<'pr>, line_index: &LineIndex) -> FileIndex<'pr> {
         let mut index = FileIndex::default();
         let mut builder = Builder {
             environment,
             index: &mut index,
+            line_index,
         };
         let state = WalkState {
             nesting: Vec::new(),
@@ -169,6 +175,7 @@ impl<'pr> FileIndex<'pr> {
 struct Builder<'index, 'environment, 'pr> {
     environment: &'environment Environment,
     index: &'index mut FileIndex<'pr>,
+    line_index: &'environment LineIndex,
 }
 
 const DYNAMIC_METHOD_DEFINERS: &[&str] = &[
@@ -260,6 +267,10 @@ impl<'pr> Builder<'_, '_, 'pr> {
                 }
             }
             Node::DefNode { .. } => self.visit_definition(node, state, next),
+            Node::IfNode { .. } | Node::UnlessNode { .. } | Node::WhenNode { .. } | Node::WhileNode { .. } | Node::UntilNode { .. } => {
+                self.register_branches(node);
+                self.visit_children(node, state, next);
+            }
             Node::BlockNode { .. } | Node::LambdaNode { .. } => {
                 self.index.scopes.push(ScopeRange {
                     span: Span::of_node(node),
@@ -361,6 +372,119 @@ impl<'pr> Builder<'_, '_, 'pr> {
         };
         if let Some(body) = body {
             self.visit(&body, &inner_state, depth);
+        }
+    }
+
+    fn last_line(&self, location: &ruby_prism::Location<'_>) -> usize {
+        self.line_index.line_of(location.end_offset().saturating_sub(1).max(location.start_offset()))
+    }
+
+    fn start_line(&self, location: &ruby_prism::Location<'_>) -> usize {
+        self.line_index.line_of(location.start_offset())
+    }
+
+    /// A branch body takes the annotations on the lines from `start_line` up to, not including, `end_line`
+    fn register_branch(&mut self, body_start: usize, start_line: usize, end_line: usize) {
+        if start_line >= end_line {
+            return;
+        }
+        let Some(start) = self.line_index.line_start(start_line) else {
+            return;
+        };
+        let end = self.line_index.line_start(end_line).unwrap_or(usize::MAX);
+        let scope = ScopeRange { span: Span { start, end }, kind: ScopeKind::Branch };
+        self.index.scopes.push(scope);
+        self.index.branch_scopes.insert(body_start, scope);
+    }
+
+    /// The line ranges of Steep's `Source.construct_mapping` for prefix `if`, `unless`, `while` and `until` and for
+    /// `when`
+    fn register_branches(&mut self, node: &Node<'pr>) {
+        let node_location = node.location();
+        match node {
+            Node::IfNode { .. } => {
+                let Some(if_node) = node.as_if_node() else { return };
+                let Some(keyword) = if_node.if_keyword_loc() else { return };
+                if keyword.start_offset() != node_location.start_offset() {
+                    return;
+                }
+                let subsequent_line = if_node.subsequent().map(|subsequent| self.start_line(&subsequent.location()));
+                if let Some(statements) = if_node.statements() {
+                    let then_start = match if_node.then_keyword_loc() {
+                        Some(then_keyword) => self.last_line(&then_keyword),
+                        None => self.last_line(&if_node.predicate().location()),
+                    };
+                    let then_end = subsequent_line.unwrap_or_else(|| self.last_line(&node_location));
+                    self.register_branch(statements.location().start_offset(), then_start, then_end);
+                }
+                match if_node.subsequent() {
+                    Some(Node::ElseNode { .. }) => {
+                        let Some(else_node) = if_node.subsequent().and_then(|subsequent| subsequent.as_else_node()) else { return };
+                        if let Some(statements) = else_node.statements() {
+                            let else_start = self.last_line(&else_node.else_keyword_loc());
+                            self.register_branch(statements.location().start_offset(), else_start, self.last_line(&node_location));
+                        }
+                    }
+                    Some(elsif) => {
+                        let elsif_location = elsif.location();
+                        self.register_branch(elsif_location.start_offset(), self.start_line(&elsif_location), self.last_line(&node_location));
+                    }
+                    None => {}
+                }
+            }
+            Node::UnlessNode { .. } => {
+                let Some(unless_node) = node.as_unless_node() else { return };
+                if unless_node.keyword_loc().start_offset() != node_location.start_offset() {
+                    return;
+                }
+                let else_line = unless_node.else_clause().map(|else_clause| self.start_line(&else_clause.else_keyword_loc()));
+                if let Some(statements) = unless_node.statements() {
+                    let start = match unless_node.then_keyword_loc() {
+                        Some(then_keyword) => self.last_line(&then_keyword),
+                        None => self.last_line(&unless_node.predicate().location()),
+                    };
+                    let end = else_line.unwrap_or_else(|| self.last_line(&node_location));
+                    self.register_branch(statements.location().start_offset(), start, end);
+                }
+                if let Some(else_clause) = unless_node.else_clause()
+                    && let Some(statements) = else_clause.statements()
+                {
+                    let start = self.last_line(&else_clause.else_keyword_loc());
+                    self.register_branch(statements.location().start_offset(), start, self.last_line(&node_location));
+                }
+            }
+            Node::WhenNode { .. } => {
+                let Some(when) = node.as_when_node() else { return };
+                let Some(statements) = when.statements() else { return };
+                let start = match when.then_keyword_loc() {
+                    Some(then_keyword) => self.last_line(&then_keyword),
+                    None => match when.conditions().iter().last() {
+                        Some(last_condition) => self.last_line(&last_condition.location()) + 1,
+                        None => return,
+                    },
+                };
+                let statements_location = statements.location();
+                self.register_branch(statements_location.start_offset(), start, self.last_line(&statements_location));
+            }
+            Node::WhileNode { .. } | Node::UntilNode { .. } => {
+                let (keyword, predicate, statements, closing) = match node {
+                    Node::WhileNode { .. } => {
+                        let Some(while_node) = node.as_while_node() else { return };
+                        (while_node.keyword_loc(), while_node.predicate(), while_node.statements(), while_node.closing_loc())
+                    }
+                    _ => {
+                        let Some(until_node) = node.as_until_node() else { return };
+                        (until_node.keyword_loc(), until_node.predicate(), until_node.statements(), until_node.closing_loc())
+                    }
+                };
+                if keyword.start_offset() != node_location.start_offset() {
+                    return;
+                }
+                let (Some(statements), Some(closing)) = (statements, closing) else { return };
+                let start = self.last_line(&predicate.location());
+                self.register_branch(statements.location().start_offset(), start, self.start_line(&closing));
+            }
+            _ => {}
         }
     }
 

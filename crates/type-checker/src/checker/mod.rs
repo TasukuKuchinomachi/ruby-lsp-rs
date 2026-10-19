@@ -76,6 +76,8 @@ struct ResolvedAnnotation {
     annotated_type: Type,
     variable_scope_start: usize,
     self_scope_start: usize,
+    /// The kind of the innermost scope, the one Steep attaches the annotation to
+    attached_kind: ScopeKind,
 }
 
 /// Steep attaches an annotation to the innermost `def`, `class`, `module` or block around it, and reads the
@@ -139,19 +141,17 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             .into_iter()
             .map(|annotation| {
                 let variable_scope_start = file_index
-                    .innermost_scope(annotation.offset, |kind| kind != ScopeKind::Block)
+                    .innermost_scope(annotation.offset, |kind| !matches!(kind, ScopeKind::Block | ScopeKind::Branch))
                     .map(|scope| scope.span.start)
                     .unwrap_or(0);
-                let self_scope_start = file_index
-                    .innermost_scope(annotation.offset, |_| true)
-                    .map(|scope| scope.span.start)
-                    .unwrap_or(0);
+                let attached_scope = file_index.innermost_scope(annotation.offset, |_| true);
                 ResolvedAnnotation {
                     offset: annotation.offset,
                     target: annotation.target,
                     annotated_type: annotation.annotated_type,
                     variable_scope_start,
-                    self_scope_start,
+                    self_scope_start: attached_scope.map(|scope| scope.span.start).unwrap_or(0),
+                    attached_kind: attached_scope.map(|scope| scope.kind).unwrap_or(ScopeKind::Program),
                 }
             })
             .collect();
@@ -416,7 +416,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
     ) -> HashMap<String, Type> {
         self.annotations
             .iter()
-            .filter(|annotation| annotation.variable_scope_start == scope_start)
+            .filter(|annotation| annotation.variable_scope_start == scope_start && annotation.attached_kind != ScopeKind::Branch)
             .filter_map(|annotation| match &annotation.target {
                 AnnotationTarget::LocalVariable(name) => Some((
                     name.clone(),
@@ -431,8 +431,56 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
     pub(crate) fn type_annotations_in(&self, scope_start: usize) -> impl Iterator<Item = (&AnnotationTarget, &Type)> {
         self.annotations
             .iter()
-            .filter(move |annotation| annotation.self_scope_start == scope_start)
+            .filter(move |annotation| annotation.self_scope_start == scope_start && annotation.attached_kind != ScopeKind::Branch)
             .map(|annotation| (&annotation.target, &annotation.annotated_type))
+    }
+
+    /// Steep's `for_branch`: a variable annotated in a branch body has the annotated type there, which must be a
+    /// subtype of the type it had (`IncompatibleAnnotation` otherwise). `body_span` is the branch body, where Steep
+    /// reports the incompatibility
+    pub(crate) fn branch_context(&mut self, body_span: Span, context: &Context, locals: &mut Locals) -> Context {
+        let Some(branch_scope) = self.file_index.branch_scopes.get(&body_span.start).copied() else {
+            return context.clone();
+        };
+        let annotated: Vec<(String, Type)> = self
+            .annotations
+            .iter()
+            .filter(|annotation| annotation.attached_kind == ScopeKind::Branch && annotation.self_scope_start == branch_scope.span.start)
+            .filter_map(|annotation| match &annotation.target {
+                AnnotationTarget::LocalVariable(name) => {
+                    Some((name.clone(), self.resolve_annotation_type(&annotation.annotated_type, &context.nesting)))
+                }
+                _ => None,
+            })
+            .collect();
+        if annotated.is_empty() {
+            return context.clone();
+        }
+        let mut declared_locals = (*context.declared_locals).clone();
+        for (name, annotated_type) in annotated {
+            let outer_type = self.local_variable_type(&name, context, locals);
+            if !matches!(outer_type, Type::Variable(_) | Type::Untyped)
+                && !matches!(annotated_type, Type::Variable(_))
+                && !crate::steep_relation::is_subtype(self.environment, &annotated_type, &outer_type)
+            {
+                let message = crate::steep_relation::with_detail_lines(
+                    format!(
+                        "Type annotation about `{name}` is incompatible since {} <: {} doesn't hold",
+                        annotated_type.steep_display(),
+                        outer_type.steep_display()
+                    ),
+                    self.environment,
+                    &annotated_type,
+                    &outer_type,
+                );
+                self.record_diagnostic(body_span, Severity::Error, "Ruby::IncompatibleAnnotation", message);
+            }
+            locals.insert(name.clone(), annotated_type.clone());
+            declared_locals.insert(name, annotated_type);
+        }
+        let mut branch_context = context.clone();
+        branch_context.declared_locals = Rc::new(declared_locals);
+        branch_context
     }
 
     pub(crate) fn annotated_self_type(
@@ -444,6 +492,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             .iter()
             .find(|annotation| {
                 annotation.self_scope_start == scope_start
+                    && annotation.attached_kind != ScopeKind::Branch
                     && annotation.target == AnnotationTarget::SelfType
             })
             .map(|annotation| self.resolve_annotation_type(&annotation.annotated_type, nesting))
@@ -497,7 +546,8 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             .scopes
             .iter()
             .filter(|scope| {
-                scope.span.start <= node_span.start
+                scope.kind != ScopeKind::Branch
+                    && scope.span.start <= node_span.start
                     && node_span.start < scope.span.end
                     && (scope.span.start, scope.span.end) != (node_span.start, node_span.end)
             })

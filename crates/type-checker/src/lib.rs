@@ -172,8 +172,8 @@ fn analyze_on_current_thread(
 ) -> Analysis {
     let parse_result = ruby_prism::parse(source);
     let root = parse_result.node();
-    let file_index = file_index::FileIndex::build(environment, &root);
     let line_index = source::LineIndex::new(source);
+    let file_index = file_index::FileIndex::build(environment, &root, &line_index);
     let annotations = annotations::Annotations::collect(&parse_result, &line_index);
     let mut checker =
         checker::Checker::new(environment, file_index, line_index, annotations, options);

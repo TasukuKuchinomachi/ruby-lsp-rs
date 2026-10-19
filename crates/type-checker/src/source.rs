@@ -41,6 +41,11 @@ impl LineIndex {
         LineIndex { line_starts }
     }
 
+    /// Offset where the 0-based `line` starts, or `None` past the last line
+    pub(crate) fn line_start(&self, line: usize) -> Option<usize> {
+        self.line_starts.get(line).copied()
+    }
+
     pub(crate) fn line_of(&self, offset: usize) -> usize {
         match self.line_starts.binary_search(&offset) {
             Ok(line) => line,
