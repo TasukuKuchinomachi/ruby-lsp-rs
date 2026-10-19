@@ -30,9 +30,9 @@ pub enum Type {
         name: TypeName,
         arguments: Vec<Type>,
     },
+    /// `T?` is a union with `nil`, which keeps the place of `nil` among the members as Steep does
     Union(Vec<Type>),
     Intersection(Vec<Type>),
-    Optional(Box<Type>),
     Tuple(Vec<Type>),
     Record(Vec<RecordField>),
     Proc(Box<ProcType>),
@@ -90,11 +90,22 @@ pub struct Block {
     pub self_type: Option<Type>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Variance {
+    #[default]
+    Invariant,
+    /// `out T`
+    Covariant,
+    /// `in T`
+    Contravariant,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TypeParameter {
     pub name: String,
     pub upper_bound: Option<Type>,
     pub default_type: Option<Type>,
+    pub variance: Variance,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -141,45 +152,29 @@ impl Type {
         matches!(self, Type::Untyped)
     }
 
-    /// Builds a union, flattening nested unions, removing duplicates and collapsing `T | nil` into `T?`
+    /// Builds a union as Steep's `Union.build` does: nested unions are flattened, duplicates removed in order, `bot`
+    /// dropped, and `untyped` or `top` swallows the rest
     pub fn union(types: Vec<Type>) -> Type {
         let mut members: Vec<Type> = Vec::new();
-        let mut includes_nil = false;
-        let push = |members: &mut Vec<Type>, member: Type| {
-            if !members.contains(&member) {
-                members.push(member);
-            }
-        };
         let mut pending = types;
         pending.reverse();
         while let Some(member) = pending.pop() {
             match member {
                 Type::Union(inner) => pending.extend(inner.into_iter().rev()),
-                Type::Optional(inner) => {
-                    includes_nil = true;
-                    pending.push(*inner);
-                }
-                Type::Nil => includes_nil = true,
                 Type::Bottom => {}
                 Type::Untyped => return Type::Untyped,
-                other => push(&mut members, other),
+                Type::Top => return Type::Top,
+                other => {
+                    if !members.contains(&other) {
+                        members.push(other);
+                    }
+                }
             }
         }
-        let body = match members.len() {
-            0 => {
-                return if includes_nil {
-                    Type::Nil
-                } else {
-                    Type::Bottom
-                };
-            }
+        match members.len() {
+            0 => Type::Bottom,
             1 => members.pop().unwrap(),
             _ => Type::Union(members),
-        };
-        if includes_nil {
-            Type::Optional(Box::new(body))
-        } else {
-            body
         }
     }
 
@@ -214,7 +209,6 @@ impl Type {
             },
             Type::Union(types) => Type::union(substitute_all(types, substitution)),
             Type::Intersection(types) => Type::Intersection(substitute_all(types, substitution)),
-            Type::Optional(inner) => Type::optional(inner.substitute(substitution)),
             Type::Tuple(types) => Type::Tuple(substitute_all(types, substitution)),
             Type::Record(fields) => Type::Record(
                 fields
@@ -260,7 +254,6 @@ impl Type {
             Type::Union(types) | Type::Intersection(types) | Type::Tuple(types) => {
                 types.iter().for_each(|member| member.walk(visitor))
             }
-            Type::Optional(inner) => inner.walk(visitor),
             Type::Record(fields) => fields
                 .iter()
                 .for_each(|field| field.field_type.walk(visitor)),
@@ -298,7 +291,6 @@ impl Type {
             Type::Union(types) | Type::Intersection(types) | Type::Tuple(types) => types
                 .iter_mut()
                 .for_each(|member| member.map_names(resolve)),
-            Type::Optional(inner) => inner.map_names(resolve),
             Type::Record(fields) => fields
                 .iter_mut()
                 .for_each(|field| field.field_type.map_names(resolve)),
@@ -510,18 +502,19 @@ impl fmt::Display for Type {
                 write_arguments(formatter, arguments)
             }
             Type::ClassSingleton { name } => write!(formatter, "singleton({name})"),
-            Type::Union(types) => write_joined(formatter, types, " | ", true),
-            Type::Intersection(types) => write_joined(formatter, types, " & ", true),
-            Type::Optional(inner) => {
-                if matches!(
-                    **inner,
-                    Type::Union(_) | Type::Intersection(_) | Type::Proc(_)
-                ) {
-                    write!(formatter, "({inner})?")
-                } else {
-                    write!(formatter, "{inner}?")
+            Type::Union(types) if types.contains(&Type::Nil) => {
+                let others: Vec<Type> = types.iter().filter(|member| **member != Type::Nil).cloned().collect();
+                match others.as_slice() {
+                    [single] if !matches!(single, Type::Intersection(_) | Type::Proc(_)) => write!(formatter, "{single}?"),
+                    _ => {
+                        formatter.write_str("(")?;
+                        write_joined(formatter, &others, " | ", true)?;
+                        formatter.write_str(")?")
+                    }
                 }
             }
+            Type::Union(types) => write_joined(formatter, types, " | ", true),
+            Type::Intersection(types) => write_joined(formatter, types, " & ", true),
             Type::Tuple(types) => {
                 formatter.write_str("[")?;
                 write_joined(formatter, types, ", ", false)?;
@@ -570,6 +563,198 @@ impl fmt::Display for MethodType {
         }
         write_function(formatter, &self.function, self.block.as_ref())
     }
+}
+
+/// Writes a type as Steep's `to_s` does in diagnostic messages: names are absolute (`::Integer`), unions and
+/// intersections are always parenthesized, `T?` is `(T | nil)` and records use `:key => T`
+pub struct SteepDisplay<'a>(pub &'a Type);
+
+/// Writes a method type as Steep's `Interface::MethodType#to_s` does
+pub struct SteepMethodTypeDisplay<'a>(pub &'a MethodType);
+
+impl Type {
+    pub fn steep_display(&self) -> SteepDisplay<'_> {
+        SteepDisplay(self)
+    }
+}
+
+impl MethodType {
+    pub fn steep_display(&self) -> SteepMethodTypeDisplay<'_> {
+        SteepMethodTypeDisplay(self)
+    }
+}
+
+fn steep_joined(types: &[Type], separator: &str) -> String {
+    types
+        .iter()
+        .map(|member| member.steep_display().to_string())
+        .collect::<Vec<String>>()
+        .join(separator)
+}
+
+impl fmt::Display for SteepDisplay<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            Type::Untyped => formatter.write_str("untyped"),
+            Type::Top => formatter.write_str("top"),
+            Type::Bottom => formatter.write_str("bot"),
+            Type::Void => formatter.write_str("void"),
+            Type::Nil => formatter.write_str("nil"),
+            Type::Bool => formatter.write_str("bool"),
+            Type::SelfType => formatter.write_str("self"),
+            Type::Instance => formatter.write_str("instance"),
+            Type::Class => formatter.write_str("class"),
+            Type::ClassInstance { name, arguments }
+            | Type::Interface { name, arguments }
+            | Type::Alias { name, arguments } => {
+                write!(formatter, "::{name}")?;
+                if !arguments.is_empty() {
+                    write!(formatter, "[{}]", steep_joined(arguments, ", "))?;
+                }
+                Ok(())
+            }
+            Type::ClassSingleton { name } => write!(formatter, "singleton(::{name})"),
+            Type::Union(types) => write!(formatter, "({})", steep_joined(types, " | ")),
+            Type::Intersection(types) => write!(formatter, "({})", steep_joined(types, " & ")),
+            Type::Tuple(types) => write!(formatter, "[{}]", steep_joined(types, ", ")),
+            Type::Record(fields) => {
+                let mut sorted: Vec<&RecordField> = fields.iter().collect();
+                sorted.sort_by(|left, right| left.name.cmp(&right.name));
+                let entries: Vec<String> = sorted
+                    .iter()
+                    .map(|field| {
+                        let optional_marker = if field.required { "" } else { "?" };
+                        format!("{optional_marker}{} => {}", ruby_symbol_inspect(&field.name), field.field_type.steep_display())
+                    })
+                    .collect();
+                write!(formatter, "{{ {} }}", entries.join(", "))
+            }
+            Type::Proc(proc_type) => {
+                let self_binding =
+                    proc_type.self_type.as_ref().map(|self_type| format!("[self: {}] ", self_type.steep_display())).unwrap_or_default();
+                let parameters = steep_parameters(&proc_type.function).unwrap_or_default();
+                match &proc_type.block {
+                    Some(block) => write!(
+                        formatter,
+                        "^{parameters} {self_binding}{} -> {}",
+                        SteepBlockDisplay(block),
+                        proc_type.function.return_type.steep_display()
+                    ),
+                    None => write!(formatter, "^{parameters} {self_binding}-> {}", proc_type.function.return_type.steep_display()),
+                }
+            }
+            Type::Literal(literal) => match literal {
+                Literal::Integer(value) => formatter.write_str(value),
+                Literal::String(value) => formatter.write_str(&ruby_string_inspect(value)),
+                Literal::Symbol(value) => formatter.write_str(&ruby_symbol_inspect(value)),
+                Literal::True => formatter.write_str("true"),
+                Literal::False => formatter.write_str("false"),
+            },
+            Type::Variable(name) => formatter.write_str(name),
+        }
+    }
+}
+
+struct SteepBlockDisplay<'a>(&'a Block);
+
+impl fmt::Display for SteepBlockDisplay<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let block = self.0;
+        let optional_marker = if block.required { "" } else { "?" };
+        let self_binding =
+            block.self_type.as_ref().map(|self_type| format!("[self: {}] ", self_type.steep_display())).unwrap_or_default();
+        write!(
+            formatter,
+            "{optional_marker}{{ {} {self_binding}-> {} }}",
+            steep_parameters(&block.function).unwrap_or_default(),
+            block.function.return_type.steep_display()
+        )
+    }
+}
+
+impl fmt::Display for SteepMethodTypeDisplay<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let method_type = self.0;
+        if !method_type.type_parameters.is_empty() {
+            let parameters: Vec<String> = method_type
+                .type_parameters
+                .iter()
+                .map(|parameter| match &parameter.upper_bound {
+                    Some(upper_bound) => format!("{} < {}", parameter.name, upper_bound.steep_display()),
+                    None => parameter.name.clone(),
+                })
+                .collect();
+            write!(formatter, "[{}] ", parameters.join(", "))?;
+        }
+        let parameters = steep_parameters(&method_type.function).unwrap_or_else(|| "(?)".to_string());
+        formatter.write_str(&parameters)?;
+        if let Some(block) = &method_type.block {
+            write!(formatter, " {}", SteepBlockDisplay(block))?;
+        }
+        write!(formatter, " -> {}", method_type.function.return_type.steep_display())
+    }
+}
+
+/// Steep's `Params#to_s`, which leaves out the required positionals after a rest. `None` for `(?)`
+fn steep_parameters(function: &Function) -> Option<String> {
+    if function.untyped_parameters {
+        return None;
+    }
+    let mut parts: Vec<String> = Vec::new();
+    parts.extend(function.required_positionals.iter().map(|parameter| parameter.parameter_type.steep_display().to_string()));
+    parts.extend(function.optional_positionals.iter().map(|parameter| format!("?{}", parameter.parameter_type.steep_display())));
+    if let Some(parameter) = &function.rest_positionals {
+        parts.push(format!("*{}", parameter.parameter_type.steep_display()));
+    }
+    parts.extend(
+        function.required_keywords.iter().map(|(name, parameter)| format!("{name}: {}", parameter.parameter_type.steep_display())),
+    );
+    parts.extend(
+        function.optional_keywords.iter().map(|(name, parameter)| format!("?{name}: {}", parameter.parameter_type.steep_display())),
+    );
+    if let Some(parameter) = &function.rest_keywords {
+        parts.push(format!("**{}", parameter.parameter_type.steep_display()));
+    }
+    Some(format!("({})", parts.join(", ")))
+}
+
+/// `Symbol#inspect`: `:foo`, or `:"foo bar"` when the name is not a plain identifier, operator or variable name
+fn ruby_symbol_inspect(name: &str) -> String {
+    let is_identifier = |text: &str| {
+        let mut characters = text.chars();
+        characters.next().is_some_and(|first| first.is_alphabetic() || first == '_' || !first.is_ascii())
+            && characters.all(|character| character.is_alphanumeric() || character == '_' || !character.is_ascii())
+    };
+    let plain = is_identifier(name)
+        || name.strip_suffix(['?', '!', '=']).is_some_and(is_identifier)
+        || name.strip_prefix("@@").or_else(|| name.strip_prefix('@')).or_else(|| name.strip_prefix('$')).is_some_and(is_identifier)
+        || matches!(
+            name,
+            "+" | "-" | "*" | "/" | "%" | "**" | "==" | "===" | "!=" | "<" | "<=" | ">" | ">=" | "<=>" | "<<" | ">>" | "!"
+                | "=~" | "!~" | "&" | "|" | "^" | "~" | "+@" | "-@" | "[]" | "[]=" | "`"
+        );
+    if plain { format!(":{name}") } else { format!(":{}", ruby_string_inspect(name)) }
+}
+
+/// `String#inspect` for the characters a literal type can hold
+fn ruby_string_inspect(value: &str) -> String {
+    let mut inspected = String::from("\"");
+    let mut characters = value.chars().peekable();
+    while let Some(character) = characters.next() {
+        match character {
+            '#' if characters.peek().is_some_and(|next| matches!(next, '{' | '$' | '@')) => inspected.push_str("\\#"),
+            '"' => inspected.push_str("\\\""),
+            '\\' => inspected.push_str("\\\\"),
+            '\n' => inspected.push_str("\\n"),
+            '\t' => inspected.push_str("\\t"),
+            '\r' => inspected.push_str("\\r"),
+            '\u{1b}' => inspected.push_str("\\e"),
+            character if character.is_control() => inspected.push_str(&format!("\\x{:02X}", character as u32)),
+            character => inspected.push(character),
+        }
+    }
+    inspected.push('"');
+    inspected
 }
 
 fn write_arguments(formatter: &mut fmt::Formatter<'_>, arguments: &[Type]) -> fmt::Result {

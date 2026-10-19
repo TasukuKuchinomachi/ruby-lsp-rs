@@ -3,18 +3,13 @@ use rbs_environment::{Environment, Literal, Type};
 pub(crate) fn members_of(target: &Type) -> Vec<Type> {
     match target {
         Type::Union(members) => members.iter().flat_map(members_of).collect(),
-        Type::Optional(inner) => {
-            let mut members = members_of(inner);
-            members.push(Type::Nil);
-            members
-        }
         other => vec![other.clone()],
     }
 }
 
 pub(crate) fn can_be_nil(target: &Type) -> bool {
     match target {
-        Type::Nil | Type::Optional(_) => true,
+        Type::Nil => true,
         Type::Union(members) => members.iter().any(can_be_nil),
         _ => false,
     }
@@ -22,7 +17,6 @@ pub(crate) fn can_be_nil(target: &Type) -> bool {
 
 pub(crate) fn remove_nil(target: &Type) -> Type {
     match target {
-        Type::Optional(inner) => remove_nil(inner),
         Type::Union(members) => Type::union(
             members
                 .iter()

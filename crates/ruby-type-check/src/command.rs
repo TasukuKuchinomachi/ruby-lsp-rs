@@ -78,35 +78,7 @@ pub fn run(arguments: &[String]) -> i32 {
         }
     };
     let workspace_path = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
-    let ruby_environment = RubyEnvironment::detect(&workspace_path, &options.ruby_command).unwrap_or_else(|error| {
-        eprintln!("Failed to detect the Ruby environment: {error}");
-        RubyEnvironment::default()
-    });
-    let sources = project::workspace_sources(&ruby_environment);
-    if let Some(warning) = project::missing_core_warning(&sources) {
-        eprintln!("{warning}");
-    }
-    let loaded = project::load_environment(&workspace_path, &sources);
-    eprintln!("{}", project::load_summary(&loaded));
-    if let Some(report) = project::load_error_report(&loaded.environment) {
-        eprintln!("{report}");
-    }
-
-    let files = collect_files(&workspace_path, loaded.steepfile.as_ref(), &options.paths);
-    let default_code_diagnostics = DiagnosticConfiguration::default();
-    let analysis_options = AnalysisOptions { steep_compatible: options.steep_compatible };
-    let results: Vec<FileResult> = files
-        .par_iter()
-        .map(|path| {
-            let code_diagnostics =
-                project::code_diagnostics_for(&workspace_path, loaded.steepfile.as_ref(), path)
-                    .unwrap_or(&default_code_diagnostics);
-            check_file(&loaded.environment, &workspace_path, path, code_diagnostics, options.severity_level, analysis_options)
-        })
-        .collect();
-
-    let signature_result =
-        check_signatures(&loaded.environment, &workspace_path, &options.paths, options.steep_compatible);
+    let WorkspaceResult { results, signature_result } = check_workspace(&workspace_path, &options);
     let unexpected_error_file_count = results.iter().filter(|result| result.has_unexpected_error).count();
     if let Some(warning) = unexpected_error_warning(unexpected_error_file_count) {
         eprintln!("{warning}");
@@ -127,6 +99,43 @@ pub fn run(arguments: &[String]) -> i32 {
     }
     eprintln!("Checked {} files: {diagnostic_count} diagnostics, {error_count} errors", results.len());
     exit_code(diagnostic_count)
+}
+
+pub struct WorkspaceResult {
+    /// One for each Ruby file checked, in path order
+    pub results: Vec<FileResult>,
+    pub signature_result: FileResult,
+}
+
+/// Loads the workspace as `run` does, reporting how it went on stderr, and checks the Ruby files and signatures
+pub fn check_workspace(workspace_path: &Path, options: &TypeCheckOptions) -> WorkspaceResult {
+    let ruby_environment = RubyEnvironment::detect(workspace_path, &options.ruby_command).unwrap_or_else(|error| {
+        eprintln!("Failed to detect the Ruby environment: {error}");
+        RubyEnvironment::default()
+    });
+    let sources = project::workspace_sources(&ruby_environment);
+    if let Some(warning) = project::missing_core_warning(&sources) {
+        eprintln!("{warning}");
+    }
+    let loaded = project::load_environment(workspace_path, &sources);
+    eprintln!("{}", project::load_summary(&loaded));
+    if let Some(report) = project::load_error_report(&loaded.environment) {
+        eprintln!("{report}");
+    }
+
+    let files = collect_files(workspace_path, loaded.steepfile.as_ref(), &options.paths);
+    let default_code_diagnostics = DiagnosticConfiguration::default();
+    let analysis_options = AnalysisOptions { steep_compatible: options.steep_compatible };
+    let results = files
+        .par_iter()
+        .map(|path| {
+            let code_diagnostics = project::code_diagnostics_for(workspace_path, loaded.steepfile.as_ref(), path)
+                .unwrap_or(&default_code_diagnostics);
+            check_file(&loaded.environment, workspace_path, path, code_diagnostics, options.severity_level, analysis_options)
+        })
+        .collect();
+    let signature_result = check_signatures(&loaded.environment, workspace_path, &options.paths, options.steep_compatible);
+    WorkspaceResult { results, signature_result }
 }
 
 fn use_color() -> bool {
@@ -167,6 +176,8 @@ pub fn check_signatures(environment: &Environment, workspace_path: &Path, paths:
             let mut location =
                 ReportedLocation::from_offsets(source, start, end, diagnostic.start.utf16_column as usize + 1);
             location.line = diagnostic.start.line as usize + 1;
+            location.end_line = diagnostic.end.line as usize + 1;
+            location.end_column = diagnostic.end.utf16_column as usize + 1;
             ReportedDiagnostic {
                 path: diagnostic.path.strip_prefix(workspace_path).unwrap_or(&diagnostic.path).display().to_string(),
                 severity: Severity::Error,
@@ -471,7 +482,7 @@ mod tests {
             std::fs::write(path, "").unwrap();
         }
         let steepfile = SteepfileConfiguration {
-            signature_directories: Vec::new(),
+            signature_patterns: Vec::new(),
             check_paths: vec![PathBuf::from("lib")],
             ignore_paths: vec![PathBuf::from("lib/templates")],
             libraries: Vec::new(),
@@ -482,6 +493,7 @@ mod tests {
                 ignore_paths: vec![PathBuf::from("lib/templates")],
                 code_diagnostics: DiagnosticConfiguration::default(),
                 groups: Vec::new(),
+                implicitly_returns_nil: false,
             }],
         };
 

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rbs_environment::{Environment, Function, MethodType, Substitution, Type};
 
-use crate::type_utilities::{array_of, literal_class_name, members_of, remove_nil};
+use crate::type_utilities::{array_of, literal_class_name, members_of};
 
 const MAXIMUM_DEPTH: usize = 16;
 
@@ -80,7 +80,6 @@ impl Bindings {
             return;
         }
         match parameter {
-            Type::Optional(inner) => self.unify_at(environment, inner, &remove_nil(argument), next),
             Type::Union(parameter_members) => {
                 let variable_members: Vec<String> = parameter_members
                     .iter()
@@ -123,7 +122,7 @@ impl Bindings {
                     let as_array = array_of(Type::union(elements.clone()));
                     self.unify_at(environment, parameter, &as_array, next);
                 }
-                Type::Optional(_) | Type::Union(_) => {
+                Type::Union(_) => {
                     for argument_member in members_of(argument) {
                         if same_head(parameter, &argument_member) {
                             self.unify_at(environment, parameter, &argument_member, next);

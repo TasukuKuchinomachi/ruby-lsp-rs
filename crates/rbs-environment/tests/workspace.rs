@@ -63,7 +63,7 @@ fn read_steepfile_merges_every_target() {
     assert_eq!(
         read_steepfile(root),
         Some(SteepfileConfiguration {
-            signature_directories: vec![
+            signature_patterns: vec![
                 root.join("sig"),
                 root.join("sig-private"),
                 root.join("sig-test")
@@ -83,6 +83,7 @@ fn read_steepfile_merges_every_target() {
                     ignore_paths: vec![root.join("lib/generated")],
                     code_diagnostics: strict_with_information_no_method(),
                     groups: Vec::new(),
+                    implicitly_returns_nil: false,
                 },
                 SteepfileTarget {
                     name: "test".to_string(),
@@ -90,6 +91,7 @@ fn read_steepfile_merges_every_target() {
                     ignore_paths: Vec::new(),
                     code_diagnostics: DiagnosticConfiguration::default(),
                     groups: Vec::new(),
+                    implicitly_returns_nil: false,
                 },
             ],
         })
@@ -272,6 +274,7 @@ end
                         ),
                     },
                 ],
+                implicitly_returns_nil: false,
             },
             SteepfileTarget {
                 name: "test".to_string(),
@@ -281,6 +284,7 @@ end
                     DiagnosticTemplate::Lenient
                 ),
                 groups: Vec::new(),
+                implicitly_returns_nil: false,
             },
         ]
     );

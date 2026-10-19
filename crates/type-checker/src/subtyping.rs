@@ -108,22 +108,11 @@ fn check(
                 .iter()
                 .map(|member| check(environment, rules, member, supertype, next)),
         ),
-        (Type::Optional(inner), _) => Certainty::all([
-            check(environment, rules, &Type::Nil, supertype, next),
-            check(environment, rules, inner, supertype, next),
-        ]),
         (_, Type::Union(members)) => Certainty::any(
             members
                 .iter()
                 .map(|member| check(environment, rules, subtype, member, next)),
         ),
-        (_, Type::Optional(inner)) => {
-            if matches!(subtype, Type::Nil) {
-                Certainty::Yes
-            } else {
-                check(environment, rules, subtype, inner, next)
-            }
-        }
         (_, Type::Intersection(members)) => Certainty::all(
             members
                 .iter()

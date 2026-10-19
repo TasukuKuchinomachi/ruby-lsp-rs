@@ -23,7 +23,8 @@ pub struct WorkspaceSources {
 /// The parts of a `Steepfile` that matter here. Without a `Steepfile` the defaults are `signature "sig"` and `check "."`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SteepfileConfiguration {
-    pub signature_directories: Vec<PathBuf>,
+    /// Directories, files or globs such as `*.rbs`
+    pub signature_patterns: Vec<PathBuf>,
     pub check_paths: Vec<PathBuf>,
     pub ignore_paths: Vec<PathBuf>,
     pub libraries: Vec<String>,
@@ -40,6 +41,8 @@ pub struct SteepfileTarget {
     pub code_diagnostics: DiagnosticConfiguration,
     /// Looked up before the target itself, as Steep does
     pub groups: Vec<SteepfileGroup>,
+    /// `implicitly_returns_nil!`, which takes `true` without an argument
+    pub implicitly_returns_nil: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,7 +61,7 @@ pub fn read_steepfile(workspace_path: &Path) -> Option<SteepfileConfiguration> {
     let mut reader = SteepfileReader {
         workspace_path,
         configuration: SteepfileConfiguration {
-            signature_directories: Vec::new(),
+            signature_patterns: Vec::new(),
             check_paths: Vec::new(),
             ignore_paths: Vec::new(),
             libraries: Vec::new(),
@@ -159,7 +162,7 @@ impl SteepfileReader<'_> {
                 .and_then(|block| block.body())
                 .and_then(|body| body.as_statements_node());
             match call.name().as_slice() {
-                b"signature" => self.configuration.signature_directories.extend(paths()),
+                b"signature" => self.configuration.signature_patterns.extend(paths()),
                 b"check" => {
                     self.configuration.check_paths.extend(paths());
                     if let Some((check_paths, _)) = scope.pattern_lists() {
@@ -186,6 +189,14 @@ impl SteepfileReader<'_> {
                     self.configure_code_diagnostics(&call, scope);
                     continue;
                 }
+                b"implicitly_returns_nil!" => {
+                    if let Scope::Target(builder) = scope {
+                        let argument = call.arguments().and_then(|arguments| arguments.arguments().iter().next());
+                        builder.target.implicitly_returns_nil =
+                            argument.is_none_or(|argument| argument.as_false_node().is_none() && argument.as_nil_node().is_none());
+                    }
+                    continue;
+                }
                 b"target" if matches!(scope, Scope::TopLevel) => {
                     let mut builder = TargetBuilder {
                         target: SteepfileTarget {
@@ -194,6 +205,7 @@ impl SteepfileReader<'_> {
                             ignore_paths: Vec::new(),
                             code_diagnostics: DiagnosticConfiguration::default(),
                             groups: Vec::new(),
+                            implicitly_returns_nil: false,
                         },
                         groups: Vec::new(),
                     };
@@ -666,6 +678,9 @@ pub fn load_workspace(workspace_path: &Path, sources: &WorkspaceSources) -> Envi
             .loader
             .add_library_directory(core_directory);
     }
+    workspace_loader.loader.set_implicitly_returns_nil(
+        configuration.iter().flat_map(|configuration| &configuration.targets).any(|target| target.implicitly_returns_nil),
+    );
     for library in configuration
         .iter()
         .flat_map(|configuration| configuration.libraries.iter())
@@ -681,11 +696,22 @@ pub fn load_workspace(workspace_path: &Path, sources: &WorkspaceSources) -> Envi
         .and_then(|configuration| configuration.collection_lockfile.clone())
         .unwrap_or_else(|| workspace_path.join("rbs_collection.lock.yaml"));
     workspace_loader.add_collection(workspace_path, &lockfile_path);
+    // RBS's `EnvironmentLoader#load` adds stringio whenever core is loaded, since it moved out of core
+    let has_stringio = sources.stdlib_directory.as_ref().is_some_and(|directory| directory.join("stringio").is_dir());
+    if sources.core_directory.is_some() && has_stringio {
+        workspace_loader.add_stdlib_library("stringio", None);
+    }
 
     match &configuration {
         Some(configuration) => {
-            for directory in &configuration.signature_directories {
-                workspace_loader.loader.add_signature_directory(directory);
+            for pattern in &configuration.signature_patterns {
+                let paths = pattern_files(workspace_path, std::slice::from_ref(pattern), &[], ".rbs");
+                if paths.is_empty() {
+                    workspace_loader.loader.add_signature_directory(pattern);
+                }
+                for path in paths {
+                    workspace_loader.loader.add_signature_directory(&path);
+                }
             }
         }
         None => {
@@ -698,4 +724,118 @@ pub fn load_workspace(workspace_path: &Path, sources: &WorkspaceSources) -> Envi
         }
     }
     workspace_loader.loader.finish()
+}
+
+/// Steep's `Project::Pattern`: a pattern matches the path by `File.fnmatch`, or as a directory that has the file with
+/// the extension somewhere under it
+struct SourcePattern<'a> {
+    patterns: Vec<String>,
+    ignores: Vec<String>,
+    extension: &'a str,
+}
+
+impl SourcePattern<'_> {
+    fn new<'a>(
+        workspace_path: &Path,
+        check_paths: &[PathBuf],
+        ignore_paths: &[PathBuf],
+        extension: &'a str,
+    ) -> SourcePattern<'a> {
+        let relative = |paths: &[PathBuf]| {
+            paths
+                .iter()
+                .map(|path| {
+                    path.strip_prefix(workspace_path)
+                        .unwrap_or(path)
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .map(|pattern| {
+                    if pattern.is_empty() {
+                        ".".to_string()
+                    } else {
+                        pattern
+                    }
+                })
+                .collect()
+        };
+        SourcePattern {
+            patterns: relative(check_paths),
+            ignores: relative(ignore_paths),
+            extension,
+        }
+    }
+
+    fn matches(&self, path: &str) -> bool {
+        source_pattern_matches(&self.patterns, path, self.extension) && !self.ignores(path)
+    }
+
+    fn ignores(&self, path: &str) -> bool {
+        source_pattern_matches(&self.ignores, path, self.extension)
+    }
+}
+
+fn source_pattern_matches(patterns: &[String], path: &str, extension: &str) -> bool {
+    patterns.iter().any(|pattern| {
+        let prefix = if pattern == "." || pattern == "./" {
+            String::new()
+        } else {
+            format!(
+                "{}/",
+                pattern
+                    .strip_prefix("./")
+                    .unwrap_or(pattern)
+                    .trim_end_matches('/')
+            )
+        };
+        ruby_file_glob::fnmatch(pattern, path)
+            || ruby_file_glob::fnmatch(&format!("{prefix}**/*{extension}"), path)
+    })
+}
+
+/// `foo/./bar` and `./foo` as `foo/bar` and `foo`, the way `Pathname#relative_path_from` gives them
+fn normalized_relative_path(path: &str) -> String {
+    Path::new(path)
+        .components()
+        .filter(|component| !matches!(component, std::path::Component::CurDir))
+        .collect::<PathBuf>()
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// The files with the extension that the patterns take, as Steep's `Services::FileLoader#each_path_in_patterns` lists
+/// them: a pattern is globbed, and a directory it matches gives the files under it
+fn pattern_files(
+    workspace_path: &Path,
+    check_paths: &[PathBuf],
+    ignore_paths: &[PathBuf],
+    extension: &str,
+) -> Vec<PathBuf> {
+    let pattern = SourcePattern::new(workspace_path, check_paths, ignore_paths, extension);
+    let mut files = Vec::new();
+    for written in &pattern.patterns {
+        for matched in ruby_file_glob::glob(written, workspace_path) {
+            let matched = normalized_relative_path(&matched);
+            let absolute_path = workspace_path.join(&matched);
+            if absolute_path.is_file() {
+                if pattern.matches(&matched) {
+                    files.push(absolute_path);
+                }
+                continue;
+            }
+            let directory_pattern = format!("{}/**/*{extension}", matched.trim_end_matches('/'));
+            let mut found: Vec<String> = ruby_file_glob::glob(&directory_pattern, workspace_path)
+                .iter()
+                .map(|path| normalized_relative_path(path))
+                .collect();
+            found.sort();
+            for path in found {
+                let absolute_path = workspace_path.join(&path);
+                if absolute_path.is_file() && !pattern.ignores(&path) {
+                    files.push(absolute_path);
+                }
+            }
+        }
+    }
+    files
 }

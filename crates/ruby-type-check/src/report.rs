@@ -40,6 +40,9 @@ pub struct ReportedLocation {
     /// Character range of the reported range within `source_line`, cut at the end of the line
     pub start_character: usize,
     pub end_character: usize,
+    /// 1-based line and character column where the reported range ends, which can be on a line after `line`
+    pub end_line: usize,
+    pub end_column: usize,
 }
 
 impl ReportedLocation {
@@ -53,12 +56,16 @@ impl ReportedLocation {
         let character_count = |bytes: &[u8]| String::from_utf8_lossy(bytes).chars().count();
         let start_character = character_count(&source[line_start..start.min(line_end)]);
         let end_character = character_count(&source[line_start..end.clamp(start, line_end)]);
+        let end = end.clamp(start, source.len());
+        let end_line_start = source[..end].iter().rposition(|byte| *byte == b'\n').map_or(0, |index| index + 1);
         ReportedLocation {
             line,
             column,
             source_line: String::from_utf8_lossy(&source[line_start..line_end]).into_owned(),
             start_character,
             end_character,
+            end_line: source[..end_line_start].iter().filter(|byte| **byte == b'\n').count() + 1,
+            end_column: character_count(&source[end_line_start..end]) + 1,
         }
     }
 }
@@ -252,5 +259,12 @@ mod tests {
         assert_eq!(render_line(&diagnostic), "app/models/user.rb:1:7: [error] message (Ruby::NoMethod)");
         let without_location = ReportedDiagnostic { location: None, code: None, ..diagnostic };
         assert_eq!(render_line(&without_location), "app/models/user.rb: [error] message");
+    }
+
+    #[test]
+    fn locates_the_end_of_a_range_that_spans_lines() {
+        let source = "call(1,\n  名前)\n";
+        let location = ReportedLocation::from_offsets(source.as_bytes(), 0, source.find(')').unwrap() + 1, 1);
+        assert_eq!((location.line, location.end_line, location.end_column), (1, 2, 6));
     }
 }

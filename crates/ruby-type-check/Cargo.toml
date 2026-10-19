@@ -10,3 +10,6 @@ ruby-environment = { path = "../ruby-environment" }
 ruby-file-glob = { path = "../ruby-file-glob" }
 type-checker = { path = "../type-checker" }
 walkdir = "2.5.0"
+
+[dev-dependencies]
+serde_yaml = { workspace = true }

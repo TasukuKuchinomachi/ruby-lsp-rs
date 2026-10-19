@@ -4,6 +4,7 @@ use ruby_prism::{Location, Node};
 use super::{CacheState, Checker, Context, Locals};
 use crate::file_index::InstanceVariableKey;
 use crate::source::{Span, constant_text};
+use crate::steep_relation;
 use crate::type_utilities::{array_of, can_be_falsy, element_type, falsy_part, truthy_part};
 use crate::{Severity, TypeHintKind};
 
@@ -92,8 +93,18 @@ impl<'pr> Checker<'_, 'pr> {
                     return Type::Untyped;
                 };
                 let value = write.value();
-                let value_type = self.infer_assigned_value(&value, context, locals);
                 let name = constant_text(&write.name());
+                // Steep types `_ = value` and `__any__ = value` as `untyped` without keeping the variable, which is the
+                // usual way to cast, and does not even look at the value of `__skip__ = value`
+                match name.as_str() {
+                    "_" | "__any__" => {
+                        self.infer(&value, context, locals);
+                        return Type::Untyped;
+                    }
+                    "__skip__" => return Type::Untyped,
+                    _ => {}
+                }
+                let value_type = self.infer_assigned_value(&value, context, locals);
                 let is_obvious = is_obvious_value(&value);
                 if is_assignment {
                     self.assignment_span = Some(Span::of_node(node));
@@ -484,13 +495,21 @@ impl<'pr> Checker<'_, 'pr> {
             None => value_type.clone(),
         };
         if self.is_certain_assignment_mismatch(&value_type, declared, value_node) {
+            let message = steep_relation::with_detail_lines(
+                format!(
+                    "Cannot assign a value of type `{}` to {element} of type `{}`",
+                    value_type.steep_display(),
+                    declared.steep_display()
+                ),
+                self.environment,
+                &value_type,
+                declared,
+            );
             self.record_diagnostic(
                 self.assignment_span.unwrap_or(span),
                 Severity::Hint,
                 "Ruby::IncompatibleAssignment",
-                format!(
-                    "Cannot assign a value of type `{value_type}` to {element} of type `{declared}`"
-                ),
+                message,
             );
         }
     }

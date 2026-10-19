@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use ruby_rbs::node::{
     AliasKind, AttrIvarName, AttributeKind, AttributeVisibility, BlockTypeNode, CommentNode,
     MethodDefinitionKind, MethodDefinitionNode, MethodDefinitionVisibility, NamespaceNode, Node,
-    NodeList, RBSHash, RBSLocationRange, TypeNameNode,
+    NodeList, RBSHash, RBSLocationRange, TypeNameNode, TypeParamVariance,
 };
 
 use crate::environment::{
@@ -28,7 +28,7 @@ use crate::signature_validation::{
 use crate::steep_compatibility::DuplicatedMethodDefinition;
 use crate::types::{
     Block, Function, Literal, MethodType, NameKind, Parameter, ProcType, RecordField, Type,
-    TypeName, TypeParameter,
+    TypeName, TypeParameter, Variance,
 };
 
 enum PendingSource {
@@ -53,11 +53,18 @@ pub struct Loader {
     added_files: HashSet<PathBuf>,
     signature_files: HashSet<PathBuf>,
     errors: Vec<LoadError>,
+    implicitly_returns_nil: bool,
 }
 
 impl Loader {
     pub fn new() -> Loader {
         Loader::default()
+    }
+
+    /// `implicitly_returns_nil!` in the `Steepfile`: a method type annotated with `%a{implicitly-returns-nil}`, such as
+    /// `Array#[]`, returns `nil` as well, as Steep's `Interface::Builder#add_implicitly_returns_nil` makes it
+    pub fn set_implicitly_returns_nil(&mut self, implicitly_returns_nil: bool) {
+        self.implicitly_returns_nil = implicitly_returns_nil;
     }
 
     pub fn add_source(&mut self, path: &Path, source: &str) {
@@ -128,12 +135,13 @@ impl Loader {
             sources,
             signature_files,
             errors: mut load_errors,
+            implicitly_returns_nil,
             ..
         } = self;
         let mut files = Vec::with_capacity(sources.len());
         let mut signature_diagnostics = Vec::new();
         let parse_results = parallel_map(&sources, |pending| {
-            parse_pending_source(pending, signature_files.contains(pending.path()))
+            parse_pending_source(pending, signature_files.contains(pending.path()), implicitly_returns_nil)
         });
         for result in parse_results {
             match result {
@@ -340,7 +348,7 @@ pub(crate) fn parse_signature_validation(path: &Path, source: &str) -> Option<Fi
         path: path.to_path_buf(),
         source: source.to_string(),
     };
-    let file = parse_pending_source(&pending, true).ok()?;
+    let file = parse_pending_source(&pending, true, false).ok()?;
     let mut validation = file.validation?;
     validation.uses = file.uses;
     Some(validation)
@@ -349,6 +357,7 @@ pub(crate) fn parse_signature_validation(path: &Path, source: &str) -> Option<Fi
 fn parse_pending_source(
     pending: &PendingSource,
     validated: bool,
+    implicitly_returns_nil: bool,
 ) -> Result<ParsedFile, ParseFailure> {
     let path = pending.path().to_path_buf();
     let read_source;
@@ -373,6 +382,7 @@ fn parse_pending_source(
         },
     })?;
     let mut converter = Converter::new(source, Arc::new(path));
+    converter.implicitly_returns_nil = implicitly_returns_nil;
     if validated {
         converter.validation = Some(ValidationCollector::default());
     }
@@ -472,6 +482,8 @@ fn inner_context(outer_context: &[String], name: &TypeName) -> Arc<[String]> {
         .collect()
 }
 
+const IMPLICITLY_RETURNS_NIL: &str = "implicitly-returns-nil";
+
 const ALWAYS_PRIVATE_INSTANCE_METHODS: [&str; 5] = [
     "initialize",
     "initialize_copy",
@@ -495,6 +507,7 @@ struct Converter<'source> {
     path: Arc<PathBuf>,
     line_starts: Vec<usize>,
     validation: Option<ValidationCollector>,
+    implicitly_returns_nil: bool,
 }
 
 impl<'source> Converter<'source> {
@@ -506,6 +519,7 @@ impl<'source> Converter<'source> {
             path,
             line_starts,
             validation: None,
+            implicitly_returns_nil: false,
         }
     }
 
@@ -826,7 +840,7 @@ impl<'source> Converter<'source> {
                         }
                         Node::MethodDefinition(method) => {
                             let method_name = method.name().as_str().to_string();
-                            let mut overloads = self.convert_overloads(method.overloads());
+                            let mut overloads = self.convert_method_overloads(&method);
                             if method.overloading()
                                 && let Some(previous) = declaration.methods.remove(&method_name)
                             {
@@ -1090,7 +1104,7 @@ impl<'source> Converter<'source> {
                         member,
                         method.location(),
                     );
-                    let overloads = self.convert_overloads(method.overloads());
+                    let overloads = self.convert_method_overloads(&method);
                     let explicit_visibility = match method.visibility() {
                         MethodDefinitionVisibility::Public => Some(Visibility::Public),
                         MethodDefinitionVisibility::Private => Some(Visibility::Private),
@@ -1423,6 +1437,11 @@ impl<'source> Converter<'source> {
                     default_type: type_parameter
                         .default_type()
                         .map(|default_type| self.convert_type(default_type)),
+                    variance: match type_parameter.variance() {
+                        TypeParamVariance::Invariant => Variance::Invariant,
+                        TypeParamVariance::Covariant => Variance::Covariant,
+                        TypeParamVariance::Contravariant => Variance::Contravariant,
+                    },
                 }),
                 _ => None,
             })
@@ -1435,6 +1454,29 @@ impl<'source> Converter<'source> {
             .filter_map(|overload| match overload {
                 Node::MethodDefinitionOverload(overload) => {
                     self.convert_method_type(overload.method_type())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The overloads of a method member, each returning `nil` as well when the member or the overload is annotated
+    /// with `%a{implicitly-returns-nil}` and `implicitly_returns_nil` is set
+    fn convert_method_overloads(&self, method: &MethodDefinitionNode) -> Vec<MethodType> {
+        let member_annotated = annotation_texts(method.annotations()).iter().any(|text| text == IMPLICITLY_RETURNS_NIL);
+        method
+            .overloads()
+            .iter()
+            .filter_map(|overload| match overload {
+                Node::MethodDefinitionOverload(overload) => {
+                    let mut method_type = self.convert_method_type(overload.method_type())?;
+                    let annotated = member_annotated
+                        || annotation_texts(overload.annotations()).iter().any(|text| text == IMPLICITLY_RETURNS_NIL);
+                    if self.implicitly_returns_nil && annotated {
+                        let return_type = std::mem::replace(&mut method_type.function.return_type, Type::Nil);
+                        method_type.function.return_type = Type::optional(return_type);
+                    }
+                    Some(method_type)
                 }
                 _ => None,
             })
@@ -1585,9 +1627,9 @@ impl<'source> Converter<'source> {
             Node::IntersectionType(intersection) => {
                 Type::Intersection(self.convert_types(intersection.types()))
             }
-            Node::UnionType(union) => Type::Union(self.convert_types(union.types())),
+            Node::UnionType(union) => Type::union(self.convert_types(union.types())),
             Node::OptionalType(optional) => {
-                Type::Optional(Box::new(self.convert_type(optional.type_())))
+                Type::optional(self.convert_type(optional.type_()))
             }
             Node::TupleType(tuple) => Type::Tuple(self.convert_types(tuple.types())),
             Node::RecordType(record) => Type::Record(

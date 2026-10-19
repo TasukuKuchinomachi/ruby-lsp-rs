@@ -7,6 +7,7 @@ use super::variables::is_obvious_value;
 use super::{CacheState, Checker, Context, Locals, MethodContext};
 use crate::file_index::InstanceVariableKey;
 use crate::source::{ConstantPath, Span, constant_text};
+use crate::steep_relation;
 use crate::type_utilities::{array_of, hash_of, self_instance_type};
 use crate::{HoverKind, Severity, TypeHintKind};
 
@@ -207,19 +208,32 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         {
             let is_setter = method_name.ends_with('=')
                 && !matches!(method_name.as_str(), "==" | "!=" | "<=" | ">=" | "===");
+            let (body, declared_type) = (body_type.steep_display(), declared.steep_display());
             if is_setter {
+                let message = steep_relation::with_detail_lines(
+                    format!("Setter method `{method_name}` cannot have type `{body}` because declared as type `{declared_type}`"),
+                    self.environment,
+                    &body_type,
+                    declared,
+                );
                 self.record_diagnostic(
                     Span::of_location(&definition.name_loc()),
                     Severity::Information,
                     "Ruby::SetterBodyTypeMismatch",
-                    format!("Setter method `{method_name}` cannot have type `{body_type}` because declared as type `{declared}`"),
+                    message,
                 );
             } else {
+                let message = steep_relation::with_detail_lines(
+                    format!("Cannot allow method body have type `{body}` because declared as type `{declared_type}`"),
+                    self.environment,
+                    &body_type,
+                    declared,
+                );
                 self.record_diagnostic(
                     Span::of_location(&definition.name_loc()),
                     Severity::Error,
                     "Ruby::MethodBodyTypeMismatch",
-                    format!("Cannot allow method body have type `{body_type}` because declared as type `{declared}`"),
+                    message,
                 );
             }
         }
@@ -294,7 +308,8 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             .parameters()
             .map(|parameters| Span::of_location(&parameters.location()))
             .unwrap_or(name_span);
-        for (kind, span) in parameter_kind_errors(definition.parameters(), &overload.function) {
+        let overload = overload.steep_display();
+        for (kind, span) in parameter_kind_errors(definition.parameters(), &overloads[0].function) {
             let (code, severity, message) = match kind {
                 ParameterKindError::Mismatch => (
                     "Ruby::MethodParameterMismatch",

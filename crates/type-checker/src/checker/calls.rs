@@ -10,6 +10,7 @@ use super::blocks::BlockSignature;
 use super::{Checker, Context, Locals};
 use crate::file_index::FileMethod;
 use crate::source::{Span, constant_text};
+use crate::steep_relation;
 use crate::type_utilities::{
     can_be_nil, contains_uncertain_part, contains_variable_in, hash_of, instance_type_of_class,
     is_bottom, literal_class_name, members_of, remove_nil, self_instance_type,
@@ -614,12 +615,18 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                         .as_ref()
                         .and_then(PreparedCall::block_proc_type)
                 {
-                    self.record_diagnostic(
-                        *span,
-                        Severity::Warning,
-                        "Ruby::BlockTypeMismatch",
-                        format!("Cannot pass a value of type `Proc` as a block-pass-argument of type `{expected}`"),
+                    let given = Type::instance("Proc");
+                    let message = steep_relation::with_detail_lines(
+                        format!(
+                            "Cannot pass a value of type `{}` as a block-pass-argument of type `{}`",
+                            given.steep_display(),
+                            expected.steep_display()
+                        ),
+                        self.environment,
+                        &given,
+                        &expected,
                     );
+                    self.record_diagnostic(*span, Severity::Warning, "Ruby::BlockTypeMismatch", message);
                 }
                 Some(block_type)
             }
@@ -676,7 +683,8 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                     Severity::Error,
                     "Ruby::NoMethod",
                     format!(
-                        "Type `{displayed_receiver_type}` does not have method `{}`",
+                        "Type `{}` does not have method `{}`",
+                        displayed_receiver_type.steep_display(),
                         site.method_name
                     ),
                 );
@@ -871,10 +879,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 site.send_span,
                 Severity::Error,
                 "Ruby::InsufficientPositionalArguments",
-                format!(
-                    "More positional arguments are required: `{}`",
-                    site.method_name
-                ),
+                "More positional arguments are required".to_string(),
             ),
             OverloadError::Arity(ArityMismatch::UnexpectedPositional(span)) => self
                 .record_diagnostic(
@@ -896,15 +901,19 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 "Ruby::UnexpectedKeywordArgument",
                 "Unexpected keyword argument".to_string(),
             ),
-            OverloadError::TypeMismatch(pair) => self.record_diagnostic(
-                pair.span,
-                Severity::Error,
-                "Ruby::ArgumentTypeMismatch",
-                format!(
-                    "Cannot pass a value of type `{}` as an argument of type `{}`",
-                    pair.argument_type, pair.parameter_type
-                ),
-            ),
+            OverloadError::TypeMismatch(pair) => {
+                let message = steep_relation::with_detail_lines(
+                    format!(
+                        "Cannot pass a value of type `{}` as an argument of type `{}`",
+                        pair.argument_type.steep_display(),
+                        pair.parameter_type.steep_display()
+                    ),
+                    self.environment,
+                    &pair.argument_type,
+                    &pair.parameter_type,
+                );
+                self.record_diagnostic(pair.span, Severity::Error, "Ruby::ArgumentTypeMismatch", message)
+            }
         }
     }
 
@@ -921,9 +930,9 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             .enumerate()
             .map(|(index, overload)| {
                 if index == 0 {
-                    format!("  def {}: {overload}", site.method_name)
+                    format!("  def {}: {}", site.method_name, overload.steep_display())
                 } else {
-                    format!("{alignment}| {overload}")
+                    format!("{alignment}| {}", overload.steep_display())
                 }
             })
             .collect();
@@ -932,8 +941,9 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             Severity::Error,
             "Ruby::UnresolvedOverloading",
             format!(
-                "Cannot find compatible overloading of method `{}` of type `{receiver_type}`\nMethod types:\n{}",
+                "Cannot find compatible overloading of method `{}` of type `{}`\nMethod types:\n{}",
                 site.method_name,
+                receiver_type.steep_display(),
                 method_types.join("\n")
             ),
         );
@@ -1125,7 +1135,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 }
                 Lookup::Unknown
             }
-            Type::Union(_) | Type::Optional(_) => Lookup::Unknown,
+            Type::Union(_) => Lookup::Unknown,
         }
     }
 
@@ -2116,7 +2126,6 @@ pub(crate) fn expand_aliases(
                 .map(|member| expand_aliases(environment, member, depth + 1))
                 .collect(),
         ),
-        Type::Optional(inner) => Type::optional(expand_aliases(environment, inner, depth + 1)),
         other => other.clone(),
     }
 }

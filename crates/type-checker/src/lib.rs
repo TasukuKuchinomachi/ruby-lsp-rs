@@ -2,6 +2,7 @@ mod annotations;
 mod checker;
 mod file_index;
 mod source;
+mod steep_relation;
 mod subtyping;
 mod type_utilities;
 mod unification;

@@ -5,6 +5,7 @@ use super::narrowing::{merge_locals, narrow_to_class};
 use super::{Checker, Context, Locals};
 use crate::Severity;
 use crate::source::Span;
+use crate::steep_relation;
 use crate::subtyping::{Certainty, is_subtype};
 use crate::type_utilities::{
     array_of, can_be_falsy, element_type, falsy_part, instance_type_of_class_value, is_bottom,
@@ -890,12 +891,17 @@ impl<'pr> Checker<'_, 'pr> {
             && self.is_certain_mismatch(&returned_type, declared)
             && self.return_value_mismatches(&return_node, declared, &returned_type, context, locals)
         {
-            self.record_diagnostic(
-                Span::of_node(node),
-                Severity::Error,
-                "Ruby::ReturnTypeMismatch",
-                format!("The method cannot return a value of type `{returned_type}` because declared as type `{declared}`"),
+            let message = steep_relation::with_detail_lines(
+                format!(
+                    "The method cannot return a value of type `{}` because declared as type `{}`",
+                    returned_type.steep_display(),
+                    declared.steep_display()
+                ),
+                self.environment,
+                &returned_type,
+                declared,
             );
+            self.record_diagnostic(Span::of_node(node), Severity::Error, "Ruby::ReturnTypeMismatch", message);
         }
         Type::Bottom
     }
@@ -947,12 +953,8 @@ impl<'pr> Checker<'_, 'pr> {
             .and_then(|expectation| expectation.next_type.clone())
             && self.is_certain_mismatch(&next_type, &expected)
         {
-            self.record_diagnostic(
-                Span::of_node(node),
-                Severity::Hint,
-                "Ruby::BreakTypeMismatch",
-                format!("Cannot break with a value of type `{next_type}` because type `{expected}` is assumed"),
-            );
+            let message = self.break_type_mismatch_message(&next_type, &expected);
+            self.record_diagnostic(Span::of_node(node), Severity::Hint, "Ruby::BreakTypeMismatch", message);
         }
         if let Some(frame) = self.block_next_frames.last_mut() {
             frame.push(next_type);
@@ -982,21 +984,34 @@ impl<'pr> Checker<'_, 'pr> {
             return Type::Bottom;
         }
         if has_value {
-            self.record_diagnostic(
-                Span::of_node(node),
-                Severity::Hint,
-                "Ruby::BreakTypeMismatch",
-                format!("Cannot break with a value of type `{break_type}` because type `{expected}` is assumed"),
-            );
+            let message = self.break_type_mismatch_message(&break_type, &expected);
+            self.record_diagnostic(Span::of_node(node), Severity::Hint, "Ruby::BreakTypeMismatch", message);
         } else {
-            self.record_diagnostic(
-                Span::of_node(node),
-                Severity::Hint,
-                "Ruby::ImplicitBreakValueMismatch",
-                format!("Breaking without a value may result an error because a value of type `{expected}` is expected"),
+            let message = steep_relation::with_detail_lines(
+                format!(
+                    "Breaking without a value may result an error because a value of type `{}` is expected",
+                    expected.steep_display()
+                ),
+                self.environment,
+                &Type::Nil,
+                &expected,
             );
+            self.record_diagnostic(Span::of_node(node), Severity::Hint, "Ruby::ImplicitBreakValueMismatch", message);
         }
         Type::Bottom
+    }
+
+    fn break_type_mismatch_message(&self, actual: &Type, expected: &Type) -> String {
+        steep_relation::with_detail_lines(
+            format!(
+                "Cannot break with a value of type `{}` because type `{}` is assumed",
+                actual.steep_display(),
+                expected.steep_display()
+            ),
+            self.environment,
+            actual,
+            expected,
+        )
     }
 
     fn infer_jump_value(

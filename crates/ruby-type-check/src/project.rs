@@ -68,7 +68,10 @@ pub fn is_checked_path(workspace_path: &Path, steepfile: Option<&SteepfileConfig
 /// Without a `Steepfile` the signatures are read from `sig`, as `rbs_environment::load_workspace` does
 pub fn is_signature_path(workspace_path: &Path, steepfile: Option<&SteepfileConfiguration>, path: &Path) -> bool {
     match steepfile {
-        Some(steepfile) => steepfile.signature_directories.iter().any(|directory| path.starts_with(directory)),
+        Some(steepfile) => {
+            let Ok(relative_path) = path.strip_prefix(workspace_path) else { return false };
+            steepfile.signature_patterns.iter().any(|pattern| pattern_matches(workspace_path, pattern, relative_path))
+        }
         None => path.starts_with(workspace_path.join("sig")),
     }
 }
@@ -160,7 +163,7 @@ mod tests {
 
     fn steepfile_with_targets(targets: Vec<SteepfileTarget>) -> SteepfileConfiguration {
         SteepfileConfiguration {
-            signature_directories: Vec::new(),
+            signature_patterns: Vec::new(),
             check_paths: targets.iter().flat_map(|target| target.check_paths.clone()).collect(),
             ignore_paths: targets.iter().flat_map(|target| target.ignore_paths.clone()).collect(),
             libraries: Vec::new(),
@@ -176,6 +179,7 @@ mod tests {
             ignore_paths: ignore_paths.iter().map(PathBuf::from).collect(),
             code_diagnostics,
             groups: Vec::new(),
+            implicitly_returns_nil: false,
         }
     }
 
