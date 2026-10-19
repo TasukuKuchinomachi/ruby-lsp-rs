@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use rbs_environment::{Environment, Literal, Type, Variance};
+use rbs_environment::{Environment, Function, Literal, Type, Variance};
 
 use crate::type_utilities::{array_of, hash_of};
 
@@ -157,9 +157,7 @@ impl RelationChecker<'_> {
                 Type::ClassInstance { .. } | Type::ClassSingleton { .. },
             ) => self.nominal(subtype, supertype),
             (Type::Proc(subtype_proc), Type::Proc(supertype_proc)) => {
-                let subtype_return = subtype_proc.function.return_type.clone();
-                let supertype_return = supertype_proc.function.return_type.clone();
-                let path = self.check(&subtype_return, &supertype_return)?;
+                let path = self.check_function(&subtype_proc.function, &supertype_proc.function)?;
                 Some(prepend(relation_line(subtype, supertype), prepend(None, path)))
             }
             (Type::Tuple(subtype_elements), Type::Tuple(supertype_elements)) => {
@@ -212,6 +210,23 @@ impl RelationChecker<'_> {
             }
             _ => failure(subtype, supertype),
         }
+    }
+
+    /// Steep's `check_function`: the parameters (contravariant) and then the return type. The path starts below the
+    /// function relation, which Steep does not print
+    fn check_function(&mut self, subtype: &Function, supertype: &Function) -> Option<FailurePath> {
+        const PARAMS_ARE_INCOMPATIBLE: &str = "(Params are incompatible)";
+        if !subtype.untyped_parameters && !supertype.untyped_parameters {
+            let Some(pairs) = match_params(subtype, supertype) else {
+                return Some(vec![Some(PARAMS_ARE_INCOMPATIBLE.to_string())]);
+            };
+            for (subtype_parameter, supertype_parameter) in pairs {
+                if let Some(path) = self.check(&supertype_parameter, &subtype_parameter) {
+                    return Some(prepend(Some(PARAMS_ARE_INCOMPATIBLE.to_string()), path));
+                }
+            }
+        }
+        self.check(&subtype.return_type, &supertype.return_type)
     }
 
     /// Steep compares `normalize_type`d types, where a union equals another with the same members in any order
@@ -303,6 +318,86 @@ impl RelationChecker<'_> {
             .any(|method_name| self.environment.find_instance_method(class_name, method_name).is_none());
         missing.then(|| vec![relation_line(subtype, supertype), None])
     }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum PositionalKind {
+    Required,
+    Optional,
+}
+
+/// Steep's `flat_unnamed_params`: the required and optional positionals, without the rest
+fn flat_unnamed_parameters(function: &Function) -> Vec<(PositionalKind, Type)> {
+    let leading = function.required_positionals.iter().map(|parameter| (PositionalKind::Required, parameter.parameter_type.clone()));
+    let optional = function.optional_positionals.iter().map(|parameter| (PositionalKind::Optional, parameter.parameter_type.clone()));
+    let trailing = function.trailing_positionals.iter().map(|parameter| (PositionalKind::Required, parameter.parameter_type.clone()));
+    leading.chain(optional).chain(trailing).collect()
+}
+
+/// Steep's `match_params`: the pairs of a subtype parameter and the supertype parameter it receives, or `None` when
+/// the parameters cannot match
+fn match_params(subtype: &Function, supertype: &Function) -> Option<Vec<(Type, Type)>> {
+    let mut pairs = Vec::new();
+    let mut subtype_flat = flat_unnamed_parameters(subtype).into_iter();
+    let mut supertype_flat = flat_unnamed_parameters(supertype).into_iter();
+    let subtype_rest = subtype.rest_positionals.as_ref().map(|parameter| parameter.parameter_type.clone());
+    let supertype_rest = supertype.rest_positionals.as_ref().map(|parameter| parameter.parameter_type.clone());
+    match (&subtype_rest, &supertype_rest) {
+        (None, Some(_)) => return None,
+        (Some(subtype_rest), Some(supertype_rest)) => {
+            for (_, subtype_parameter) in subtype_flat.by_ref() {
+                match supertype_flat.next() {
+                    Some((_, supertype_parameter)) => pairs.push((subtype_parameter, supertype_parameter)),
+                    None => pairs.push((subtype_parameter, supertype_rest.clone())),
+                }
+            }
+            pairs.push((subtype_rest.clone(), supertype_rest.clone()));
+        }
+        (Some(subtype_rest), None) => {
+            for (_, subtype_parameter) in subtype_flat.by_ref() {
+                match supertype_flat.next() {
+                    Some((_, supertype_parameter)) => pairs.push((subtype_parameter, supertype_parameter)),
+                    None => break,
+                }
+            }
+            for (_, supertype_parameter) in supertype_flat.by_ref() {
+                pairs.push((subtype_rest.clone(), supertype_parameter));
+            }
+        }
+        (None, None) => {
+            let count = |function: &Function| function.required_positionals.len() + function.optional_positionals.len();
+            if count(subtype) < count(supertype) {
+                return None;
+            }
+            for (kind, subtype_parameter) in subtype_flat.by_ref() {
+                match supertype_flat.next() {
+                    Some((_, supertype_parameter)) => pairs.push((subtype_parameter, supertype_parameter)),
+                    None if kind == PositionalKind::Required => return None,
+                    None => break,
+                }
+            }
+        }
+    }
+    let subtype_keywords: Vec<&(String, rbs_environment::Parameter)> =
+        subtype.required_keywords.iter().chain(subtype.optional_keywords.iter()).collect();
+    for (name, supertype_parameter) in supertype.required_keywords.iter().chain(supertype.optional_keywords.iter()) {
+        match subtype_keywords.iter().find(|(keyword, _)| keyword == name) {
+            Some((_, subtype_parameter)) => {
+                pairs.push((subtype_parameter.parameter_type.clone(), supertype_parameter.parameter_type.clone()))
+            }
+            None => match &subtype.rest_keywords {
+                Some(rest) => pairs.push((rest.parameter_type.clone(), supertype_parameter.parameter_type.clone())),
+                None => return None,
+            },
+        }
+    }
+    if subtype.required_keywords.iter().any(|(name, _)| !supertype.required_keywords.iter().any(|(keyword, _)| keyword == name)) {
+        return None;
+    }
+    if let (Some(subtype_rest), Some(supertype_rest)) = (&subtype.rest_keywords, &supertype.rest_keywords) {
+        pairs.push((subtype_rest.parameter_type.clone(), supertype_rest.parameter_type.clone()));
+    }
+    Some(pairs)
 }
 
 fn is_instance_of(target: &Type, class_name: &str) -> bool {

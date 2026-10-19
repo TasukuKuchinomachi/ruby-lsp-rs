@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use rbs_environment::{MethodType, Type, parse_method_type, parse_type};
+use rbs_environment::{AnnotationSyntax, MethodType, Type, annotation_syntax_error_message, parse_method_type, parse_type};
 use ruby_prism::ParseResult;
 
 use crate::source::LineIndex;
@@ -58,8 +58,18 @@ pub(crate) struct DynamicAnnotation {
     pub(crate) names: Vec<(String, DynamicKind)>,
 }
 
+/// A type in an annotation RBS cannot parse, which makes Steep report only `AnnotationSyntaxError` for the file
+#[derive(Debug, Clone)]
+pub(crate) struct AnnotationSyntaxError {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+    pub(crate) message: String,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct Annotations {
+    /// The first annotation with a syntax error, in source order
+    pub(crate) syntax_error: Option<AnnotationSyntaxError>,
     pub(crate) type_annotations: Vec<TypeAnnotation>,
     pub(crate) method_type_annotations: Vec<MethodTypeAnnotation>,
     pub(crate) implements_annotations: Vec<ImplementsAnnotation>,
@@ -93,43 +103,69 @@ impl Annotations {
                 }
                 continue;
             }
-            annotations.add(body.trim(), start);
+            let content = body.trim();
+            let content_start = start + 1 + (body.len() - body.trim_start().len());
+            annotations.add(content, start, content_start);
         }
         annotations
     }
 
+    fn record_syntax_error(&mut self, content: &str, content_start: usize, text: &str, syntax: AnnotationSyntax, whole: bool) {
+        if self.syntax_error.is_some() {
+            return;
+        }
+        let Some(message) = annotation_syntax_error_message(text, syntax) else {
+            return;
+        };
+        let (start, end) = if whole {
+            (content_start, content_start + content.len())
+        } else {
+            let text_start = content_start + (text.as_ptr() as usize - content.as_ptr() as usize);
+            (text_start, text_start + text.len())
+        };
+        self.syntax_error = Some(AnnotationSyntaxError {
+            start,
+            end,
+            message: format!("Type annotation has a syntax error: {message}"),
+        });
+    }
+
     /// Follows the order of the cases of Steep's `AnnotationParser#parse`
-    fn add(&mut self, body: &str, offset: usize) {
-        if let Some(rest) = keyword_rest(body, "@type") {
+    fn add(&mut self, content: &str, offset: usize, content_start: usize) {
+        if let Some(rest) = keyword_rest(content, "@type") {
             if let Some((keyword, rest)) = rest.split_once(char::is_whitespace) {
-                let subject = |target: fn(String) -> AnnotationTarget| -> Option<TypeAnnotation> {
-                    let (name, type_text) = rest.split_once(':')?;
-                    Some(TypeAnnotation {
-                        offset,
-                        target: target(name.trim().to_string()),
-                        annotated_type: parse_type(type_text.trim()).ok()?,
-                    })
-                };
-                let annotation = match keyword {
-                    "var" => subject(AnnotationTarget::LocalVariable),
-                    "ivar" => subject(AnnotationTarget::InstanceVariable),
-                    "const" => subject(AnnotationTarget::Constant),
-                    "method" => {
-                        if let Some((name, type_text)) = rest.split_once(':')
-                            && let Ok(method_type) = parse_method_type(type_text.trim())
-                        {
-                            self.method_type_annotations.push(MethodTypeAnnotation {
-                                offset,
-                                name: name.trim().to_string(),
-                                method_type,
-                            });
-                        }
-                        None
-                    }
+                let target: Option<fn(String) -> AnnotationTarget> = match keyword {
+                    "var" => Some(AnnotationTarget::LocalVariable),
+                    "ivar" => Some(AnnotationTarget::InstanceVariable),
+                    "const" => Some(AnnotationTarget::Constant),
                     _ => None,
                 };
-                if let Some(annotation) = annotation {
-                    self.type_annotations.push(annotation);
+                if let Some(target) = target
+                    && let Some((name, type_text)) = rest.split_once(':')
+                {
+                    let type_text = type_text.trim();
+                    match parse_type(type_text) {
+                        Ok(annotated_type) => self.type_annotations.push(TypeAnnotation {
+                            offset,
+                            target: target(name.trim().to_string()),
+                            annotated_type,
+                        }),
+                        Err(_) => self.record_syntax_error(content, content_start, type_text, AnnotationSyntax::Type, false),
+                    }
+                    return;
+                }
+                if keyword == "method"
+                    && let Some((name, type_text)) = rest.split_once(':')
+                {
+                    let type_text = type_text.trim();
+                    match parse_method_type(type_text) {
+                        Ok(method_type) => self.method_type_annotations.push(MethodTypeAnnotation {
+                            offset,
+                            name: name.trim().to_string(),
+                            method_type,
+                        }),
+                        Err(_) => self.record_syntax_error(content, content_start, type_text, AnnotationSyntax::MethodType, true),
+                    }
                     return;
                 }
             }
@@ -139,16 +175,18 @@ impl Annotations {
                 ("break", AnnotationTarget::Break),
             ];
             for (keyword, target) in keyword_and_type {
-                if let Some(type_text) = rest.strip_prefix(keyword).and_then(|after| after.trim_start().strip_prefix(':'))
-                    && let Ok(annotated_type) = parse_type(type_text.trim())
-                {
-                    self.type_annotations.push(TypeAnnotation { offset, target, annotated_type });
+                if let Some(type_text) = rest.strip_prefix(keyword).and_then(|after| after.trim_start().strip_prefix(':')) {
+                    let type_text = type_text.trim();
+                    match parse_type(type_text) {
+                        Ok(annotated_type) => self.type_annotations.push(TypeAnnotation { offset, target, annotated_type }),
+                        Err(_) => self.record_syntax_error(content, content_start, type_text, AnnotationSyntax::Type, false),
+                    }
                     return;
                 }
             }
             return;
         }
-        if let Some(rest) = keyword_rest(body, "@dynamic") {
+        if let Some(rest) = keyword_rest(content, "@dynamic") {
             let names = rest
                 .split(',')
                 .map(str::trim)
@@ -166,7 +204,7 @@ impl Annotations {
             self.dynamic_annotations.push(DynamicAnnotation { offset, names });
             return;
         }
-        if let Some(rest) = keyword_rest(body, "@implements") {
+        if let Some(rest) = keyword_rest(content, "@implements") {
             let name = rest.split('[').next().unwrap_or_default().trim();
             if !name.is_empty() {
                 self.implements_annotations.push(ImplementsAnnotation { offset, name: name.to_string() });

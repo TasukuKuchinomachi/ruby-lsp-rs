@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ruby_rbs_sys::bindings::{
-    rbs_encoding_t, rbs_encoding_type_t, rbs_encodings, rbs_parse_signature, rbs_parser_free,
-    rbs_parser_new, rbs_string_new,
+    RBSTokenType, rbs_encoding_t, rbs_encoding_type_t, rbs_encodings, rbs_parse_signature, rbs_parser_free,
+    rbs_parser_new, rbs_parser_t, rbs_string_new,
 };
 
 use crate::environment::{ClassKind, Environment, Location, MethodKind, SourcePosition};
@@ -81,6 +81,63 @@ pub(crate) fn syntax_error_diagnostic(
         end: source_position(source, end_offset),
         code: SYNTAX_ERROR,
         message: format!("Syntax error: {message}, token=`{token}`"),
+    }
+}
+
+unsafe extern "C" {
+    fn rbs_parse_method_type(
+        parser: *mut rbs_parser_t,
+        method_type: *mut *mut std::os::raw::c_void,
+        require_eof: bool,
+        classish_allowed: bool,
+    ) -> bool;
+    fn rbs_parse_type(
+        parser: *mut rbs_parser_t,
+        parsed_type: *mut *mut std::os::raw::c_void,
+        void_allowed: bool,
+        self_allowed: bool,
+        classish_allowed: bool,
+    ) -> bool;
+    fn rbs_token_type_str(token_type: RBSTokenType) -> *const std::os::raw::c_char;
+}
+
+#[derive(Clone, Copy)]
+pub enum AnnotationSyntax {
+    Type,
+    MethodType,
+}
+
+/// The message Steep's `Diagnostic::Signature::SyntaxError.parser_syntax_error_message` gives when `source` is not a
+/// type (or a method type), naming the token RBS's parser stopped at. `None` when it parses
+pub fn annotation_syntax_error_message(source: &str, syntax: AnnotationSyntax) -> Option<String> {
+    let length = i32::try_from(source.len()).ok()?;
+    unsafe {
+        let start_pointer = source.as_ptr().cast::<std::os::raw::c_char>();
+        let string = rbs_string_new(start_pointer, start_pointer.add(source.len()));
+        let encoding = &rbs_encodings[rbs_encoding_type_t::RBS_ENCODING_UTF_8 as usize] as *const rbs_encoding_t;
+        let parser = rbs_parser_new(string, encoding, 0, length);
+        let mut parsed = std::ptr::null_mut();
+        let succeeded = match syntax {
+            AnnotationSyntax::Type => rbs_parse_type(parser, &mut parsed, true, true, true),
+            AnnotationSyntax::MethodType => rbs_parse_method_type(parser, &mut parsed, false, true),
+        };
+        let message = if succeeded {
+            None
+        } else {
+            (*parser).error.as_ref().map(|error| {
+                let token_name = std::ffi::CStr::from_ptr(rbs_token_type_str(error.token.type_)).to_string_lossy().into_owned();
+                let start = (error.token.range.start.byte_pos.max(0) as usize).min(source.len());
+                let end = (error.token.range.end.byte_pos.max(0) as usize).clamp(start, source.len());
+                let token_source = source.get(start..end).unwrap_or_default();
+                if token_source.is_empty() {
+                    format!("Syntax error caused by token `{token_name}`")
+                } else {
+                    format!("Syntax error caused by token `{token_name}` ({token_source})")
+                }
+            })
+        };
+        rbs_parser_free(parser);
+        message
     }
 }
 

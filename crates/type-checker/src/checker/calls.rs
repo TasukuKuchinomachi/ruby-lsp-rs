@@ -647,24 +647,34 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                         context,
                     )
                 };
-                if symbol_is_missing
-                    && site.reports_diagnostics
+                if site.reports_diagnostics
                     && let Some(expected) = primary_prepared
                         .as_ref()
                         .and_then(PreparedCall::block_proc_type)
                 {
-                    let given = Type::instance("Proc");
-                    let message = steep_relation::with_detail_lines(
-                        format!(
-                            "Cannot pass a value of type `{}` as a block-pass-argument of type `{}`",
-                            given.steep_display(),
-                            expected.steep_display()
-                        ),
-                        self.environment,
-                        &given,
-                        &expected,
-                    );
-                    self.record_diagnostic(*span, Severity::Warning, "Ruby::BlockTypeMismatch", message);
+                    let given = if symbol_is_missing {
+                        Some(Type::instance("Proc"))
+                    } else if symbol.is_none()
+                        && matches!(argument_type, Type::Proc(_))
+                        && self.is_certain_mismatch(argument_type, &expected)
+                    {
+                        Some(argument_type.clone())
+                    } else {
+                        None
+                    };
+                    if let Some(given) = given {
+                        let message = steep_relation::with_detail_lines(
+                            format!(
+                                "Cannot pass a value of type `{}` as a block-pass-argument of type `{}`",
+                                given.steep_display(),
+                                expected.steep_display()
+                            ),
+                            self.environment,
+                            &given,
+                            &expected,
+                        );
+                        self.record_diagnostic(*span, Severity::Warning, "Ruby::BlockTypeMismatch", message);
+                    }
                 }
                 Some(block_type)
             }

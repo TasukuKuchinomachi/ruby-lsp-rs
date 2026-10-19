@@ -175,6 +175,19 @@ fn analyze_on_current_thread(
     let line_index = source::LineIndex::new(source);
     let file_index = file_index::FileIndex::build(environment, &root, &line_index);
     let annotations = annotations::Annotations::collect(&parse_result, &line_index);
+    // Steep's `TypeCheckService` gives up on a file whose annotation does not parse and reports nothing else
+    if let Some(error) = &annotations.syntax_error {
+        return Analysis {
+            diagnostics: vec![TypeDiagnostic {
+                start: error.start,
+                end: error.end,
+                severity: Severity::Error,
+                code: "Ruby::AnnotationSyntaxError",
+                message: error.message.clone(),
+            }],
+            ..Analysis::default()
+        };
+    }
     let mut checker =
         checker::Checker::new(environment, file_index, line_index, annotations, options);
     checker.check_program(&root);
