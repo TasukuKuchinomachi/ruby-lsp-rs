@@ -128,6 +128,27 @@ fn check(
                 Certainty::Unknown
             }
         }
+        (Type::Interface { name, .. }, Type::Interface { name: supertype_name, .. })
+            if environment.interfaces.contains_key(name) && name != supertype_name =>
+        {
+            let mut method_names = Vec::new();
+            collect_interface_method_names(environment, name, &mut method_names, 0);
+            let mut required_names = Vec::new();
+            collect_interface_method_names(environment, supertype_name, &mut required_names, 0);
+            if required_names.is_empty() {
+                Certainty::Unknown
+            } else if required_names.iter().all(|required| method_names.contains(required)) {
+                Certainty::Yes
+            } else {
+                Certainty::No
+            }
+        }
+        // Steep finds no super type of an interface but other interfaces, not even `Object`
+        (Type::Interface { name, .. }, Type::ClassInstance { .. } | Type::ClassSingleton { .. })
+            if environment.interfaces.contains_key(name) =>
+        {
+            Certainty::No
+        }
         (
             Type::Void
             | Type::Top

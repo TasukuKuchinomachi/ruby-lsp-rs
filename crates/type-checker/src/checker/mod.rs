@@ -223,15 +223,15 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         let mut locals = Locals::new();
         self.infer_statements(&program.statements(), &context, &mut locals);
         let mut seen = HashSet::new();
-        self.analysis
-            .diagnostics
-            .retain(|diagnostic| seen.insert((diagnostic.start, diagnostic.end, diagnostic.code)));
+        self.analysis.diagnostics.retain(|diagnostic| {
+            seen.insert((diagnostic.start, diagnostic.end, diagnostic.code, diagnostic.message.clone()))
+        });
         let mut repeated_seen = HashSet::new();
         let repeated: Vec<TypeDiagnostic> = std::mem::take(&mut self.repeated_diagnostics)
             .into_iter()
             .filter(|diagnostic| {
-                repeated_seen.insert((diagnostic.start, diagnostic.end, diagnostic.code))
-                    && seen.contains(&(diagnostic.start, diagnostic.end, diagnostic.code))
+                let key = (diagnostic.start, diagnostic.end, diagnostic.code, diagnostic.message.clone());
+                repeated_seen.insert(key.clone()) && seen.contains(&key)
             })
             .collect();
         self.analysis.diagnostics.extend(repeated);

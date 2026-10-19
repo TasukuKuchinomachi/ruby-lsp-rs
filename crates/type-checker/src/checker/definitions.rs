@@ -118,9 +118,10 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         let scope_start = definition.location().start_offset();
         let nesting = Rc::new(owner.nesting.clone());
         let implemented = self
-            .file_index
-            .innermost_scope(scope_start, |kind| kind == ScopeKind::Class)
-            .and_then(|class_scope| self.implemented_module(class_scope.span.start, &owner.nesting));
+            .annotation_scopes(Span::of_location(&definition.location()))
+            .iter()
+            .filter(|scope| matches!(scope.kind, ScopeKind::Class | ScopeKind::Block))
+            .find_map(|scope| self.implemented_module(scope.span.start, &owner.nesting));
         let declared_owner = DefinitionOwner {
             owner: implemented.unwrap_or_else(|| owner.owner.clone()),
             singleton: owner.singleton,

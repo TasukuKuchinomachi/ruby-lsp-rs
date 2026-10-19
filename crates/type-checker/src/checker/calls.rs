@@ -1483,7 +1483,11 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         method_name: &str,
     ) -> Lookup {
         let Some(resolved) = self.environment.find_interface_method(name, method_name) else {
-            return Lookup::Unknown;
+            return if self.environment.interfaces.contains_key(name) {
+                Lookup::Missing { reportable: true }
+            } else {
+                Lookup::Unknown
+            };
         };
         let mut substitution = Substitution {
             self_type: Some(receiver.clone()),
