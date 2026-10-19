@@ -2,6 +2,7 @@ use rbs_environment::Type;
 use ruby_prism::{Location, Node};
 
 use super::{CacheState, Checker, Context, Locals};
+use crate::annotations::AnnotationTarget;
 use crate::file_index::InstanceVariableKey;
 use crate::source::{Span, constant_text};
 use crate::steep_relation;
@@ -898,6 +899,17 @@ impl<'pr> Checker<'_, 'pr> {
         name: &str,
         context: &Context,
     ) -> Option<Type> {
+        // Steep imports the `@type ivar` annotations of a `def` into the method body whatever the class is
+        if let Some(method) = &context.method {
+            let annotated = self.type_annotations_in(method.scope_start).find_map(|(target, annotated_type)| match target {
+                AnnotationTarget::InstanceVariable(annotated_name) if annotated_name == name => Some(annotated_type.clone()),
+                _ => None,
+            });
+            if let Some(mut annotated) = annotated {
+                self.environment.resolve_type_names(&mut annotated, &context.nesting);
+                return Some(annotated);
+            }
+        }
         let (owner, singleton) = context.instance_variable_owner()?;
         self.declared_instance_variable_type_of(&owner, singleton, name)
     }

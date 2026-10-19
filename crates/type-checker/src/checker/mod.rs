@@ -46,6 +46,8 @@ pub(crate) struct MethodContext {
     pub(crate) block: Option<Block>,
     /// RBS or `@type method` gives the method a type, so that `yield` is checked against its block
     pub(crate) has_method_type: bool,
+    /// Where the `def` starts, the scope of the annotations written in it
+    pub(crate) scope_start: usize,
 }
 
 #[derive(Clone)]

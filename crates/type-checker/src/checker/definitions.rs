@@ -203,6 +203,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 declared_return_type: single_return_type.clone(),
                 block,
                 has_method_type: !overloads.is_empty(),
+                scope_start,
             })),
             declared_locals: Rc::new(self.local_variable_annotations(scope_start, &nesting)),
         };

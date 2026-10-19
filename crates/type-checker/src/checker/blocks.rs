@@ -495,6 +495,7 @@ impl<'pr> Checker<'_, 'pr> {
                 declared_return_type: None,
                 block: method.block.clone(),
                 has_method_type: method.has_method_type,
+                scope_start: method.scope_start,
             })
         });
         self.method_return_frames.push(Vec::new());
