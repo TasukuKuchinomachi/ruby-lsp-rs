@@ -97,6 +97,8 @@ pub(crate) struct CallSite<'pr> {
     pub(crate) expression_span: Span,
     pub(crate) send_span: Span,
     pub(crate) no_method_span: Span,
+    /// The declared type of the variable the call is assigned to, which Steep gives the call as its type hint
+    pub(crate) return_hint: Option<Type>,
 }
 
 struct PreparedCall {
@@ -148,6 +150,35 @@ impl PreparedCall {
         PreparedCall {
             overload: Some(overload),
             bindings,
+        }
+    }
+
+    /// Steep checks the arguments of a call whose return type is a type parameter after constraining the parameter
+    /// by the type hint. An argument for that parameter compatible with the hint binds it to the hint; an
+    /// incompatible one makes the constraint unsatisfiable, returned as the lower bound, the parameter and the hint
+    fn apply_return_hint(
+        &mut self,
+        environment: &rbs_environment::Environment,
+        hint: &Type,
+        arguments: &CallArguments,
+    ) -> Option<(Type, String, Type)> {
+        let overload = self.overload.as_ref()?;
+        let Type::Variable(variable_name) = &overload.function.return_type else {
+            return None;
+        };
+        if !self.bindings.variable_names().contains(variable_name) {
+            return None;
+        }
+        let pairs = match_arguments(&overload.function, arguments).ok()?;
+        let argument_type = pairs
+            .iter()
+            .find(|pair| matches!(&pair.parameter_type, Type::Variable(name) if name == variable_name))
+            .map(|pair| pair.argument_type.clone())?;
+        if steep_relation::is_subtype(environment, &argument_type, hint) {
+            self.bindings.bind_exactly(variable_name, hint.clone());
+            None
+        } else {
+            Some((argument_type, variable_name.clone(), hint.clone()))
         }
     }
 
@@ -301,6 +332,65 @@ fn substitute_overload(overload: &MethodType, substitution: &Substitution) -> Me
 }
 
 impl<'environment, 'pr> Checker<'environment, 'pr> {
+    /// Steep's `TypeParam.rename` names the type parameters of every generic method type it tries with a number
+    /// counted through the file, which its messages show
+    fn rename_type_parameters_freshly(&mut self, overload: &MethodType) -> MethodType {
+        let mut substitution = Substitution::default();
+        let mut renamed = overload.clone();
+        for type_parameter in &mut renamed.type_parameters {
+            self.fresh_variable_count += 1;
+            let fresh_name = format!("{}({})", type_parameter.name, self.fresh_variable_count);
+            substitution
+                .variables
+                .insert(type_parameter.name.clone(), Type::Variable(fresh_name.clone()));
+            type_parameter.name = fresh_name;
+        }
+        let mut renamed = renamed.substitute(&substitution);
+        for type_parameter in &mut renamed.type_parameters {
+            type_parameter.upper_bound = type_parameter.upper_bound.as_ref().map(|bound| bound.substitute(&substitution));
+            type_parameter.default_type = type_parameter.default_type.as_ref().map(|default| default.substitute(&substitution));
+        }
+        renamed
+    }
+
+    /// Steep constrains a type parameter given to a block parameter by the type annotated on the parameter, which is
+    /// unsatisfiable when the arguments bound the type parameter to something else
+    fn unsatisfiable_block_parameter_annotation(
+        &self,
+        block_node: &Node<'pr>,
+        prepared: &PreparedCall,
+        nesting: &[String],
+    ) -> Option<(Type, String, Type)> {
+        let block = prepared.overload.as_ref()?.block.as_ref()?;
+        let parameters = block_node.as_block_node()?.parameters()?;
+        let parameter_list = parameters.as_block_parameters_node()?.parameters()?;
+        let annotations: Vec<(&crate::annotations::AnnotationTarget, &Type)> =
+            self.type_annotations_in(block_node.location().start_offset()).collect();
+        for (required, declared) in parameter_list.requireds().iter().zip(&block.function.required_positionals) {
+            let Some(required) = required.as_required_parameter_node() else {
+                continue;
+            };
+            let Type::Variable(variable_name) = &declared.parameter_type else {
+                continue;
+            };
+            let parameter_name = constant_text(&required.name());
+            let Some(annotated) = annotations.iter().find_map(|(target, annotated)| match target {
+                crate::annotations::AnnotationTarget::LocalVariable(name) if *name == parameter_name => Some(*annotated),
+                _ => None,
+            }) else {
+                continue;
+            };
+            let Some(lower_bound) = prepared.bindings.bound_type(variable_name) else {
+                continue;
+            };
+            let annotated = self.resolve_annotation_type(annotated, nesting);
+            if !steep_relation::is_subtype(self.environment, &lower_bound, &annotated) {
+                return Some((lower_bound, variable_name.clone(), annotated));
+            }
+        }
+        None
+    }
+
     pub(crate) fn infer_call(
         &mut self,
         call: &CallNode<'pr>,
@@ -378,6 +468,10 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             _ => name_span,
         };
         let is_safe_navigation = call.is_safe_navigation();
+        let return_hint = self
+            .call_hint
+            .take_if(|(hinted_span, _)| *hinted_span == call_span)
+            .map(|(_, hint)| hint);
         let dispatch_receiver = if is_safe_navigation {
             remove_nil(&receiver_type)
         } else {
@@ -395,6 +489,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             expression_span: call_span,
             send_span,
             no_method_span,
+            return_hint,
         };
         if receiver_type.is_untyped()
             && let Some(arguments_node) = call.arguments()
@@ -525,6 +620,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             expression_span: span,
             send_span: span,
             no_method_span: span,
+            return_hint: None,
         };
         let self_type = context.self_type.clone();
         self.dispatch_call(
@@ -597,6 +693,19 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         let primary_index = lookups
             .iter()
             .position(|lookup| matches!(lookup, Lookup::Found(_)));
+        if self.options.steep_compatible
+            && !self.is_silent()
+            && let Some(index) = primary_index
+            && let Lookup::Found(found) = &mut lookups[index]
+            && !found.overloads.is_empty()
+        {
+            let selected = select_overload(self.environment, &found.overloads, arguments, has_block);
+            for overload in found.overloads.iter_mut().take(selected + 1) {
+                if !overload.type_parameters.is_empty() {
+                    *overload = self.rename_type_parameters_freshly(overload);
+                }
+            }
+        }
         let mut primary_prepared = primary_index.and_then(|index| match &lookups[index] {
             Lookup::Found(found) => Some(PreparedCall::new(
                 self.environment,
@@ -606,6 +715,38 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             )),
             _ => None,
         });
+        let unsatisfiable_return_hint = match (&site.return_hint, primary_prepared.as_mut()) {
+            (Some(hint), Some(prepared)) if self.options.steep_compatible => prepared.apply_return_hint(self.environment, hint, arguments),
+            _ => None,
+        };
+        let unsatisfiable_return_hint = match (&site.block, &primary_prepared) {
+            (CallBlock::Literal(block_node), Some(prepared))
+                if unsatisfiable_return_hint.is_none() && self.options.steep_compatible =>
+            {
+                self.unsatisfiable_block_parameter_annotation(block_node, prepared, &context.nesting)
+            }
+            _ => unsatisfiable_return_hint,
+        };
+        if let Some((lower_bound, variable_name, upper_bound)) = &unsatisfiable_return_hint
+            && site.reports_diagnostics
+            && let Some(overload) = primary_prepared.as_ref().and_then(|prepared| prepared.overload.as_ref())
+        {
+            let mut displayed_overload = overload.clone();
+            displayed_overload.type_parameters.clear();
+            let message = steep_relation::with_detail_lines(
+                format!(
+                    "Unsatisfiable constraint `{} <: {} <: {}` is generated through {}",
+                    lower_bound.steep_display(),
+                    variable_name,
+                    upper_bound.steep_display(),
+                    displayed_overload.steep_display()
+                ),
+                self.environment,
+                lower_bound,
+                upper_bound,
+            );
+            self.record_diagnostic(site.expression_span, Severity::Error, "Ruby::UnsatisfiableConstraint", message);
+        }
         for (value_index, lambda_node) in &site.deferred_lambdas {
             let signature = primary_prepared
                 .as_ref()
@@ -766,6 +907,9 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         } else {
             Type::union(results)
         };
+        if unsatisfiable_return_hint.is_some() {
+            result = Type::Untyped;
+        }
         if let CallBlock::Literal(block_node) = &site.block
             && let Some(annotated_break) =
                 self.annotated_break_type(block_node.location().start_offset(), &context.nesting)
@@ -1071,6 +1215,15 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         for member in members_of(&first_parameter) {
             match self.lookup_member(&member, symbol, context, 0) {
                 Lookup::Found(found) => {
+                    // Steep types `&:name` as a plain `Proc` when no overload of the method takes no arguments
+                    let callable_without_arguments = found.overloads.is_empty()
+                        || found
+                            .overloads
+                            .iter()
+                            .any(|overload| match_arguments(&overload.function, &CallArguments::default()).is_ok());
+                    if self.options.steep_compatible && !callable_without_arguments {
+                        return (Type::Untyped, true);
+                    }
                     let mut prepared = PreparedCall::new(
                         self.environment,
                         &found,
@@ -1117,6 +1270,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             expression_span: operator_span,
             send_span: operator_span,
             no_method_span: operator_span,
+            return_hint: None,
         };
         let arguments = CallArguments::single(value_type, operator_span);
         let mut no_locals = Locals::new();
@@ -1879,6 +2033,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             expression_span: name_span,
             send_span: name_span,
             no_method_span: name_span,
+            return_hint: None,
         };
         let current = self.dispatch_call(
             &remove_nil(&receiver_type),
@@ -1986,6 +2141,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             expression_span,
             send_span: expression_span,
             no_method_span: expression_span,
+            return_hint: None,
         };
         self.dispatch_call(&receiver, &displayed_receiver, &site, &arguments, context, locals)
     }

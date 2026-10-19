@@ -33,6 +33,17 @@ impl Bindings {
         }
     }
 
+    pub(crate) fn bound_type(&self, name: &str) -> Option<Type> {
+        self.bound
+            .get(name)
+            .filter(|candidates| !candidates.is_empty())
+            .map(|candidates| Type::union(candidates.clone()))
+    }
+
+    pub(crate) fn bind_exactly(&mut self, name: &str, bound: Type) {
+        self.bound.insert(name.to_string(), vec![bound]);
+    }
+
     fn is_variable(&self, target: &Type) -> Option<String> {
         match target {
             Type::Variable(name) if self.variable_names.contains(name) => Some(name.clone()),

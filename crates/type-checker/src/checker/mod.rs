@@ -114,6 +114,9 @@ pub(crate) struct Checker<'environment, 'pr> {
     jump_expectations: Vec<JumpExpectation>,
     /// The whole assignment being checked; Steep reports `IncompatibleAssignment` on the assignment node
     pub(crate) assignment_span: Option<Span>,
+    /// The declared type of a variable, for the call assigned to it at the span
+    pub(crate) call_hint: Option<(Span, Type)>,
+    fresh_variable_count: usize,
     fully_known_cache: HashMap<String, bool>,
     repetition_depth: usize,
     /// Diagnostics Steep reports a second time, kept apart from the removal of duplicates
@@ -204,6 +207,8 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             block_next_frames: Vec::new(),
             jump_expectations: Vec::new(),
             assignment_span: None,
+            call_hint: None,
+            fresh_variable_count: 0,
             fully_known_cache: HashMap::new(),
             repetition_depth: 0,
             repeated_diagnostics: Vec::new(),

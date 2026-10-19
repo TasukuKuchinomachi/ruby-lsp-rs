@@ -105,7 +105,13 @@ impl<'pr> Checker<'_, 'pr> {
                     "__skip__" => return Type::Untyped,
                     _ => {}
                 }
+                if self.options.steep_compatible
+                    && let Some(declared) = context.declared_locals.get(&name)
+                {
+                    self.call_hint = Some((Span::of_node(&value), declared.clone()));
+                }
                 let value_type = self.infer_assigned_value(&value, context, locals);
+                self.call_hint = None;
                 let is_obvious = is_obvious_value(&value);
                 if is_assignment {
                     self.assignment_span = Some(Span::of_node(node));

@@ -18,6 +18,10 @@ const STEEP_VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION_PATCH")
 );
 
+/// The numbers in the type variables of its expectation depend on what else Steep's worker checked before, so
+/// Steep's `bin/output_test.rb` allows this one to fail too
+const ALLOW_FAILURE: &[&str] = &["diagnostics-ruby-unsat"];
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct ExpectedDiagnostic {
     /// 1-based line and 0-based character, as `test_expectations.yml` writes them
@@ -171,6 +175,10 @@ fn reports_what_steep_expects_for_its_smoke_tests() {
         .filter_map(|directory| {
             let lines = differences(&expected_diagnostics(directory), &reported_diagnostics(directory));
             let name = directory.file_name().unwrap().to_string_lossy();
+            if !lines.is_empty() && ALLOW_FAILURE.contains(&name.as_ref()) {
+                eprintln!("{name} failed (allowed)\n{}", lines.join("\n"));
+                return None;
+            }
             (!lines.is_empty()).then(|| format!("{name}\n{}", lines.join("\n")))
         })
         .collect();
