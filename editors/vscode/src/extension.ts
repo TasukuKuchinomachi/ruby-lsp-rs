@@ -104,6 +104,7 @@ async function startServer(context: vscode.ExtensionContext): Promise<void> {
     documentSelector: [
       { scheme: "file", language: "ruby" },
       { scheme: "untitled", language: "ruby" },
+      { scheme: "file", pattern: "**/*.rbs" },
     ],
     initializationOptions: buildInitializationOptions(resolveRubyCommand()),
     outputChannel,

@@ -28,9 +28,13 @@ impl TypeCheckedServer {
     }
 
     fn open_with_source(&self, relative_path: &str, source: &str) -> String {
+        let language_id = if relative_path.ends_with(".rbs") { "rbs" } else { "ruby" };
+        self.open_as(relative_path, source, language_id)
+    }
+
+    fn open_as(&self, relative_path: &str, source: &str, language_id: &str) -> String {
         let path = workspace_path().join(relative_path);
         let uri = ruby_lsp_rs::uri::from_path_buf(&path);
-        let language_id = if relative_path.ends_with(".rbs") { "rbs" } else { "ruby" };
         let params = json!({ "textDocument": { "uri": uri, "text": source, "version": 1, "languageId": language_id } });
         self.client.sender.send(Message::Notification(Notification::new("textDocument/didOpen".to_string(), params))).unwrap();
         uri
@@ -409,4 +413,44 @@ fn jumps_to_the_declarations_of_variables() {
         target_positions(&server.locations("textDocument/definition", &car_uri, 11, 6)),
         vec![(car.clone(), position(3, 6)), (car, position(7, 6)), (workspace_uri("sig/garage/car.rbs"), position(2, 4))]
     );
+}
+
+#[test]
+fn jumps_from_names_declared_in_signatures_to_their_implementations() {
+    let Some(mut server) = start_server() else { return };
+    let uri = server.open("sig/user.rbs");
+    let user = workspace_uri("lib/user.rb");
+    assert_eq!(targets(&server.locations("textDocument/definition", &uri, 0, 6)), vec![(user.clone(), 0)]);
+    assert_eq!(targets(&server.locations("textDocument/definition", &uri, 1, 14)), vec![(user.clone(), 1)]);
+    assert_eq!(targets(&server.locations("textDocument/definition", &uri, 5, 6)), vec![(user, 7)]);
+    assert_eq!(targets(&server.locations("textDocument/definition", &uri, 5, 2)), Vec::new());
+}
+
+#[test]
+fn jumps_from_type_names_in_signatures_to_their_implementations_and_declarations() {
+    let Some(mut server) = start_server() else { return };
+    let uri = server.open("sig/garage.rbs");
+    assert_eq!(
+        targets(&server.locations("textDocument/definition", &uri, 9, 37)),
+        vec![(workspace_uri("lib/garage/car.rb"), 1), (workspace_uri("sig/garage/car.rbs"), 1)]
+    );
+
+    let definitions = targets(&server.locations("textDocument/definition", &uri, 9, 71));
+    assert_eq!(definitions.len(), 1, "{definitions:?}");
+    assert!(definitions[0].0.ends_with("/core/integer.rbs"), "{definitions:?}");
+}
+
+#[test]
+fn jumps_from_unsaved_signatures() {
+    let Some(mut server) = start_server() else { return };
+    let uri = server.open_with_source("sig/user.rbs", "class User\n  def greeting: () -> String\nend\n");
+    assert_eq!(targets(&server.locations("textDocument/definition", &uri, 1, 6)), vec![(workspace_uri("lib/user.rb"), 7)]);
+}
+
+#[test]
+fn reads_signatures_opened_as_plain_text() {
+    let Some(mut server) = start_server() else { return };
+    let source = std::fs::read_to_string(workspace_path().join("sig/user.rbs")).unwrap();
+    let uri = server.open_as("sig/user.rbs", &source, "plaintext");
+    assert_eq!(targets(&server.locations("textDocument/definition", &uri, 5, 6)), vec![(workspace_uri("lib/user.rb"), 7)]);
 }

@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use type_checker::{Analysis, AnalysisOptions, HoverEntry, HoverKind, Severity, TypeHint, TypeHintKind};
 
 use crate::document::Document;
-use crate::position::{Encoding, LineIndex, Position, Range};
+use crate::position::{Encoding, LineIndex, Position, Range, range_covers};
 use crate::requests::support::interface::LocationLink;
 
 pub const DIAGNOSTIC_SOURCE: &str = "ruby-lsp-rs";
@@ -402,8 +402,16 @@ pub fn definition_links(analysis: &Analysis, offset: usize, encoding: Encoding) 
 }
 
 pub fn signature_location_link(location: &Location, encoding: Encoding) -> LocationLink {
-    let range = Range::new(source_position(location.start, encoding), source_position(location.end, encoding));
+    let range = signature_range(location, encoding);
     LocationLink { target_uri: crate::uri::from_path_buf(&location.path), target_range: range, target_selection_range: range }
+}
+
+pub fn signature_location_covers(location: &Location, position: Position, encoding: Encoding) -> bool {
+    range_covers(&signature_range(location, encoding), position)
+}
+
+fn signature_range(location: &Location, encoding: Encoding) -> Range {
+    Range::new(source_position(location.start, encoding), source_position(location.end, encoding))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

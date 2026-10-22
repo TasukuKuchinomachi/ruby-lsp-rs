@@ -711,7 +711,11 @@ impl Server {
     fn text_document_did_open(&mut self, params: &Value) {
         let text_document = &params["textDocument"];
         let Some(uri) = text_document["uri"].as_str() else { return };
-        let language_id = LanguageId::from_client_language_id(text_document["languageId"].as_str().unwrap_or("ruby"));
+        // VS Code sends `plaintext` for `.rbs` files unless an extension defining the RBS language is installed
+        let language_id = match LanguageId::from_path(uri) {
+            LanguageId::Rbs => LanguageId::Rbs,
+            _ => LanguageId::from_client_language_id(text_document["languageId"].as_str().unwrap_or("ruby")),
+        };
         let source = text_document["text"].as_str().unwrap_or_default().to_string();
         let version = text_document["version"].as_i64().unwrap_or(0) as i32;
         self.global_state.type_checking.forget(&crate::uri::normalize(uri));

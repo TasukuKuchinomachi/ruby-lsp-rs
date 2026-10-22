@@ -17,10 +17,11 @@ use crate::environment::{
     TypeAliasDeclaration, Visibility,
 };
 use crate::lookup::SingletonAncestor;
+use crate::navigation::SignatureTarget;
 use crate::signature_validation::{
-    AliasOwner, DeclarationRecord, FileValidation, MethodAliasRecord, MixinKind, ReferenceKind,
-    SignatureDiagnostic, TypeReference, ValidationMember, ValidationOwner, ValidationScope,
-    duplicated_declaration, duplicated_method_definitions, finish_diagnostics,
+    AliasOwner, DeclarationRecord, DefinedNameRecord, FileValidation, MethodAliasRecord, MixinKind,
+    ReferenceKind, SignatureDiagnostic, TypeReference, ValidationMember, ValidationOwner,
+    ValidationScope, duplicated_declaration, duplicated_method_definitions, finish_diagnostics,
     generic_parameter_mismatch, invalid_method_overload, superclass_mismatch,
     syntax_error_diagnostic, validate_files,
 };
@@ -333,6 +334,18 @@ struct MethodFragment {
     overloading: bool,
 }
 
+/// `None` when the source has a syntax error
+pub(crate) fn parse_signature_validation(path: &Path, source: &str) -> Option<FileValidation> {
+    let pending = PendingSource::Text {
+        path: path.to_path_buf(),
+        source: source.to_string(),
+    };
+    let file = parse_pending_source(&pending, true).ok()?;
+    let mut validation = file.validation?;
+    validation.uses = file.uses;
+    Some(validation)
+}
+
 fn parse_pending_source(
     pending: &PendingSource,
     validated: bool,
@@ -404,6 +417,13 @@ fn parse_pending_source(
         .validation
         .map(|collector| collector.file.into_inner());
     Ok(file)
+}
+
+fn attribute_method_kind(kind: AttributeKind) -> MethodKind {
+    match kind {
+        AttributeKind::Instance => MethodKind::Instance,
+        AttributeKind::Singleton => MethodKind::Singleton,
+    }
 }
 
 fn attribute_validation_member(kind: AttributeKind) -> ValidationMember {
@@ -566,6 +586,40 @@ impl<'source> Converter<'source> {
         }
     }
 
+    fn record_defined_name(
+        &self,
+        target: impl FnOnce() -> SignatureTarget,
+        range: RBSLocationRange,
+    ) {
+        if let Some(collector) = &self.validation {
+            collector
+                .file
+                .borrow_mut()
+                .defined_names
+                .push(DefinedNameRecord {
+                    target: target(),
+                    location: self.location(range),
+                });
+        }
+    }
+
+    fn record_method_name(
+        &self,
+        owner: &TypeName,
+        kind: MethodKind,
+        method_name: &str,
+        range: RBSLocationRange,
+    ) {
+        self.record_defined_name(
+            || SignatureTarget::Method {
+                owner: owner.clone(),
+                kind,
+                name: method_name.to_string(),
+            },
+            range,
+        );
+    }
+
     fn record_method_alias(
         &self,
         owner_name: &TypeName,
@@ -675,6 +729,10 @@ impl<'source> Converter<'source> {
             Node::Class(class) => {
                 let name = qualify(context, &type_name_string(&class.name()));
                 self.record_declaration(&name, class.location());
+                self.record_defined_name(
+                    || SignatureTarget::ClassDeclaration(name.clone()),
+                    class.name_location(),
+                );
                 self.record_scope(
                     || ValidationOwner::Class(name.clone()),
                     ValidationMember::Declaration,
@@ -705,6 +763,10 @@ impl<'source> Converter<'source> {
             Node::Module(module) => {
                 let name = qualify(context, &type_name_string(&module.name()));
                 self.record_declaration(&name, module.location());
+                self.record_defined_name(
+                    || SignatureTarget::ClassDeclaration(name.clone()),
+                    module.name_location(),
+                );
                 self.record_scope(
                     || ValidationOwner::Class(name.clone()),
                     ValidationMember::Declaration,
@@ -836,6 +898,10 @@ impl<'source> Converter<'source> {
             Node::Constant(constant) => {
                 let name = qualify(context, &type_name_string(&constant.name()));
                 self.record_declaration(&name, constant.location());
+                self.record_defined_name(
+                    || SignatureTarget::ConstantDeclaration(name.clone()),
+                    constant.name_location(),
+                );
                 self.record_scope(
                     || ValidationOwner::Constant(name.clone()),
                     ValidationMember::Declaration,
@@ -868,22 +934,44 @@ impl<'source> Converter<'source> {
                     item: FragmentItem::Global(declaration),
                 });
             }
-            Node::ClassAlias(class_alias) => self.convert_class_alias(
-                &class_alias.new_name(),
-                &class_alias.old_name(),
-                class_alias.location(),
-                class_alias.old_name_location(),
-                context,
-                fragments,
-            ),
-            Node::ModuleAlias(module_alias) => self.convert_class_alias(
-                &module_alias.new_name(),
-                &module_alias.old_name(),
-                module_alias.location(),
-                module_alias.old_name_location(),
-                context,
-                fragments,
-            ),
+            Node::ClassAlias(class_alias) => {
+                self.record_defined_name(
+                    || {
+                        SignatureTarget::ClassDeclaration(qualify(
+                            context,
+                            &type_name_string(&class_alias.new_name()),
+                        ))
+                    },
+                    class_alias.new_name_location(),
+                );
+                self.convert_class_alias(
+                    &class_alias.new_name(),
+                    &class_alias.old_name(),
+                    class_alias.location(),
+                    class_alias.old_name_location(),
+                    context,
+                    fragments,
+                )
+            }
+            Node::ModuleAlias(module_alias) => {
+                self.record_defined_name(
+                    || {
+                        SignatureTarget::ClassDeclaration(qualify(
+                            context,
+                            &type_name_string(&module_alias.new_name()),
+                        ))
+                    },
+                    module_alias.new_name_location(),
+                );
+                self.convert_class_alias(
+                    &module_alias.new_name(),
+                    &module_alias.old_name(),
+                    module_alias.location(),
+                    module_alias.old_name_location(),
+                    context,
+                    fragments,
+                )
+            }
             _ => {}
         }
     }
@@ -1018,6 +1106,12 @@ impl<'source> Converter<'source> {
                         }
                     };
                     for kind in kinds {
+                        self.record_method_name(
+                            &fragment.name,
+                            *kind,
+                            &method_name,
+                            method.name_location(),
+                        );
                         let visibility = match kind {
                             MethodKind::Instance if is_module_function => Visibility::Private,
                             MethodKind::Instance
@@ -1074,6 +1168,18 @@ impl<'source> Converter<'source> {
                         alias.old_name().as_str(),
                         alias.location(),
                     );
+                    self.record_method_name(
+                        &fragment.name,
+                        kind,
+                        alias.new_name().as_str(),
+                        alias.new_name_location(),
+                    );
+                    self.record_method_name(
+                        &fragment.name,
+                        kind,
+                        alias.old_name().as_str(),
+                        alias.old_name_location(),
+                    );
                     fragment.methods.push(MethodFragment {
                         definition: MethodDefinition {
                             name: alias.new_name().as_str().to_string(),
@@ -1091,6 +1197,12 @@ impl<'source> Converter<'source> {
                     });
                 }
                 Node::AttrReader(attribute) => {
+                    self.record_method_name(
+                        &fragment.name,
+                        attribute_method_kind(attribute.kind()),
+                        attribute.name().as_str(),
+                        attribute.name_location(),
+                    );
                     self.record_scope(
                         || ValidationOwner::Class(fragment.name.clone()),
                         attribute_validation_member(attribute.kind()),
@@ -1117,6 +1229,12 @@ impl<'source> Converter<'source> {
                     )
                 }
                 Node::AttrWriter(attribute) => {
+                    self.record_method_name(
+                        &fragment.name,
+                        attribute_method_kind(attribute.kind()),
+                        &format!("{}=", attribute.name().as_str()),
+                        attribute.name_location(),
+                    );
                     self.record_scope(
                         || ValidationOwner::Class(fragment.name.clone()),
                         attribute_validation_member(attribute.kind()),
@@ -1143,6 +1261,12 @@ impl<'source> Converter<'source> {
                     )
                 }
                 Node::AttrAccessor(attribute) => {
+                    self.record_method_name(
+                        &fragment.name,
+                        attribute_method_kind(attribute.kind()),
+                        attribute.name().as_str(),
+                        attribute.name_location(),
+                    );
                     self.record_scope(
                         || ValidationOwner::Class(fragment.name.clone()),
                         attribute_validation_member(attribute.kind()),
@@ -1546,10 +1670,7 @@ impl Attribute {
         default_visibility: Visibility,
         access: AttributeAccess,
     ) {
-        let kind = match self.kind {
-            AttributeKind::Instance => MethodKind::Instance,
-            AttributeKind::Singleton => MethodKind::Singleton,
-        };
+        let kind = attribute_method_kind(self.kind);
         let visibility = match (self.visibility, kind) {
             (AttributeVisibility::Public, _) => Visibility::Public,
             (AttributeVisibility::Private, _) => Visibility::Private,
