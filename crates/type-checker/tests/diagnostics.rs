@@ -542,6 +542,38 @@ end
 }
 
 #[test]
+fn comparing_with_a_literal_narrows_to_the_equal_literal_types() {
+    let environment = environment_or_skip!();
+    let checked = support::check(
+        environment,
+        r#"
+# @type var result: Greeter | :missing
+result = :missing
+if result == :missing
+  result.no_such_method
+else
+  result.no_such_method
+end
+name = Greeter.new("a").name
+if name == "Alice"
+  name
+end
+"#,
+    );
+    assert_eq!(
+        checked.messages_with_code("Ruby::NoMethod"),
+        vec![
+            "Type `:missing` does not have method `no_such_method`",
+            "Type `::Greeter` does not have method `no_such_method`",
+        ]
+    );
+    assert_eq!(
+        checked.diagnostic_text("Ruby::UnreachableBranch"),
+        Some("if")
+    );
+}
+
+#[test]
 fn lambda_arguments_take_self_from_the_proc_type_of_the_parameter() {
     let environment = environment_or_skip!();
     let checked = support::check(
