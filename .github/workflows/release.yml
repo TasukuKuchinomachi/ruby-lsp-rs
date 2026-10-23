@@ -1,7 +1,7 @@
 name: Release
 on:
   push:
-    tags: ["v*"]
+    tags: ["steep-*"]
 
 jobs:
   release:
@@ -40,3 +40,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: gh release create "$GITHUB_REF_NAME" --generate-notes "$ARCHIVE" "$ARCHIVE.sha256"
+      - name: Move the branch of this Steep version to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          branch="${GITHUB_REF_NAME%-r*}"
+          if gh api "repos/$GH_REPO/git/ref/heads/$branch" --silent 2>/dev/null; then
+            gh api -X PATCH "repos/$GH_REPO/git/refs/heads/$branch" -f sha="$GITHUB_SHA" -F force=false
+          else
+            gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/heads/$branch" -f sha="$GITHUB_SHA"
+          fi
