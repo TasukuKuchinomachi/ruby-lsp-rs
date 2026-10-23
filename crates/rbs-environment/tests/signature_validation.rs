@@ -683,15 +683,13 @@ end
                 "RBS::InvalidVarianceAnnotation",
                 19,
                 12,
-                "The variance of type parameter `T` is covariant, but used in incompatible position here"
-                    .to_string()
+                "The variance of type parameter `T` is covariant, but used in incompatible position here".to_string()
             ),
             (
                 "RBS::InvalidVarianceAnnotation",
                 21,
                 3,
-                "The variance of type parameter `T` is covariant, but used in incompatible position here"
-                    .to_string()
+                "The variance of type parameter `T` is covariant, but used in incompatible position here".to_string()
             ),
             (
                 "RBS::InstanceVariableDuplicationError",

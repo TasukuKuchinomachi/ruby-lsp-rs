@@ -6,30 +6,27 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use ruby_rbs::node::{
-    AliasKind, AttrIvarName, AttributeKind, AttributeVisibility, BlockTypeNode, CommentNode,
-    MethodDefinitionKind, MethodDefinitionNode, MethodDefinitionVisibility, NamespaceNode, Node,
-    NodeList, RBSHash, RBSLocationRange, TypeNameNode, TypeParamVariance,
+    AliasKind, AttrIvarName, AttributeKind, AttributeVisibility, BlockTypeNode, CommentNode, MethodDefinitionKind,
+    MethodDefinitionNode, MethodDefinitionVisibility, NamespaceNode, Node, NodeList, RBSHash, RBSLocationRange,
+    TypeNameNode, TypeParamVariance,
 };
 
 use crate::environment::{
-    Ancestor, ClassDeclaration, ClassKind, ConstantDeclaration, Environment, GlobalDeclaration,
-    InterfaceDeclaration, LoadError, Location, MethodDefinition, MethodKind, SourcePosition,
-    TypeAliasDeclaration, Visibility,
+    Ancestor, ClassDeclaration, ClassKind, ConstantDeclaration, Environment, GlobalDeclaration, InterfaceDeclaration,
+    LoadError, Location, MethodDefinition, MethodKind, SourcePosition, TypeAliasDeclaration, Visibility,
 };
 use crate::lookup::SingletonAncestor;
 use crate::navigation::SignatureTarget;
 use crate::signature_validation::{
-    AliasOwner, DeclarationRecord, DefinedNameRecord, FileValidation, MethodAliasRecord, MethodMemberRecord, MethodTypeRecord,
-    MixinKind, ReferenceKind, SignatureDiagnostic, TypeReference, ValidationMember, ValidationOwner,
-    ValidationScope, VariableRecord,
-    duplicated_declaration, duplicated_method_definitions, finish_diagnostics,
-    generic_parameter_mismatch, invalid_method_overload, superclass_mismatch,
-    syntax_error_diagnostic, validate_files,
+    AliasOwner, DeclarationRecord, DefinedNameRecord, FileValidation, MethodAliasRecord, MethodMemberRecord,
+    MethodTypeRecord, MixinKind, ReferenceKind, SignatureDiagnostic, TypeReference, ValidationMember, ValidationOwner,
+    ValidationScope, VariableRecord, duplicated_declaration, duplicated_method_definitions, finish_diagnostics,
+    generic_parameter_mismatch, invalid_method_overload, superclass_mismatch, syntax_error_diagnostic, validate_files,
 };
 use crate::steep_compatibility::DuplicatedMethodDefinition;
 use crate::types::{
-    Block, Function, Literal, MethodType, NameKind, Parameter, ProcType, RecordField, Type,
-    Substitution, TypeName, TypeParameter, Variance,
+    Block, Function, Literal, MethodType, NameKind, Parameter, ProcType, RecordField, Substitution, Type, TypeName,
+    TypeParameter, Variance,
 };
 
 enum PendingSource {
@@ -1521,7 +1518,9 @@ impl<'source> Converter<'source> {
         }
         if matches!(access, AttributeAccess::Writer | AttributeAccess::Accessor) {
             let mut function = Function::returning(attribute_type.clone());
-            function.required_positionals.push(Parameter::new(attribute_type.clone()));
+            function
+                .required_positionals
+                .push(Parameter::new(attribute_type.clone()));
             let method_type = MethodType {
                 type_parameters: Vec::new(),
                 function,
@@ -1612,7 +1611,9 @@ impl<'source> Converter<'source> {
     /// The overloads of a method member, each returning `nil` as well when the member or the overload is annotated
     /// with `%a{implicitly-returns-nil}` and `implicitly_returns_nil` is set
     fn convert_method_overloads(&self, method: &MethodDefinitionNode) -> Vec<MethodType> {
-        let member_annotated = annotation_texts(method.annotations()).iter().any(|text| text == IMPLICITLY_RETURNS_NIL);
+        let member_annotated = annotation_texts(method.annotations())
+            .iter()
+            .any(|text| text == IMPLICITLY_RETURNS_NIL);
         method
             .overloads()
             .iter()
@@ -1620,7 +1621,9 @@ impl<'source> Converter<'source> {
                 Node::MethodDefinitionOverload(overload) => {
                     let mut method_type = self.convert_method_type(overload.method_type())?;
                     let annotated = member_annotated
-                        || annotation_texts(overload.annotations()).iter().any(|text| text == IMPLICITLY_RETURNS_NIL);
+                        || annotation_texts(overload.annotations())
+                            .iter()
+                            .any(|text| text == IMPLICITLY_RETURNS_NIL);
                     if self.implicitly_returns_nil && annotated {
                         let return_type = std::mem::replace(&mut method_type.function.return_type, Type::Nil);
                         method_type.function.return_type = Type::optional(return_type);
@@ -1855,12 +1858,7 @@ struct Attribute {
 }
 
 impl Attribute {
-    fn register(
-        self,
-        fragment: &mut ClassFragment,
-        default_visibility: Visibility,
-        access: AttributeAccess,
-    ) {
+    fn register(self, fragment: &mut ClassFragment, default_visibility: Visibility, access: AttributeAccess) {
         let kind = attribute_method_kind(self.kind);
         let visibility = match (self.visibility, kind) {
             (AttributeVisibility::Public, _) => Visibility::Public,
@@ -2323,9 +2321,16 @@ fn rename_type_parameters(class: &mut ClassFragment, declared_parameters: &[Type
     if variables.is_empty() {
         return;
     }
-    let substitution = Substitution { variables, ..Substitution::default() };
+    let substitution = Substitution {
+        variables,
+        ..Substitution::default()
+    };
     let rename_ancestor = |ancestor: &mut Ancestor| {
-        ancestor.arguments = ancestor.arguments.iter().map(|argument| argument.substitute(&substitution)).collect();
+        ancestor.arguments = ancestor
+            .arguments
+            .iter()
+            .map(|argument| argument.substitute(&substitution))
+            .collect();
     };
     class.super_class.iter_mut().for_each(rename_ancestor);
     class

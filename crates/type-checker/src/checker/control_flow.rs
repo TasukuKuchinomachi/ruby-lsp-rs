@@ -43,12 +43,7 @@ fn merge_branches(base: &Locals, branches: Vec<Branch>) -> (Locals, Type) {
 }
 
 impl<'pr> Checker<'_, 'pr> {
-    pub(crate) fn infer_conditional(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_conditional(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let (predicate, statements, subsequent, negated) = match node {
             Node::IfNode { .. } => {
                 let Some(if_node) = node.as_if_node() else {
@@ -84,7 +79,9 @@ impl<'pr> Checker<'_, 'pr> {
         let mut else_locals = locals.clone();
         self.narrow(&predicate, negated, context, &mut else_locals);
         let then_context = match &statements {
-            Some(statements) => self.branch_context(Span::of_location(&statements.location()), context, &mut then_locals),
+            Some(statements) => {
+                self.branch_context(Span::of_location(&statements.location()), context, &mut then_locals)
+            }
             None => context.clone(),
         };
         let then_type = self.infer_optional_statements(statements, &then_context, &mut then_locals);
@@ -228,8 +225,7 @@ impl<'pr> Checker<'_, 'pr> {
         let mut scratch_locals = locals.clone();
         let receiver_type =
             self.silently(|checker| checker.infer(receiver, context, &mut scratch_locals))?;
-        let (equal_types, unequal_types) =
-            self.literal_equality_split(&receiver_type, argument, context)?;
+        let (equal_types, unequal_types) = self.literal_equality_split(&receiver_type, argument, context)?;
         Some((!equal_types.is_empty(), !unequal_types.is_empty()))
     }
 
@@ -394,12 +390,7 @@ impl<'pr> Checker<'_, 'pr> {
         Type::union(vec![truthy, right_type])
     }
 
-    pub(crate) fn infer_case(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_case(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let Some(case) = node.as_case_node() else {
             return Type::Untyped;
         };
@@ -538,7 +529,9 @@ impl<'pr> Checker<'_, 'pr> {
                 Checker::assign_case_subject(target, Type::union(truthy_subjects), &mut body_locals);
             }
             let body_context = match when.statements() {
-                Some(statements) => self.branch_context(Span::of_location(&statements.location()), context, &mut body_locals),
+                Some(statements) => {
+                    self.branch_context(Span::of_location(&statements.location()), context, &mut body_locals)
+                }
                 None => context.clone(),
             };
             let body_type = self.infer_optional_statements(when.statements(), &body_context, &mut body_locals);
@@ -548,7 +541,10 @@ impl<'pr> Checker<'_, 'pr> {
                 }
                 continue;
             }
-            branches.push(Branch { locals: body_locals, result_type: body_type });
+            branches.push(Branch {
+                locals: body_locals,
+                result_type: body_type,
+            });
         }
         match case.else_clause() {
             Some(else_clause) => {
@@ -556,13 +552,22 @@ impl<'pr> Checker<'_, 'pr> {
                 let else_type = self.infer_optional_statements(else_clause.statements(), context, &mut else_locals);
                 if next_unreachable {
                     if !is_bottom(&else_type) {
-                        self.report_unreachable_value_branch(Span::of_location(&else_clause.else_keyword_loc()), &else_type);
+                        self.report_unreachable_value_branch(
+                            Span::of_location(&else_clause.else_keyword_loc()),
+                            &else_type,
+                        );
                     }
                 } else {
-                    branches.push(Branch { locals: else_locals, result_type: else_type });
+                    branches.push(Branch {
+                        locals: else_locals,
+                        result_type: else_type,
+                    });
                 }
             }
-            None if !next_unreachable => branches.push(Branch { locals: current_locals, result_type: Type::Nil }),
+            None if !next_unreachable => branches.push(Branch {
+                locals: current_locals,
+                result_type: Type::Nil,
+            }),
             None => {}
         }
         if branches.is_empty() {
@@ -578,7 +583,10 @@ impl<'pr> Checker<'_, 'pr> {
             span,
             Severity::Hint,
             "Ruby::UnreachableValueBranch",
-            format!("The branch may evaluate to a value of `{}` but unreachable", branch_type.steep_display()),
+            format!(
+                "The branch may evaluate to a value of `{}` but unreachable",
+                branch_type.steep_display()
+            ),
         );
     }
 
@@ -618,8 +626,16 @@ impl<'pr> Checker<'_, 'pr> {
             return CaseSelection {
                 truthy_unreachable: truthy.is_empty(),
                 falsy_unreachable: falsy.is_empty(),
-                truthy: if truthy.is_empty() { instance } else { Type::union(truthy) },
-                falsy: if falsy.is_empty() { Type::Untyped } else { Type::union(falsy) },
+                truthy: if truthy.is_empty() {
+                    instance
+                } else {
+                    Type::union(truthy)
+                },
+                falsy: if falsy.is_empty() {
+                    Type::Untyped
+                } else {
+                    Type::union(falsy)
+                },
             };
         }
         match self.literal_case_select(pattern, subject) {
@@ -692,24 +708,31 @@ impl<'pr> Checker<'_, 'pr> {
             Type::Bool | Type::Top | Type::Untyped => return Some((vec![subject.clone()], vec![subject.clone()])),
             _ => {}
         }
-        let is_instance_of = |class_name: &str| matches!(subject, Type::ClassInstance { name, .. } if name == class_name);
+        let is_instance_of =
+            |class_name: &str| matches!(subject, Type::ClassInstance { name, .. } if name == class_name);
         let partition = |matches: bool| {
-            if matches { (vec![subject.clone()], Vec::new()) } else { (Vec::new(), vec![subject.clone()]) }
+            if matches {
+                (vec![subject.clone()], Vec::new())
+            } else {
+                (Vec::new(), vec![subject.clone()])
+            }
         };
         match pattern {
             Node::NilNode { .. } => Some(partition(matches!(subject, Type::Nil) || is_instance_of("NilClass"))),
-            Node::TrueNode { .. } => {
-                Some(partition(is_instance_of("TrueClass") || matches!(subject, Type::Literal(Literal::True))))
-            }
-            Node::FalseNode { .. } => {
-                Some(partition(is_instance_of("FalseClass") || matches!(subject, Type::Literal(Literal::False))))
-            }
+            Node::TrueNode { .. } => Some(partition(
+                is_instance_of("TrueClass") || matches!(subject, Type::Literal(Literal::True)),
+            )),
+            Node::FalseNode { .. } => Some(partition(
+                is_instance_of("FalseClass") || matches!(subject, Type::Literal(Literal::False)),
+            )),
             Node::IntegerNode { .. } | Node::StringNode { .. } | Node::SymbolNode { .. } => {
                 let Type::Literal(literal) = super::arguments::literal_type_of(pattern)? else {
                     return None;
                 };
                 Some(match subject {
-                    Type::Literal(subject_literal) if *subject_literal == literal => (vec![subject.clone()], Vec::new()),
+                    Type::Literal(subject_literal) if *subject_literal == literal => {
+                        (vec![subject.clone()], Vec::new())
+                    }
                     Type::Literal(_) => (Vec::new(), vec![subject.clone()]),
                     _ => (vec![Type::Literal(literal)], vec![subject.clone()]),
                 })
@@ -885,12 +908,7 @@ impl<'pr> Checker<'_, 'pr> {
         }
     }
 
-    pub(crate) fn infer_loop(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_loop(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let (predicate, statements, is_until) = match node {
             Node::WhileNode { .. } => {
                 let Some(while_node) = node.as_while_node() else {
@@ -929,12 +947,7 @@ impl<'pr> Checker<'_, 'pr> {
         Type::Nil
     }
 
-    pub(crate) fn infer_for(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_for(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let Some(for_node) = node.as_for_node() else {
             return Type::Untyped;
         };
@@ -1061,12 +1074,7 @@ impl<'pr> Checker<'_, 'pr> {
         self.infer_optional_statements(rescue.statements(), context, locals)
     }
 
-    pub(crate) fn infer_return(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_return(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let Some(return_node) = node.as_return_node() else {
             return Type::Bottom;
         };
@@ -1126,12 +1134,7 @@ impl<'pr> Checker<'_, 'pr> {
         }
     }
 
-    pub(crate) fn infer_next(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_next(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let Some(next_node) = node.as_next_node() else {
             return Type::Bottom;
         };
@@ -1154,12 +1157,7 @@ impl<'pr> Checker<'_, 'pr> {
         Type::Bottom
     }
 
-    pub(crate) fn infer_break(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_break(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let Some(break_node) = node.as_break_node() else {
             return Type::Bottom;
         };
@@ -1197,7 +1195,12 @@ impl<'pr> Checker<'_, 'pr> {
     }
 
     fn report_unexpected_jump(&mut self, node: &Node<'pr>) {
-        self.record_diagnostic(Span::of_node(node), Severity::Error, "Ruby::UnexpectedJump", "Cannot jump from here".to_string());
+        self.record_diagnostic(
+            Span::of_node(node),
+            Severity::Error,
+            "Ruby::UnexpectedJump",
+            "Cannot jump from here".to_string(),
+        );
     }
 
     fn break_type_mismatch_message(&self, actual: &Type, expected: &Type) -> String {

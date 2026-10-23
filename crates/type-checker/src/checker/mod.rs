@@ -18,8 +18,8 @@ use crate::annotations::{AnnotationTarget, Annotations, DynamicKind};
 use crate::file_index::{FileIndex, InstanceVariableKey, ScopeKind, ScopeRange};
 use crate::source::{LineIndex, Span};
 use crate::{
-    Analysis, AnalysisOptions, DefinitionEntry, HoverEntry, HoverKind, ReceiverEntry, Severity,
-    TypeDiagnostic, TypeHint, TypeHintKind,
+    Analysis, AnalysisOptions, DefinitionEntry, HoverEntry, HoverKind, ReceiverEntry, Severity, TypeDiagnostic,
+    TypeHint, TypeHintKind,
 };
 
 pub(crate) type Locals = HashMap<String, Type>;
@@ -161,19 +161,30 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             })
             .collect();
         let attached_scope_start = |offset: usize| {
-            file_index.innermost_scope(offset, |_| true).map(|scope| scope.span.start).unwrap_or(0)
+            file_index
+                .innermost_scope(offset, |_| true)
+                .map(|scope| scope.span.start)
+                .unwrap_or(0)
         };
         let mut scoped_annotations = ScopedAnnotations {
             method_types: annotations
                 .method_type_annotations
                 .into_iter()
-                .map(|annotation| (attached_scope_start(annotation.offset), annotation.name, annotation.method_type))
+                .map(|annotation| {
+                    (
+                        attached_scope_start(annotation.offset),
+                        annotation.name,
+                        annotation.method_type,
+                    )
+                })
                 .collect(),
             implements: HashMap::new(),
             dynamics: HashMap::new(),
         };
         for annotation in annotations.implements_annotations {
-            scoped_annotations.implements.insert(attached_scope_start(annotation.offset), annotation.name);
+            scoped_annotations
+                .implements
+                .insert(attached_scope_start(annotation.offset), annotation.name);
         }
         for annotation in annotations.dynamic_annotations {
             scoped_annotations
@@ -233,7 +244,12 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         self.infer_statements(&program.statements(), &context, &mut locals);
         let mut seen = HashSet::new();
         self.analysis.diagnostics.retain(|diagnostic| {
-            seen.insert((diagnostic.start, diagnostic.end, diagnostic.code, diagnostic.message.clone()))
+            seen.insert((
+                diagnostic.start,
+                diagnostic.end,
+                diagnostic.code,
+                diagnostic.message.clone(),
+            ))
         });
         let mut repeated_seen = HashSet::new();
         let repeated: Vec<TypeDiagnostic> = std::mem::take(&mut self.repeated_diagnostics)
@@ -416,11 +432,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         resolved
     }
 
-    pub(crate) fn local_variable_annotations(
-        &self,
-        scope_start: usize,
-        nesting: &[String],
-    ) -> HashMap<String, Type> {
+    pub(crate) fn local_variable_annotations(&self, scope_start: usize, nesting: &[String]) -> HashMap<String, Type> {
         self.annotations
             .iter()
             .filter(|annotation| annotation.variable_scope_start == scope_start && annotation.attached_kind != ScopeKind::Branch)
@@ -438,7 +450,9 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
     pub(crate) fn type_annotations_in(&self, scope_start: usize) -> impl Iterator<Item = (&AnnotationTarget, &Type)> {
         self.annotations
             .iter()
-            .filter(move |annotation| annotation.self_scope_start == scope_start && annotation.attached_kind != ScopeKind::Branch)
+            .filter(move |annotation| {
+                annotation.self_scope_start == scope_start && annotation.attached_kind != ScopeKind::Branch
+            })
             .map(|annotation| (&annotation.target, &annotation.annotated_type))
     }
 
@@ -452,11 +466,14 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         let annotated: Vec<(String, Type)> = self
             .annotations
             .iter()
-            .filter(|annotation| annotation.attached_kind == ScopeKind::Branch && annotation.self_scope_start == branch_scope.span.start)
+            .filter(|annotation| {
+                annotation.attached_kind == ScopeKind::Branch && annotation.self_scope_start == branch_scope.span.start
+            })
             .filter_map(|annotation| match &annotation.target {
-                AnnotationTarget::LocalVariable(name) => {
-                    Some((name.clone(), self.resolve_annotation_type(&annotation.annotated_type, &context.nesting)))
-                }
+                AnnotationTarget::LocalVariable(name) => Some((
+                    name.clone(),
+                    self.resolve_annotation_type(&annotation.annotated_type, &context.nesting),
+                )),
                 _ => None,
             })
             .collect();
@@ -490,11 +507,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         branch_context
     }
 
-    pub(crate) fn annotated_self_type(
-        &self,
-        scope_start: usize,
-        nesting: &[String],
-    ) -> Option<Type> {
+    pub(crate) fn annotated_self_type(&self, scope_start: usize, nesting: &[String]) -> Option<Type> {
         self.annotations
             .iter()
             .find(|annotation| {
@@ -516,11 +529,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             .map(|annotation| self.resolve_annotation_type(&annotation.annotated_type, nesting))
     }
 
-    pub(crate) fn instance_variable_annotation(
-        &self,
-        class_name: &str,
-        variable_name: &str,
-    ) -> Option<Type> {
+    pub(crate) fn instance_variable_annotation(&self, class_name: &str, variable_name: &str) -> Option<Type> {
         self.annotations.iter().find_map(|annotation| {
             let AnnotationTarget::InstanceVariable(name) = &annotation.target else {
                 return None;
@@ -575,7 +584,12 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
     }
 
     /// `@type method name: ...` that a `def` spanning `definition_span` reads
-    pub(crate) fn annotated_method_type(&self, definition_span: Span, method_name: &str, nesting: &[String]) -> Option<MethodType> {
+    pub(crate) fn annotated_method_type(
+        &self,
+        definition_span: Span,
+        method_name: &str,
+        nesting: &[String],
+    ) -> Option<MethodType> {
         self.annotation_scopes(definition_span).iter().find_map(|scope| {
             self.scoped_annotations
                 .method_types

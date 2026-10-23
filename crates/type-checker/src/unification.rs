@@ -75,13 +75,7 @@ impl Bindings {
         self.unify_at(environment, parameter, argument, 0);
     }
 
-    fn unify_at(
-        &mut self,
-        environment: &Environment,
-        parameter: &Type,
-        argument: &Type,
-        depth: usize,
-    ) {
+    fn unify_at(&mut self, environment: &Environment, parameter: &Type, argument: &Type, depth: usize) {
         if depth > MAXIMUM_DEPTH || argument.is_untyped() {
             return;
         }

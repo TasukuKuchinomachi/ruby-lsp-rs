@@ -58,21 +58,40 @@ pub fn read_steepfile(workspace_path: &Path, ruby_command: &[String]) -> Option<
         .unwrap_or_else(|_| rbs_environment::read_steepfile(workspace_path))
 }
 
-pub fn load_environment(workspace_path: &Path, sources: &WorkspaceSources, ruby_command: &[String]) -> LoadedEnvironment {
+pub fn load_environment(
+    workspace_path: &Path,
+    sources: &WorkspaceSources,
+    ruby_command: &[String],
+) -> LoadedEnvironment {
     let started_at = Instant::now();
     let steepfile = read_steepfile(workspace_path, ruby_command);
     let load = |target: Option<&SteepfileTarget>| {
-        Arc::new(rbs_environment::load_target(workspace_path, sources, steepfile.as_ref(), target))
+        Arc::new(rbs_environment::load_target(
+            workspace_path,
+            sources,
+            steepfile.as_ref(),
+            target,
+        ))
     };
     let targets = match &steepfile {
         Some(configuration) if !has_same_environment_for_every_target(configuration) => configuration
             .targets
             .iter()
-            .map(|target| LoadedTarget { name: Some(target.name.clone()), environment: load(Some(target)) })
+            .map(|target| LoadedTarget {
+                name: Some(target.name.clone()),
+                environment: load(Some(target)),
+            })
             .collect(),
-        _ => vec![LoadedTarget { name: None, environment: load(None) }],
+        _ => vec![LoadedTarget {
+            name: None,
+            environment: load(None),
+        }],
     };
-    LoadedEnvironment { targets, steepfile, duration: started_at.elapsed() }
+    LoadedEnvironment {
+        targets,
+        steepfile,
+        duration: started_at.elapsed(),
+    }
 }
 
 /// Without `unreferenced!`, every target loads the signatures of all the targets, so their environments differ only
@@ -86,7 +105,12 @@ fn has_same_environment_for_every_target(configuration: &SteepfileConfiguration)
 
 pub fn load_summary(loaded: &LoadedEnvironment) -> String {
     let count = |measure: fn(&Environment) -> usize| {
-        loaded.targets.iter().map(|target| measure(&target.environment)).max().unwrap_or_default()
+        loaded
+            .targets
+            .iter()
+            .map(|target| measure(&target.environment))
+            .max()
+            .unwrap_or_default()
     };
     format!(
         "Loaded RBS environment in {} ms ({} classes, {} interfaces, {} errors)",
@@ -109,8 +133,13 @@ pub fn target_for<'a>(
 
 /// Whether `path` is a signature file of `target` itself, which Steep validates for that target
 pub fn is_signature_path_of(workspace_path: &Path, target: &SteepfileTarget, path: &Path) -> bool {
-    let Ok(relative_path) = path.strip_prefix(workspace_path) else { return false };
-    target.signature_patterns.iter().any(|pattern| pattern_matches(workspace_path, pattern, relative_path))
+    let Ok(relative_path) = path.strip_prefix(workspace_path) else {
+        return false;
+    };
+    target
+        .signature_patterns
+        .iter()
+        .any(|pattern| pattern_matches(workspace_path, pattern, relative_path))
 }
 
 pub fn load_error_report(loaded: &LoadedEnvironment) -> Option<String> {
@@ -246,7 +275,12 @@ mod tests {
         }
     }
 
-    fn target(name: &str, check_paths: &[&str], ignore_paths: &[&str], code_diagnostics: DiagnosticConfiguration) -> SteepfileTarget {
+    fn target(
+        name: &str,
+        check_paths: &[&str],
+        ignore_paths: &[&str],
+        code_diagnostics: DiagnosticConfiguration,
+    ) -> SteepfileTarget {
         SteepfileTarget {
             name: name.to_string(),
             check_paths: check_paths.iter().map(PathBuf::from).collect(),

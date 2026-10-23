@@ -57,7 +57,10 @@ impl ReportedLocation {
         let start_character = character_count(&source[line_start..start.min(line_end)]);
         let end_character = character_count(&source[line_start..end.clamp(start, line_end)]);
         let end = end.clamp(start, source.len());
-        let end_line_start = source[..end].iter().rposition(|byte| *byte == b'\n').map_or(0, |index| index + 1);
+        let end_line_start = source[..end]
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+            .map_or(0, |index| index + 1);
         ReportedLocation {
             line,
             column,

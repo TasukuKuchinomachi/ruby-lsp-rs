@@ -128,7 +128,11 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             nesting: owner.nesting.clone(),
         };
         let undeclared = !self.environment.classes.contains_key(&declared_owner.owner);
-        let self_owner = if undeclared && self.options.steep_compatible { "Object" } else { declared_owner.owner.as_str() };
+        let self_owner = if undeclared && self.options.steep_compatible {
+            "Object"
+        } else {
+            declared_owner.owner.as_str()
+        };
         let mut self_type = if owner.singleton {
             Type::ClassSingleton {
                 name: self_owner.to_string(),
@@ -143,15 +147,18 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         if let Some(annotated_self) = self.annotated_self_type(scope_start, &nesting) {
             self_type = annotated_self;
         }
-        let overloads = match self.annotated_method_type(Span::of_location(&definition.location()), &method_name, &nesting) {
-            Some(annotated) => vec![annotated.substitute(&Substitution {
-                self_type: Some(self_type.clone()),
-                instance_type: Some(self_instance_type(self.environment, self_owner)),
-                class_type: Some(Type::ClassSingleton { name: self_owner.to_string() }),
-                ..Substitution::default()
-            })],
-            None => self.declared_overloads(&declared_owner.owner, owner.singleton, &method_name, &self_type),
-        };
+        let overloads =
+            match self.annotated_method_type(Span::of_location(&definition.location()), &method_name, &nesting) {
+                Some(annotated) => vec![annotated.substitute(&Substitution {
+                    self_type: Some(self_type.clone()),
+                    instance_type: Some(self_instance_type(self.environment, self_owner)),
+                    class_type: Some(Type::ClassSingleton {
+                        name: self_owner.to_string(),
+                    }),
+                    ..Substitution::default()
+                })],
+                None => self.declared_overloads(&declared_owner.owner, owner.singleton, &method_name, &self_type),
+            };
         // Steep checks a `def` against all overloads joined into one method type, whose return type is the union
         let single_return_type = if overloads.is_empty() {
             None
@@ -166,7 +173,9 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         self.report_definition_declaration(definition, &declared_owner, &method_name, &overloads);
         let annotated_return_type = self
             .type_annotations_in(scope_start)
-            .filter_map(|(target, annotated_type)| (*target == AnnotationTarget::Return).then(|| annotated_type.clone()))
+            .filter_map(|(target, annotated_type)| {
+                (*target == AnnotationTarget::Return).then(|| annotated_type.clone())
+            })
             .last()
             .map(|mut annotated_type| {
                 self.environment.resolve_type_names(&mut annotated_type, &nesting);
@@ -361,10 +370,15 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         let [overload] = overloads else {
             return;
         };
-        let parameter_span = match (definition.lparen_loc(), definition.rparen_loc(), definition.parameters()) {
-            (Some(left_parenthesis), Some(right_parenthesis), _) => {
-                Span { start: left_parenthesis.start_offset(), end: right_parenthesis.end_offset() }
-            }
+        let parameter_span = match (
+            definition.lparen_loc(),
+            definition.rparen_loc(),
+            definition.parameters(),
+        ) {
+            (Some(left_parenthesis), Some(right_parenthesis), _) => Span {
+                start: left_parenthesis.start_offset(),
+                end: right_parenthesis.end_offset(),
+            },
             (_, _, Some(parameters)) => Span::of_location(&parameters.location()),
             _ => name_span,
         };
@@ -758,7 +772,11 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         let is_declared = self.environment.classes.contains_key(&name);
         let constant_name = ConstantPath::of_node(&constant_path).and_then(|path| path.segments.last().cloned());
         if !is_declared && let Some(constant_name) = &constant_name {
-            let kind = if matches!(node, Node::ClassNode { .. }) { "class" } else { "module" };
+            let kind = if matches!(node, Node::ClassNode { .. }) {
+                "class"
+            } else {
+                "module"
+            };
             self.record_diagnostic(
                 Span::of_node(&constant_path),
                 Severity::Warning,
@@ -811,22 +829,36 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             names
         };
         let expected_instance_methods = declared_names(&declaration.instance_methods);
-        let expected_module_methods: Vec<String> =
-            declared_names(&declaration.singleton_methods).into_iter().filter(|name| name != "new").collect();
+        let expected_module_methods: Vec<String> = declared_names(&declaration.singleton_methods)
+            .into_iter()
+            .filter(|name| name != "new")
+            .collect();
         let class_span = Span::of_node(node);
         let defined = |singleton: bool| -> Vec<String> {
             self.file_index
                 .definitions
                 .iter()
                 .filter(|(offset, info)| {
-                    class_span.start <= **offset && **offset < class_span.end && info.owner == class_name && info.singleton == singleton
+                    class_span.start <= **offset
+                        && **offset < class_span.end
+                        && info.owner == class_name
+                        && info.singleton == singleton
                 })
-                .filter_map(|(_, info)| info.node.as_def_node().map(|definition| constant_text(&definition.name())))
+                .filter_map(|(_, info)| {
+                    info.node
+                        .as_def_node()
+                        .map(|definition| constant_text(&definition.name()))
+                })
                 .collect()
         };
         let defined_instance_methods = defined(false);
         let defined_module_methods = defined(true);
-        let dynamics = self.scoped_annotations.dynamics.get(&class_span.start).cloned().unwrap_or_default();
+        let dynamics = self
+            .scoped_annotations
+            .dynamics
+            .get(&class_span.start)
+            .cloned()
+            .unwrap_or_default();
         let instance_dynamics: Vec<&String> = dynamics
             .iter()
             .filter(|(_, kind)| matches!(kind, DynamicKind::Instance | DynamicKind::ModuleInstance))
@@ -860,7 +892,11 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         let unexpected_dynamics = instance_dynamics
             .iter()
             .filter(|name| !expected_instance_methods.contains(name))
-            .chain(module_dynamics.iter().filter(|name| !expected_module_methods.contains(name)));
+            .chain(
+                module_dynamics
+                    .iter()
+                    .filter(|name| !expected_module_methods.contains(name)),
+            );
         for method_name in unexpected_dynamics.collect::<Vec<_>>() {
             self.record_diagnostic(
                 name_span,
@@ -928,7 +964,9 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             Type::SelfType => &context.self_type,
             other => other,
         };
-        if self.options.steep_compatible && !matches!(receiver_type, Type::ClassSingleton { .. } | Type::ClassInstance { .. }) {
+        if self.options.steep_compatible
+            && !matches!(receiver_type, Type::ClassSingleton { .. } | Type::ClassInstance { .. })
+        {
             self.record_diagnostic(
                 Span::of_node(node),
                 Severity::Hint,
@@ -960,7 +998,8 @@ fn is_namespace_module(body: Option<&Node<'_>>) -> bool {
     let Some(body) = body else {
         return false;
     };
-    let is_class_or_module = |statement: &Node<'_>| matches!(statement, Node::ClassNode { .. } | Node::ModuleNode { .. });
+    let is_class_or_module =
+        |statement: &Node<'_>| matches!(statement, Node::ClassNode { .. } | Node::ModuleNode { .. });
     match body.as_statements_node() {
         Some(statements) => {
             let statements: Vec<Node<'_>> = statements.body().iter().collect();

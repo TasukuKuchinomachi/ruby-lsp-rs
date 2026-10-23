@@ -196,7 +196,11 @@ impl<'pr> Checker<'_, 'pr> {
         locals: &mut Locals,
     ) -> Type {
         if let Some(path) = ConstantPath::of_node(node) {
-            let written = if path.absolute { format!("::{}", path.joined()) } else { path.joined() };
+            let written = if path.absolute {
+                format!("::{}", path.joined())
+            } else {
+                path.joined()
+            };
             if let Some(annotated) = self.annotated_constant_type(Span::of_node(node), &written, &context.nesting) {
                 self.record_type_hover(Span::of_node(node), &annotated);
                 return annotated;
@@ -288,7 +292,9 @@ impl<'pr> Checker<'_, 'pr> {
             .copied()
             .collect();
         enclosing.sort_by_key(|scope| scope.span.end - scope.span.start);
-        let scope = enclosing.iter().find(|scope| matches!(scope.kind, ScopeKind::Class | ScopeKind::Program))?;
+        let scope = enclosing
+            .iter()
+            .find(|scope| matches!(scope.kind, ScopeKind::Class | ScopeKind::Program))?;
         self.type_annotations_in(scope.span.start)
             .filter_map(|(target, annotated_type)| match target {
                 AnnotationTarget::Constant(name) if name == written => Some(annotated_type),
@@ -319,12 +325,7 @@ impl<'pr> Checker<'_, 'pr> {
             .find(|candidate| self.classify_constant(candidate).is_some())
     }
 
-    pub(crate) fn infer_constant_write(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_constant_write(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         match node {
             Node::ConstantWriteNode { .. } => {
                 let Some(write) = node.as_constant_write_node() else {

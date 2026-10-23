@@ -626,14 +626,21 @@ impl fmt::Display for SteepDisplay<'_> {
                     .iter()
                     .map(|field| {
                         let optional_marker = if field.required { "" } else { "?" };
-                        format!("{optional_marker}{} => {}", ruby_symbol_inspect(&field.name), field.field_type.steep_display())
+                        format!(
+                            "{optional_marker}{} => {}",
+                            ruby_symbol_inspect(&field.name),
+                            field.field_type.steep_display()
+                        )
                     })
                     .collect();
                 write!(formatter, "{{ {} }}", entries.join(", "))
             }
             Type::Proc(proc_type) => {
-                let self_binding =
-                    proc_type.self_type.as_ref().map(|self_type| format!("[self: {}] ", self_type.steep_display())).unwrap_or_default();
+                let self_binding = proc_type
+                    .self_type
+                    .as_ref()
+                    .map(|self_type| format!("[self: {}] ", self_type.steep_display()))
+                    .unwrap_or_default();
                 let parameters = steep_parameters(&proc_type.function).unwrap_or_default();
                 match &proc_type.block {
                     Some(block) => write!(
@@ -642,7 +649,11 @@ impl fmt::Display for SteepDisplay<'_> {
                         SteepBlockDisplay(block),
                         proc_type.function.return_type.steep_display()
                     ),
-                    None => write!(formatter, "^{parameters} {self_binding}-> {}", proc_type.function.return_type.steep_display()),
+                    None => write!(
+                        formatter,
+                        "^{parameters} {self_binding}-> {}",
+                        proc_type.function.return_type.steep_display()
+                    ),
                 }
             }
             Type::Literal(literal) => match literal {
@@ -663,8 +674,11 @@ impl fmt::Display for SteepBlockDisplay<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let block = self.0;
         let optional_marker = if block.required { "" } else { "?" };
-        let self_binding =
-            block.self_type.as_ref().map(|self_type| format!("[self: {}] ", self_type.steep_display())).unwrap_or_default();
+        let self_binding = block
+            .self_type
+            .as_ref()
+            .map(|self_type| format!("[self: {}] ", self_type.steep_display()))
+            .unwrap_or_default();
         write!(
             formatter,
             "{optional_marker}{{ {} {self_binding}-> {} }}",
@@ -703,16 +717,32 @@ fn steep_parameters(function: &Function) -> Option<String> {
         return None;
     }
     let mut parts: Vec<String> = Vec::new();
-    parts.extend(function.required_positionals.iter().map(|parameter| parameter.parameter_type.steep_display().to_string()));
-    parts.extend(function.optional_positionals.iter().map(|parameter| format!("?{}", parameter.parameter_type.steep_display())));
+    parts.extend(
+        function
+            .required_positionals
+            .iter()
+            .map(|parameter| parameter.parameter_type.steep_display().to_string()),
+    );
+    parts.extend(
+        function
+            .optional_positionals
+            .iter()
+            .map(|parameter| format!("?{}", parameter.parameter_type.steep_display())),
+    );
     if let Some(parameter) = &function.rest_positionals {
         parts.push(format!("*{}", parameter.parameter_type.steep_display()));
     }
     parts.extend(
-        function.required_keywords.iter().map(|(name, parameter)| format!("{name}: {}", parameter.parameter_type.steep_display())),
+        function
+            .required_keywords
+            .iter()
+            .map(|(name, parameter)| format!("{name}: {}", parameter.parameter_type.steep_display())),
     );
     parts.extend(
-        function.optional_keywords.iter().map(|(name, parameter)| format!("?{name}: {}", parameter.parameter_type.steep_display())),
+        function
+            .optional_keywords
+            .iter()
+            .map(|(name, parameter)| format!("?{name}: {}", parameter.parameter_type.steep_display())),
     );
     if let Some(parameter) = &function.rest_keywords {
         parts.push(format!("**{}", parameter.parameter_type.steep_display()));
@@ -724,18 +754,53 @@ fn steep_parameters(function: &Function) -> Option<String> {
 fn ruby_symbol_inspect(name: &str) -> String {
     let is_identifier = |text: &str| {
         let mut characters = text.chars();
-        characters.next().is_some_and(|first| first.is_alphabetic() || first == '_' || !first.is_ascii())
+        characters
+            .next()
+            .is_some_and(|first| first.is_alphabetic() || first == '_' || !first.is_ascii())
             && characters.all(|character| character.is_alphanumeric() || character == '_' || !character.is_ascii())
     };
     let plain = is_identifier(name)
         || name.strip_suffix(['?', '!', '=']).is_some_and(is_identifier)
-        || name.strip_prefix("@@").or_else(|| name.strip_prefix('@')).or_else(|| name.strip_prefix('$')).is_some_and(is_identifier)
+        || name
+            .strip_prefix("@@")
+            .or_else(|| name.strip_prefix('@'))
+            .or_else(|| name.strip_prefix('$'))
+            .is_some_and(is_identifier)
         || matches!(
             name,
-            "+" | "-" | "*" | "/" | "%" | "**" | "==" | "===" | "!=" | "<" | "<=" | ">" | ">=" | "<=>" | "<<" | ">>" | "!"
-                | "=~" | "!~" | "&" | "|" | "^" | "~" | "+@" | "-@" | "[]" | "[]=" | "`"
+            "+" | "-"
+                | "*"
+                | "/"
+                | "%"
+                | "**"
+                | "=="
+                | "==="
+                | "!="
+                | "<"
+                | "<="
+                | ">"
+                | ">="
+                | "<=>"
+                | "<<"
+                | ">>"
+                | "!"
+                | "=~"
+                | "!~"
+                | "&"
+                | "|"
+                | "^"
+                | "~"
+                | "+@"
+                | "-@"
+                | "[]"
+                | "[]="
+                | "`"
         );
-    if plain { format!(":{name}") } else { format!(":{}", ruby_string_inspect(name)) }
+    if plain {
+        format!(":{name}")
+    } else {
+        format!(":{}", ruby_string_inspect(name))
+    }
 }
 
 /// `String#inspect` for the characters a literal type can hold

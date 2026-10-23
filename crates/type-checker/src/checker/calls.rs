@@ -3,17 +3,15 @@ use std::collections::{HashSet, VecDeque};
 use rbs_environment::{ClassKind, Location, MethodType, ResolvedMethod, Substitution, Type};
 use ruby_prism::{CallNode, Node};
 
-use super::arguments::{
-    ArgumentPair, ArityMismatch, CallArguments, match_arguments, select_overload,
-};
+use super::arguments::{ArgumentPair, ArityMismatch, CallArguments, match_arguments, select_overload};
 use super::blocks::BlockSignature;
 use super::{Checker, Context, Locals};
 use crate::file_index::FileMethod;
 use crate::source::{Span, constant_text};
 use crate::steep_relation;
 use crate::type_utilities::{
-    can_be_nil, contains_uncertain_part, contains_variable_in, hash_of, instance_type_of_class,
-    is_bottom, literal_class_name, members_of, remove_nil, self_instance_type,
+    can_be_nil, contains_uncertain_part, contains_variable_in, hash_of, instance_type_of_class, is_bottom,
+    literal_class_name, members_of, remove_nil, self_instance_type,
 };
 use crate::unification::{Bindings, class_substitution};
 use crate::{HoverKind, Severity, TypeHintKind};
@@ -347,8 +345,14 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         }
         let mut renamed = renamed.substitute(&substitution);
         for type_parameter in &mut renamed.type_parameters {
-            type_parameter.upper_bound = type_parameter.upper_bound.as_ref().map(|bound| bound.substitute(&substitution));
-            type_parameter.default_type = type_parameter.default_type.as_ref().map(|default| default.substitute(&substitution));
+            type_parameter.upper_bound = type_parameter
+                .upper_bound
+                .as_ref()
+                .map(|bound| bound.substitute(&substitution));
+            type_parameter.default_type = type_parameter
+                .default_type
+                .as_ref()
+                .map(|default| default.substitute(&substitution));
         }
         renamed
     }
@@ -366,7 +370,11 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         let parameter_list = parameters.as_block_parameters_node()?.parameters()?;
         let annotations: Vec<(&crate::annotations::AnnotationTarget, &Type)> =
             self.type_annotations_in(block_node.location().start_offset()).collect();
-        for (required, declared) in parameter_list.requireds().iter().zip(&block.function.required_positionals) {
+        for (required, declared) in parameter_list
+            .requireds()
+            .iter()
+            .zip(&block.function.required_positionals)
+        {
             let Some(required) = required.as_required_parameter_node() else {
                 continue;
             };
@@ -375,7 +383,9 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             };
             let parameter_name = constant_text(&required.name());
             let Some(annotated) = annotations.iter().find_map(|(target, annotated)| match target {
-                crate::annotations::AnnotationTarget::LocalVariable(name) if *name == parameter_name => Some(*annotated),
+                crate::annotations::AnnotationTarget::LocalVariable(name) if *name == parameter_name => {
+                    Some(*annotated)
+                }
                 _ => None,
             }) else {
                 continue;
@@ -391,12 +401,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         None
     }
 
-    pub(crate) fn infer_call(
-        &mut self,
-        call: &CallNode<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_call(&mut self, call: &CallNode<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let method_name = constant_text(&call.name());
         let receiver = call.receiver();
         let block_node = call.block();
@@ -415,7 +420,9 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         // without looking the method up
         if self.options.steep_compatible
             && method_name == "=~"
-            && let Some(receiver) = receiver.as_ref().filter(|receiver| matches!(receiver, Node::RegularExpressionNode { .. }))
+            && let Some(receiver) = receiver
+                .as_ref()
+                .filter(|receiver| matches!(receiver, Node::RegularExpressionNode { .. }))
         {
             self.infer(receiver, context, locals);
             self.infer_arguments(call.arguments(), context, locals);
@@ -599,12 +606,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
     }
 
     /// `it` is a method call to Steep, whose parser follows Ruby 3.3
-    pub(crate) fn infer_it_as_method_call(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_it_as_method_call(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let span = Span::of_node(node);
         if let Some(error) = self.definition_error_of(&context.self_type) {
             self.record_unexpected_error(span, error);
@@ -722,7 +724,9 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             _ => None,
         });
         let unsatisfiable_return_hint = match (&site.return_hint, primary_prepared.as_mut()) {
-            (Some(hint), Some(prepared)) if self.options.steep_compatible => prepared.apply_return_hint(self.environment, hint, arguments),
+            (Some(hint), Some(prepared)) if self.options.steep_compatible => {
+                prepared.apply_return_hint(self.environment, hint, arguments)
+            }
             _ => None,
         };
         let unsatisfiable_return_hint = match (&site.block, &primary_prepared) {
@@ -735,7 +739,9 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         };
         if let Some((lower_bound, variable_name, upper_bound)) = &unsatisfiable_return_hint
             && site.reports_diagnostics
-            && let Some(overload) = primary_prepared.as_ref().and_then(|prepared| prepared.overload.as_ref())
+            && let Some(overload) = primary_prepared
+                .as_ref()
+                .and_then(|prepared| prepared.overload.as_ref())
         {
             let mut displayed_overload = overload.clone();
             displayed_overload.type_parameters.clear();
@@ -751,7 +757,12 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 lower_bound,
                 upper_bound,
             );
-            self.record_diagnostic(site.expression_span, Severity::Error, "Ruby::UnsatisfiableConstraint", message);
+            self.record_diagnostic(
+                site.expression_span,
+                Severity::Error,
+                "Ruby::UnsatisfiableConstraint",
+                message,
+            );
         }
         for (value_index, lambda_node) in &site.deferred_lambdas {
             let signature = primary_prepared
@@ -1170,12 +1181,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         self.record_diagnostic(pair.span, Severity::Error, "Ruby::ArgumentTypeMismatch", message)
     }
 
-    fn report_unresolved_overloading(
-        &mut self,
-        found: &FoundMethod,
-        site: &CallSite<'pr>,
-        receiver_type: &Type,
-    ) {
+    fn report_unresolved_overloading(&mut self, found: &FoundMethod, site: &CallSite<'pr>, receiver_type: &Type) {
         let alignment = " ".repeat("  def ".len() + site.method_name.len());
         let method_types: Vec<String> = found
             .overloads
@@ -1761,13 +1767,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             })
     }
 
-    fn lookup_interface(
-        &mut self,
-        name: &str,
-        arguments: &[Type],
-        receiver: &Type,
-        method_name: &str,
-    ) -> Lookup {
+    fn lookup_interface(&mut self, name: &str, arguments: &[Type], receiver: &Type, method_name: &str) -> Lookup {
         let Some(resolved) = self.environment.find_interface_method(name, method_name) else {
             return if self.environment.interfaces.contains_key(name) {
                 Lookup::Missing { reportable: true }
@@ -1929,12 +1929,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         true
     }
 
-    pub(crate) fn infer_call_write(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_call_write(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let (receiver, read_name, message_location, index_arguments, value, operator) = match node {
             Node::CallOrWriteNode { .. } => {
                 let Some(write) = node.as_call_or_write_node() else {
@@ -2068,12 +2063,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         }
     }
 
-    pub(crate) fn infer_super(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_super(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let (arguments, block_node, keyword_span) = match node {
             Node::SuperNode { .. } => {
                 let Some(super_node) = node.as_super_node() else {
@@ -2112,9 +2102,13 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         };
         let declared = context.method.as_ref().is_some_and(|method| {
             if method.singleton {
-                self.environment.find_singleton_method(&method.owner, &method.name).is_some()
+                self.environment
+                    .find_singleton_method(&method.owner, &method.name)
+                    .is_some()
             } else {
-                self.environment.find_instance_method(&method.owner, &method.name).is_some()
+                self.environment
+                    .find_instance_method(&method.owner, &method.name)
+                    .is_some()
             }
         });
         // Steep falls back to `untyped` without a method definition in RBS to find the super method from
@@ -2206,12 +2200,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             })
     }
 
-    pub(crate) fn infer_yield(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_yield(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let Some(yield_node) = node.as_yield_node() else {
             return Type::Untyped;
         };
@@ -2223,7 +2212,12 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             return Type::Untyped;
         };
         let Some(block) = &method.block else {
-            self.record_diagnostic(span, Severity::Error, "Ruby::UnexpectedYield", "No block given for `yield`".to_string());
+            self.record_diagnostic(
+                span,
+                Severity::Error,
+                "Ruby::UnexpectedYield",
+                "No block given for `yield`".to_string(),
+            );
             self.record_diagnostic(span, Severity::Hint, "Ruby::FallbackAny", fallback_any);
             return Type::Untyped;
         };
@@ -2487,8 +2481,10 @@ fn union_method_type(overload: &MethodType, other_overload: &MethodType) -> Opti
             parameter.parameter_type = Type::Intersection(members);
         }
     }
-    joined.function.return_type =
-        Type::union(vec![overload.function.return_type.clone(), other_overload.function.return_type.clone()]);
+    joined.function.return_type = Type::union(vec![
+        overload.function.return_type.clone(),
+        other_overload.function.return_type.clone(),
+    ]);
     Some(joined)
 }
 

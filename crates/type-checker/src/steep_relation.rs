@@ -17,7 +17,10 @@ type FailurePath = Vec<Option<String>>;
 /// The lines Steep prints under the header of a mismatch of `subtype <: supertype`, each indented by its depth, or
 /// `None` when Steep's check would not fail
 pub(crate) fn detail_lines(environment: &Environment, subtype: &Type, supertype: &Type) -> Option<String> {
-    let mut checker = RelationChecker { environment, assumptions: HashSet::new() };
+    let mut checker = RelationChecker {
+        environment,
+        assumptions: HashSet::new(),
+    };
     let path = checker.check(subtype, supertype)?;
     let lines: Vec<String> = path
         .into_iter()
@@ -30,7 +33,12 @@ pub(crate) fn detail_lines(environment: &Environment, subtype: &Type, supertype:
 
 /// Whether Steep's check of `subtype <: supertype` succeeds
 pub(crate) fn is_subtype(environment: &Environment, subtype: &Type, supertype: &Type) -> bool {
-    RelationChecker { environment, assumptions: HashSet::new() }.check(subtype, supertype).is_none()
+    RelationChecker {
+        environment,
+        assumptions: HashSet::new(),
+    }
+    .check(subtype, supertype)
+    .is_none()
 }
 
 /// `header` followed by the detail lines of `subtype <: supertype`, as Steep's `Helper#full_message`
@@ -130,27 +138,47 @@ impl RelationChecker<'_> {
                 let by_supertype = self.any(
                     subtype,
                     supertype,
-                    supertype_members.iter().map(|member| (subtype.clone(), member.clone())).collect(),
+                    supertype_members
+                        .iter()
+                        .map(|member| (subtype.clone(), member.clone()))
+                        .collect(),
                 )?;
                 let by_subtype = self.any(
                     subtype,
                     supertype,
-                    subtype_members.iter().map(|member| (member.clone(), supertype.clone())).collect(),
+                    subtype_members
+                        .iter()
+                        .map(|member| (member.clone(), supertype.clone()))
+                        .collect(),
                 );
                 by_subtype.map(|_| prepend(head, by_supertype))
             }
-            (_, Type::Intersection(members)) => {
-                self.all(subtype, supertype, members.iter().map(|member| (subtype.clone(), member.clone())).collect())
-            }
-            (Type::Union(members), _) => {
-                self.all(subtype, supertype, members.iter().map(|member| (member.clone(), supertype.clone())).collect())
-            }
-            (Type::Intersection(members), _) => {
-                self.any(subtype, supertype, members.iter().map(|member| (member.clone(), supertype.clone())).collect())
-            }
-            (_, Type::Union(members)) => {
-                self.any(subtype, supertype, members.iter().map(|member| (subtype.clone(), member.clone())).collect())
-            }
+            (_, Type::Intersection(members)) => self.all(
+                subtype,
+                supertype,
+                members.iter().map(|member| (subtype.clone(), member.clone())).collect(),
+            ),
+            (Type::Union(members), _) => self.all(
+                subtype,
+                supertype,
+                members
+                    .iter()
+                    .map(|member| (member.clone(), supertype.clone()))
+                    .collect(),
+            ),
+            (Type::Intersection(members), _) => self.any(
+                subtype,
+                supertype,
+                members
+                    .iter()
+                    .map(|member| (member.clone(), supertype.clone()))
+                    .collect(),
+            ),
+            (_, Type::Union(members)) => self.any(
+                subtype,
+                supertype,
+                members.iter().map(|member| (subtype.clone(), member.clone())).collect(),
+            ),
             (_, Type::Interface { name, .. }) => self.interface(subtype, supertype, name),
             (
                 Type::ClassInstance { .. } | Type::ClassSingleton { .. } | Type::Interface { .. },
@@ -164,25 +192,41 @@ impl RelationChecker<'_> {
                 if subtype_elements.len() != supertype_elements.len() {
                     return failure(subtype, supertype);
                 }
-                let pairs = subtype_elements.iter().cloned().zip(supertype_elements.iter().cloned()).collect();
+                let pairs = subtype_elements
+                    .iter()
+                    .cloned()
+                    .zip(supertype_elements.iter().cloned())
+                    .collect();
                 self.all(subtype, supertype, pairs)
             }
-            (Type::Tuple(elements), Type::ClassInstance { name, arguments }) if name == "Array" && arguments.len() == 1 => {
-                self.expand(subtype, supertype, (Type::union(elements.clone()), arguments[0].clone()))
+            (Type::Tuple(elements), Type::ClassInstance { name, arguments })
+                if name == "Array" && arguments.len() == 1 =>
+            {
+                self.expand(
+                    subtype,
+                    supertype,
+                    (Type::union(elements.clone()), arguments[0].clone()),
+                )
             }
-            (Type::Tuple(elements), _) => {
-                self.any(subtype, supertype, vec![(array_of(Type::union(elements.clone())), supertype.clone())])
-            }
+            (Type::Tuple(elements), _) => self.any(
+                subtype,
+                supertype,
+                vec![(array_of(Type::union(elements.clone())), supertype.clone())],
+            ),
             (Type::Record(subtype_fields), Type::Record(supertype_fields)) => {
                 let mut branches = Vec::new();
                 for field in supertype_fields {
-                    let subtype_field = subtype_fields.iter().find(|subtype_field| subtype_field.name == field.name);
+                    let subtype_field = subtype_fields
+                        .iter()
+                        .find(|subtype_field| subtype_field.name == field.name);
                     match (field.required, subtype_field) {
                         (true, _) => branches.push((
                             subtype_field.map_or(Type::Nil, |subtype_field| subtype_field.field_type.clone()),
                             field.field_type.clone(),
                         )),
-                        (false, Some(subtype_field)) => branches.push((subtype_field.field_type.clone(), field.field_type.clone())),
+                        (false, Some(subtype_field)) => {
+                            branches.push((subtype_field.field_type.clone(), field.field_type.clone()))
+                        }
                         (false, None) => {}
                     }
                 }
@@ -196,18 +240,29 @@ impl RelationChecker<'_> {
                 }
             }
             (Type::Record(fields), _) => {
-                let key_type = Type::union(fields.iter().map(|field| Type::Literal(Literal::Symbol(field.name.clone()))).collect());
+                let key_type = Type::union(
+                    fields
+                        .iter()
+                        .map(|field| Type::Literal(Literal::Symbol(field.name.clone())))
+                        .collect(),
+                );
                 let value_type = Type::union(fields.iter().map(|field| field.field_type.clone()).collect());
-                self.any(subtype, supertype, vec![(hash_of(key_type, value_type), supertype.clone())])
+                self.any(
+                    subtype,
+                    supertype,
+                    vec![(hash_of(key_type, value_type), supertype.clone())],
+                )
             }
             (Type::Proc(_), Type::ClassInstance { name, .. }) if name == "Proc" => None,
             (_, Type::Literal(Literal::True)) if is_instance_of(subtype, "TrueClass") => None,
             (_, Type::Literal(Literal::False)) if is_instance_of(subtype, "FalseClass") => None,
             (_, Type::Literal(_)) => failure(subtype, supertype),
             (_, Type::Nil) if is_instance_of(subtype, "NilClass") => None,
-            (Type::Literal(literal), _) => {
-                self.expand(subtype, supertype, (Type::instance(literal_back_type(literal)), supertype.clone()))
-            }
+            (Type::Literal(literal), _) => self.expand(
+                subtype,
+                supertype,
+                (Type::instance(literal_back_type(literal)), supertype.clone()),
+            ),
             _ => failure(subtype, supertype),
         }
     }
@@ -233,14 +288,30 @@ impl RelationChecker<'_> {
     fn same_type(&self, left: &Type, right: &Type) -> bool {
         match (left, right) {
             (Type::Union(left_members), Type::Union(right_members)) => {
-                left_members.iter().all(|member| right_members.iter().any(|other| self.same_type(member, other)))
-                    && right_members.iter().all(|member| left_members.iter().any(|other| self.same_type(member, other)))
+                left_members
+                    .iter()
+                    .all(|member| right_members.iter().any(|other| self.same_type(member, other)))
+                    && right_members
+                        .iter()
+                        .all(|member| left_members.iter().any(|other| self.same_type(member, other)))
             }
-            (Type::ClassInstance { name: left_name, arguments: left_arguments }, Type::ClassInstance { name: right_name, arguments: right_arguments }) => {
+            (
+                Type::ClassInstance {
+                    name: left_name,
+                    arguments: left_arguments,
+                },
+                Type::ClassInstance {
+                    name: right_name,
+                    arguments: right_arguments,
+                },
+            ) => {
                 self.environment.resolve_class_name(left_name).unwrap_or(left_name)
                     == self.environment.resolve_class_name(right_name).unwrap_or(right_name)
                     && left_arguments.len() == right_arguments.len()
-                    && left_arguments.iter().zip(right_arguments).all(|(left, right)| self.same_type(left, right))
+                    && left_arguments
+                        .iter()
+                        .zip(right_arguments)
+                        .all(|(left, right)| self.same_type(left, right))
             }
             (Type::ClassSingleton { name: left_name }, Type::ClassSingleton { name: right_name }) => {
                 self.environment.resolve_class_name(left_name).unwrap_or(left_name)
@@ -255,7 +326,10 @@ impl RelationChecker<'_> {
         match (subtype, supertype) {
             (
                 Type::ClassInstance { name, arguments },
-                Type::ClassInstance { name: supertype_name, arguments: supertype_arguments },
+                Type::ClassInstance {
+                    name: supertype_name,
+                    arguments: supertype_arguments,
+                },
             ) if resolved(name) == resolved(supertype_name) => {
                 if arguments.is_empty() || supertype_arguments.is_empty() {
                     return None;
@@ -264,7 +338,13 @@ impl RelationChecker<'_> {
                     .environment
                     .classes
                     .get(&resolved(supertype_name))
-                    .map(|declaration| declaration.type_parameters.iter().map(|parameter| parameter.variance).collect())
+                    .map(|declaration| {
+                        declaration
+                            .type_parameters
+                            .iter()
+                            .map(|parameter| parameter.variance)
+                            .collect()
+                    })
                     .unwrap_or_default();
                 let mut branches = Vec::new();
                 for (index, (argument, supertype_argument)) in arguments.iter().zip(supertype_arguments).enumerate() {
@@ -286,14 +366,19 @@ impl RelationChecker<'_> {
             }
             _ => {
                 let possible_subtypes = match subtype {
-                    Type::ClassInstance { name, arguments } => self.environment.one_instance_super_types(name, arguments),
+                    Type::ClassInstance { name, arguments } => {
+                        self.environment.one_instance_super_types(name, arguments)
+                    }
                     Type::ClassSingleton { name } => self.environment.one_singleton_super_types(name),
                     _ => Vec::new(),
                 };
                 if possible_subtypes.is_empty() {
                     return failure(subtype, supertype);
                 }
-                let branches = possible_subtypes.into_iter().map(|possible| (possible, supertype.clone())).collect();
+                let branches = possible_subtypes
+                    .into_iter()
+                    .map(|possible| (possible, supertype.clone()))
+                    .collect();
                 self.any(subtype, supertype, branches)
             }
         }
@@ -328,9 +413,18 @@ enum PositionalKind {
 
 /// Steep's `flat_unnamed_params`: the required and optional positionals, without the rest
 fn flat_unnamed_parameters(function: &Function) -> Vec<(PositionalKind, Type)> {
-    let leading = function.required_positionals.iter().map(|parameter| (PositionalKind::Required, parameter.parameter_type.clone()));
-    let optional = function.optional_positionals.iter().map(|parameter| (PositionalKind::Optional, parameter.parameter_type.clone()));
-    let trailing = function.trailing_positionals.iter().map(|parameter| (PositionalKind::Required, parameter.parameter_type.clone()));
+    let leading = function
+        .required_positionals
+        .iter()
+        .map(|parameter| (PositionalKind::Required, parameter.parameter_type.clone()));
+    let optional = function
+        .optional_positionals
+        .iter()
+        .map(|parameter| (PositionalKind::Optional, parameter.parameter_type.clone()));
+    let trailing = function
+        .trailing_positionals
+        .iter()
+        .map(|parameter| (PositionalKind::Required, parameter.parameter_type.clone()));
     leading.chain(optional).chain(trailing).collect()
 }
 
@@ -340,8 +434,14 @@ fn match_params(subtype: &Function, supertype: &Function) -> Option<Vec<(Type, T
     let mut pairs = Vec::new();
     let mut subtype_flat = flat_unnamed_parameters(subtype).into_iter();
     let mut supertype_flat = flat_unnamed_parameters(supertype).into_iter();
-    let subtype_rest = subtype.rest_positionals.as_ref().map(|parameter| parameter.parameter_type.clone());
-    let supertype_rest = supertype.rest_positionals.as_ref().map(|parameter| parameter.parameter_type.clone());
+    let subtype_rest = subtype
+        .rest_positionals
+        .as_ref()
+        .map(|parameter| parameter.parameter_type.clone());
+    let supertype_rest = supertype
+        .rest_positionals
+        .as_ref()
+        .map(|parameter| parameter.parameter_type.clone());
     match (&subtype_rest, &supertype_rest) {
         (None, Some(_)) => return None,
         (Some(subtype_rest), Some(supertype_rest)) => {
@@ -378,24 +478,39 @@ fn match_params(subtype: &Function, supertype: &Function) -> Option<Vec<(Type, T
             }
         }
     }
-    let subtype_keywords: Vec<&(String, rbs_environment::Parameter)> =
-        subtype.required_keywords.iter().chain(subtype.optional_keywords.iter()).collect();
-    for (name, supertype_parameter) in supertype.required_keywords.iter().chain(supertype.optional_keywords.iter()) {
+    let subtype_keywords: Vec<&(String, rbs_environment::Parameter)> = subtype
+        .required_keywords
+        .iter()
+        .chain(subtype.optional_keywords.iter())
+        .collect();
+    for (name, supertype_parameter) in supertype
+        .required_keywords
+        .iter()
+        .chain(supertype.optional_keywords.iter())
+    {
         match subtype_keywords.iter().find(|(keyword, _)| keyword == name) {
-            Some((_, subtype_parameter)) => {
-                pairs.push((subtype_parameter.parameter_type.clone(), supertype_parameter.parameter_type.clone()))
-            }
+            Some((_, subtype_parameter)) => pairs.push((
+                subtype_parameter.parameter_type.clone(),
+                supertype_parameter.parameter_type.clone(),
+            )),
             None => match &subtype.rest_keywords {
                 Some(rest) => pairs.push((rest.parameter_type.clone(), supertype_parameter.parameter_type.clone())),
                 None => return None,
             },
         }
     }
-    if subtype.required_keywords.iter().any(|(name, _)| !supertype.required_keywords.iter().any(|(keyword, _)| keyword == name)) {
+    if subtype
+        .required_keywords
+        .iter()
+        .any(|(name, _)| !supertype.required_keywords.iter().any(|(keyword, _)| keyword == name))
+    {
         return None;
     }
     if let (Some(subtype_rest), Some(supertype_rest)) = (&subtype.rest_keywords, &supertype.rest_keywords) {
-        pairs.push((subtype_rest.parameter_type.clone(), supertype_rest.parameter_type.clone()));
+        pairs.push((
+            subtype_rest.parameter_type.clone(),
+            supertype_rest.parameter_type.clone(),
+        ));
     }
     Some(pairs)
 }
@@ -415,7 +530,12 @@ fn literal_back_type(literal: &Literal) -> &'static str {
     }
 }
 
-fn collect_interface_method_names(environment: &Environment, interface_name: &str, method_names: &mut Vec<String>, depth: usize) {
+fn collect_interface_method_names(
+    environment: &Environment,
+    interface_name: &str,
+    method_names: &mut Vec<String>,
+    depth: usize,
+) {
     if depth > 8 {
         return;
     }

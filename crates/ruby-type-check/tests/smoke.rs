@@ -51,7 +51,9 @@ fn steep_smoke_directory() -> PathBuf {
         let url = format!("https://codeload.github.com/soutaro/steep/tar.gz/refs/tags/v{STEEP_VERSION}");
         let status = Command::new("sh")
             .arg("-c")
-            .arg(format!("curl --silent --show-error --fail --location {url} | tar --extract --gzip --strip-components 1"))
+            .arg(format!(
+                "curl --silent --show-error --fail --location {url} | tar --extract --gzip --strip-components 1"
+            ))
             .current_dir(&downloading_directory)
             .status()
             .expect("curl and tar are needed to download Steep");
@@ -121,10 +123,20 @@ fn reported_diagnostics(smoke_case_directory: &Path) -> BTreeMap<String, Vec<Exp
         format: OutputFormat::Line,
         paths: Vec::new(),
     };
-    let WorkspaceResult { results, signature_result } = check_workspace(smoke_case_directory, &options);
+    let WorkspaceResult {
+        results,
+        signature_result,
+    } = check_workspace(smoke_case_directory, &options);
     let mut files: BTreeMap<String, Vec<ExpectedDiagnostic>> = BTreeMap::new();
-    for diagnostic in results.iter().chain(std::iter::once(&signature_result)).flat_map(|result| &result.diagnostics) {
-        files.entry(diagnostic.path.clone()).or_default().push(reported_diagnostic(diagnostic));
+    for diagnostic in results
+        .iter()
+        .chain(std::iter::once(&signature_result))
+        .flat_map(|result| &result.diagnostics)
+    {
+        files
+            .entry(diagnostic.path.clone())
+            .or_default()
+            .push(reported_diagnostic(diagnostic));
     }
     for diagnostics in files.values_mut() {
         diagnostics.sort();
@@ -145,10 +157,16 @@ fn differences(
     for path in paths {
         let expected_diagnostics = expected.get(path).map(Vec::as_slice).unwrap_or_default();
         let reported_diagnostics = reported.get(path).map(Vec::as_slice).unwrap_or_default();
-        for diagnostic in expected_diagnostics.iter().filter(|diagnostic| !reported_diagnostics.contains(diagnostic)) {
+        for diagnostic in expected_diagnostics
+            .iter()
+            .filter(|diagnostic| !reported_diagnostics.contains(diagnostic))
+        {
             lines.push(format!("  missing    {path}:{diagnostic}"));
         }
-        for diagnostic in reported_diagnostics.iter().filter(|diagnostic| !expected_diagnostics.contains(diagnostic)) {
+        for diagnostic in reported_diagnostics
+            .iter()
+            .filter(|diagnostic| !expected_diagnostics.contains(diagnostic))
+        {
             lines.push(format!("  unexpected {path}:{diagnostic}"));
         }
     }
@@ -168,7 +186,11 @@ fn reports_what_steep_expects_for_its_smoke_tests() {
         .filter(|path| path.join("test_expectations.yml").is_file())
         .collect();
     smoke_case_directories.sort();
-    assert!(!smoke_case_directories.is_empty(), "No smoke tests are found in {}", smoke_directory.display());
+    assert!(
+        !smoke_case_directories.is_empty(),
+        "No smoke tests are found in {}",
+        smoke_directory.display()
+    );
 
     let failures: Vec<String> = smoke_case_directories
         .iter()

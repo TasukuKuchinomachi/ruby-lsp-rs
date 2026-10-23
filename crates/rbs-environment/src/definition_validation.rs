@@ -4,8 +4,7 @@ use std::path::Path;
 use crate::environment::{ClassKind, Environment, MethodKind};
 use crate::loader::is_interface_name;
 use crate::signature_validation::{
-    AliasOwner, DUPLICATED_METHOD_DEFINITION, FileValidation, MethodAliasRecord, SignatureDiagnostic,
-    absolute_name,
+    AliasOwner, DUPLICATED_METHOD_DEFINITION, FileValidation, MethodAliasRecord, SignatureDiagnostic, absolute_name,
 };
 use crate::types::{Function, MethodType, Type, Variance};
 
@@ -44,7 +43,13 @@ fn ancestor_text(environment: &Environment, name: &str) -> String {
     let parameters = environment
         .classes
         .get(name)
-        .map(|declaration| declaration.type_parameters.iter().map(|parameter| parameter.name.clone()).collect::<Vec<String>>())
+        .map(|declaration| {
+            declaration
+                .type_parameters
+                .iter()
+                .map(|parameter| parameter.name.clone())
+                .collect::<Vec<String>>()
+        })
         .unwrap_or_default();
     if parameters.is_empty() {
         absolute_name(name)
@@ -62,7 +67,10 @@ fn recursive_ancestor(environment: &Environment, name: &str, path: &Path) -> Opt
     if location.path.as_path() != path {
         return None;
     }
-    let names: Vec<String> = chain.iter().map(|ancestor| ancestor_text(environment, ancestor)).collect();
+    let names: Vec<String> = chain
+        .iter()
+        .map(|ancestor| ancestor_text(environment, ancestor))
+        .collect();
     Some(SignatureDiagnostic::new(
         location,
         RECURSIVE_ANCESTOR,
@@ -91,8 +99,15 @@ fn find_recursive_ancestor(
         ClassKind::Class => declaration.super_class.iter().collect::<Vec<_>>(),
         ClassKind::Module => Vec::new(),
     };
-    let self_types = declaration.module_self_types.iter().filter(|self_type| !is_interface_name(&self_type.name));
-    let mixins = declaration.includes.iter().chain(&declaration.prepends).filter(|mixin| !is_interface_name(&mixin.name));
+    let self_types = declaration
+        .module_self_types
+        .iter()
+        .filter(|self_type| !is_interface_name(&self_type.name));
+    let mixins = declaration
+        .includes
+        .iter()
+        .chain(&declaration.prepends)
+        .filter(|mixin| !is_interface_name(&mixin.name));
     for ancestor in super_class.into_iter().chain(self_types).chain(mixins) {
         if let Some(found) = find_recursive_ancestor(environment, &ancestor.name, building, finished) {
             return Some(found);
@@ -133,9 +148,9 @@ fn type_alias_errors(environment: &Environment, name: &str, path: &Path) -> Opti
 /// `RBS::TypeAliasDependency#direct_dependency`
 fn direct_alias_dependencies(target: &Type, dependencies: &mut Vec<String>) {
     match target {
-        Type::Union(members) | Type::Intersection(members) => {
-            members.iter().for_each(|member| direct_alias_dependencies(member, dependencies))
-        }
+        Type::Union(members) | Type::Intersection(members) => members
+            .iter()
+            .for_each(|member| direct_alias_dependencies(member, dependencies)),
         Type::Alias { name, .. } => dependencies.push(name.trim_start_matches("::").to_string()),
         _ => {}
     }
@@ -192,8 +207,10 @@ fn mutually_recursive_aliases(environment: &Environment, name: &str) -> HashSet<
         }
         reached
     };
-    let mut names: HashSet<String> =
-        reachable_from(name).into_iter().filter(|other| reachable_from(other).contains(name)).collect();
+    let mut names: HashSet<String> = reachable_from(name)
+        .into_iter()
+        .filter(|other| reachable_from(other).contains(name))
+        .collect();
     names.insert(name.to_string());
     names
 }
@@ -207,7 +224,11 @@ fn nonregular_type(environment: &Environment, name: &str) -> Option<Type> {
     let names = mutually_recursive_aliases(environment, name);
     let start = Type::Alias {
         name: name.to_string(),
-        arguments: declaration.type_parameters.iter().map(|parameter| Type::Variable(parameter.name.clone())).collect(),
+        arguments: declaration
+            .type_parameters
+            .iter()
+            .map(|parameter| Type::Variable(parameter.name.clone()))
+            .collect(),
     };
     let mut seen: HashMap<String, Vec<Type>> = HashMap::new();
     let mut found = HashMap::new();
@@ -231,9 +252,10 @@ fn validate_alias_type(
     }
     if let Some(seen_arguments) = seen.get(name) {
         let compatible = seen_arguments.len() == arguments.len()
-            && seen_arguments.iter().zip(arguments).all(|(left, right)| {
-                matches!(left, Type::Untyped) || matches!(right, Type::Untyped) || left == right
-            });
+            && seen_arguments
+                .iter()
+                .zip(arguments)
+                .all(|(left, right)| matches!(left, Type::Untyped) || matches!(right, Type::Untyped) || left == right);
         if !compatible {
             found.entry(name.to_string()).or_insert_with(|| alias_type.clone());
         }
@@ -298,10 +320,23 @@ fn negate(variance: Variance) -> Variance {
 fn type_parameter_variances(environment: &Environment, target: &Type) -> Option<Vec<Variance>> {
     let parameters = match target {
         Type::ClassInstance { name, .. } => {
-            &environment.classes.get(environment.resolve_class_name(name)?)?.type_parameters
+            &environment
+                .classes
+                .get(environment.resolve_class_name(name)?)?
+                .type_parameters
         }
-        Type::Interface { name, .. } => &environment.interfaces.get(name.trim_start_matches("::"))?.type_parameters,
-        Type::Alias { name, .. } => &environment.type_aliases.get(name.trim_start_matches("::"))?.type_parameters,
+        Type::Interface { name, .. } => {
+            &environment
+                .interfaces
+                .get(name.trim_start_matches("::"))?
+                .type_parameters
+        }
+        Type::Alias { name, .. } => {
+            &environment
+                .type_aliases
+                .get(name.trim_start_matches("::"))?
+                .type_parameters
+        }
         _ => return None,
     };
     Some(parameters.iter().map(|parameter| parameter.variance).collect())
@@ -325,12 +360,12 @@ fn mark_type(environment: &Environment, target: &Type, usage: &mut VarianceUsage
             }
         }
         Type::Proc(proc_type) => mark_function(environment, &proc_type.function, usage, context),
-        Type::Union(members) | Type::Intersection(members) | Type::Tuple(members) => {
-            members.iter().for_each(|member| mark_type(environment, member, usage, context))
-        }
-        Type::Record(fields) => {
-            fields.iter().for_each(|field| mark_type(environment, &field.field_type, usage, context))
-        }
+        Type::Union(members) | Type::Intersection(members) | Type::Tuple(members) => members
+            .iter()
+            .for_each(|member| mark_type(environment, member, usage, context)),
+        Type::Record(fields) => fields
+            .iter()
+            .for_each(|field| mark_type(environment, &field.field_type, usage, context)),
         _ => {}
     }
 }
@@ -376,10 +411,16 @@ fn incompatible_parameter<'a>(
     owner_parameters: &'a [crate::types::TypeParameter],
     method_type: &'a MethodType,
 ) -> Option<&'a crate::types::TypeParameter> {
-    let method_parameter_names: Vec<&str> =
-        method_type.type_parameters.iter().map(|parameter| parameter.name.as_str()).collect();
+    let method_parameter_names: Vec<&str> = method_type
+        .type_parameters
+        .iter()
+        .map(|parameter| parameter.name.as_str())
+        .collect();
     let mut usage = VarianceUsage {
-        usages: owner_parameters.iter().map(|parameter| (parameter.name.clone(), Usage::Unused)).collect(),
+        usages: owner_parameters
+            .iter()
+            .map(|parameter| (parameter.name.clone(), Usage::Unused))
+            .collect(),
     };
     mark_function(environment, &method_type.function, &mut usage, Variance::Covariant);
     if let Some(block) = &method_type.block {
@@ -406,7 +447,10 @@ fn recursive_method_aliases(environment: &Environment, aliases: &[MethodAliasRec
         }
         let owned_aliases: Vec<&MethodAliasRecord> = aliases
             .iter()
-            .filter(|other| other.owner_name == alias.owner_name && matches!(other.owner, AliasOwner::Class(other_kind) if other_kind == kind))
+            .filter(|other| {
+                other.owner_name == alias.owner_name
+                    && matches!(other.owner, AliasOwner::Class(other_kind) if other_kind == kind)
+            })
             .collect();
         let Some(cycle) = first_alias_cycle(environment, &alias.owner_name, kind, &owned_aliases) else {
             continue;

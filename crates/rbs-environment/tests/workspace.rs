@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rbs_environment::{
-    DiagnosticConfiguration, DiagnosticSeverity, DiagnosticTemplate, SteepfileConfiguration,
-    SteepfileGroup, SteepfileTarget, WorkspaceSources, evaluate_steepfile, load_workspace, read_steepfile,
+    DiagnosticConfiguration, DiagnosticSeverity, DiagnosticTemplate, SteepfileConfiguration, SteepfileGroup,
+    SteepfileTarget, WorkspaceSources, evaluate_steepfile, load_workspace, read_steepfile,
 };
 
 struct TemporaryDirectory {
@@ -141,14 +141,22 @@ end
         .targets
         .iter()
         .map(|target| {
-            (target.name.as_str(), target.signature_patterns.as_slice(), target.unreferenced, target.implicitly_returns_nil)
+            (
+                target.name.as_str(),
+                target.signature_patterns.as_slice(),
+                target.unreferenced,
+                target.implicitly_returns_nil,
+            )
         })
         .collect();
     let root = &workspace.path;
-    assert_eq!(targets, vec![
-        ("a", [root.join("a.rbs")].as_slice(), true, true),
-        ("b", [root.join("b.rbs")].as_slice(), true, true),
-    ]);
+    assert_eq!(
+        targets,
+        vec![
+            ("a", [root.join("a.rbs")].as_slice(), true, true),
+            ("b", [root.join("b.rbs")].as_slice(), true, true),
+        ]
+    );
     assert_eq!(
         configuration.targets[0].code_diagnostics,
         DiagnosticConfiguration::from_template(DiagnosticTemplate::AllError)

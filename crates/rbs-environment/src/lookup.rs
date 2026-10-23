@@ -178,7 +178,11 @@ impl Environment {
         };
         let substitution = self.substitution_for(declared_name, arguments);
         let instantiate = |reference: &Ancestor| -> Type {
-            let arguments = reference.arguments.iter().map(|argument| argument.substitute(&substitution)).collect();
+            let arguments = reference
+                .arguments
+                .iter()
+                .map(|argument| argument.substitute(&substitution))
+                .collect();
             let name = reference.name.strip_prefix("::").unwrap_or(&reference.name).to_string();
             if is_interface_name(&name) {
                 Type::Interface { name, arguments }
@@ -186,8 +190,10 @@ impl Environment {
                 Type::ClassInstance { name, arguments }
             }
         };
-        let (included_interfaces, included_modules): (Vec<&Ancestor>, Vec<&Ancestor>) =
-            declaration.includes.iter().partition(|reference| is_interface_name(&reference.name));
+        let (included_interfaces, included_modules): (Vec<&Ancestor>, Vec<&Ancestor>) = declaration
+            .includes
+            .iter()
+            .partition(|reference| is_interface_name(&reference.name));
         declaration
             .super_class
             .iter()
@@ -210,21 +216,38 @@ impl Environment {
         let super_type = match (&declaration.kind, &declaration.super_class) {
             (ClassKind::Module, _) => Type::instance("Module"),
             (ClassKind::Class, Some(super_class)) => Type::ClassSingleton {
-                name: super_class.name.strip_prefix("::").unwrap_or(&super_class.name).to_string(),
+                name: super_class
+                    .name
+                    .strip_prefix("::")
+                    .unwrap_or(&super_class.name)
+                    .to_string(),
             },
             (ClassKind::Class, None) => Type::instance("Class"),
         };
-        let (extended_interfaces, extended_modules): (Vec<&Ancestor>, Vec<&Ancestor>) =
-            declaration.extends.iter().partition(|reference| is_interface_name(&reference.name));
+        let (extended_interfaces, extended_modules): (Vec<&Ancestor>, Vec<&Ancestor>) = declaration
+            .extends
+            .iter()
+            .partition(|reference| is_interface_name(&reference.name));
         std::iter::once(super_type)
-            .chain(extended_modules.into_iter().chain(extended_interfaces).map(|reference| {
-                let name = reference.name.strip_prefix("::").unwrap_or(&reference.name).to_string();
-                if is_interface_name(&name) {
-                    Type::Interface { name, arguments: reference.arguments.clone() }
-                } else {
-                    Type::ClassInstance { name, arguments: reference.arguments.clone() }
-                }
-            }))
+            .chain(
+                extended_modules
+                    .into_iter()
+                    .chain(extended_interfaces)
+                    .map(|reference| {
+                        let name = reference.name.strip_prefix("::").unwrap_or(&reference.name).to_string();
+                        if is_interface_name(&name) {
+                            Type::Interface {
+                                name,
+                                arguments: reference.arguments.clone(),
+                            }
+                        } else {
+                            Type::ClassInstance {
+                                name,
+                                arguments: reference.arguments.clone(),
+                            }
+                        }
+                    }),
+            )
             .collect()
     }
 

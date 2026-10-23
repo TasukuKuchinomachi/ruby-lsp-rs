@@ -900,17 +900,17 @@ impl<'pr> Checker<'_, 'pr> {
         self.instance_variable_type(&owner, singleton, name)
     }
 
-    pub(crate) fn declared_instance_variable_type(
-        &self,
-        name: &str,
-        context: &Context,
-    ) -> Option<Type> {
+    pub(crate) fn declared_instance_variable_type(&self, name: &str, context: &Context) -> Option<Type> {
         // Steep imports the `@type ivar` annotations of a `def` into the method body whatever the class is
         if let Some(method) = &context.method {
-            let annotated = self.type_annotations_in(method.scope_start).find_map(|(target, annotated_type)| match target {
-                AnnotationTarget::InstanceVariable(annotated_name) if annotated_name == name => Some(annotated_type.clone()),
-                _ => None,
-            });
+            let annotated = self
+                .type_annotations_in(method.scope_start)
+                .find_map(|(target, annotated_type)| match target {
+                    AnnotationTarget::InstanceVariable(annotated_name) if annotated_name == name => {
+                        Some(annotated_type.clone())
+                    }
+                    _ => None,
+                });
             if let Some(mut annotated) = annotated {
                 self.environment.resolve_type_names(&mut annotated, &context.nesting);
                 return Some(annotated);

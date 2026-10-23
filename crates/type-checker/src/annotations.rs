@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use rbs_environment::{AnnotationSyntax, MethodType, Type, annotation_syntax_error_message, parse_method_type, parse_type};
+use rbs_environment::{
+    AnnotationSyntax, MethodType, Type, annotation_syntax_error_message, parse_method_type, parse_type,
+};
 use ruby_prism::ParseResult;
 
 use crate::source::LineIndex;
@@ -110,7 +112,14 @@ impl Annotations {
         annotations
     }
 
-    fn record_syntax_error(&mut self, content: &str, content_start: usize, text: &str, syntax: AnnotationSyntax, whole: bool) {
+    fn record_syntax_error(
+        &mut self,
+        content: &str,
+        content_start: usize,
+        text: &str,
+        syntax: AnnotationSyntax,
+        whole: bool,
+    ) {
         if self.syntax_error.is_some() {
             return;
         }
@@ -150,7 +159,9 @@ impl Annotations {
                             target: target(name.trim().to_string()),
                             annotated_type,
                         }),
-                        Err(_) => self.record_syntax_error(content, content_start, type_text, AnnotationSyntax::Type, false),
+                        Err(_) => {
+                            self.record_syntax_error(content, content_start, type_text, AnnotationSyntax::Type, false)
+                        }
                     }
                     return;
                 }
@@ -164,7 +175,13 @@ impl Annotations {
                             name: name.trim().to_string(),
                             method_type,
                         }),
-                        Err(_) => self.record_syntax_error(content, content_start, type_text, AnnotationSyntax::MethodType, true),
+                        Err(_) => self.record_syntax_error(
+                            content,
+                            content_start,
+                            type_text,
+                            AnnotationSyntax::MethodType,
+                            true,
+                        ),
                     }
                     return;
                 }
@@ -175,11 +192,20 @@ impl Annotations {
                 ("break", AnnotationTarget::Break),
             ];
             for (keyword, target) in keyword_and_type {
-                if let Some(type_text) = rest.strip_prefix(keyword).and_then(|after| after.trim_start().strip_prefix(':')) {
+                if let Some(type_text) = rest
+                    .strip_prefix(keyword)
+                    .and_then(|after| after.trim_start().strip_prefix(':'))
+                {
                     let type_text = type_text.trim();
                     match parse_type(type_text) {
-                        Ok(annotated_type) => self.type_annotations.push(TypeAnnotation { offset, target, annotated_type }),
-                        Err(_) => self.record_syntax_error(content, content_start, type_text, AnnotationSyntax::Type, false),
+                        Ok(annotated_type) => self.type_annotations.push(TypeAnnotation {
+                            offset,
+                            target,
+                            annotated_type,
+                        }),
+                        Err(_) => {
+                            self.record_syntax_error(content, content_start, type_text, AnnotationSyntax::Type, false)
+                        }
                     }
                     return;
                 }
@@ -207,7 +233,10 @@ impl Annotations {
         if let Some(rest) = keyword_rest(content, "@implements") {
             let name = rest.split('[').next().unwrap_or_default().trim();
             if !name.is_empty() {
-                self.implements_annotations.push(ImplementsAnnotation { offset, name: name.to_string() });
+                self.implements_annotations.push(ImplementsAnnotation {
+                    offset,
+                    name: name.to_string(),
+                });
             }
         }
     }

@@ -78,13 +78,7 @@ pub(crate) fn is_fully_known_class(environment: &Environment, name: &str) -> boo
     })
 }
 
-fn check(
-    environment: &Environment,
-    rules: Rules,
-    subtype: &Type,
-    supertype: &Type,
-    depth: usize,
-) -> Certainty {
+fn check(environment: &Environment, rules: Rules, subtype: &Type, supertype: &Type, depth: usize) -> Certainty {
     if depth > MAXIMUM_DEPTH {
         return Certainty::Unknown;
     }

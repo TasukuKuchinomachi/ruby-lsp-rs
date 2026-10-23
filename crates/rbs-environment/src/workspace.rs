@@ -710,7 +710,10 @@ pub fn load_target(
     }
     workspace_loader.loader.set_implicitly_returns_nil(match target {
         Some(target) => target.implicitly_returns_nil,
-        None => configuration.iter().flat_map(|configuration| &configuration.targets).any(|target| target.implicitly_returns_nil),
+        None => configuration
+            .iter()
+            .flat_map(|configuration| &configuration.targets)
+            .any(|target| target.implicitly_returns_nil),
     });
     for library in configuration
         .iter()
@@ -727,7 +730,10 @@ pub fn load_target(
         .unwrap_or_else(|| workspace_path.join("rbs_collection.lock.yaml"));
     workspace_loader.add_collection(workspace_path, &lockfile_path);
     // RBS's `EnvironmentLoader#load` adds stringio whenever core is loaded, since it moved out of core
-    let has_stringio = sources.stdlib_directory.as_ref().is_some_and(|directory| directory.join("stringio").is_dir());
+    let has_stringio = sources
+        .stdlib_directory
+        .as_ref()
+        .is_some_and(|directory| directory.join("stringio").is_dir());
     if sources.core_directory.is_some() && has_stringio {
         workspace_loader.add_stdlib_library("stringio", None);
     }
@@ -786,13 +792,7 @@ impl SourcePattern<'_> {
                         .to_string_lossy()
                         .into_owned()
                 })
-                .map(|pattern| {
-                    if pattern.is_empty() {
-                        ".".to_string()
-                    } else {
-                        pattern
-                    }
-                })
+                .map(|pattern| if pattern.is_empty() { ".".to_string() } else { pattern })
                 .collect()
         };
         SourcePattern {
@@ -818,14 +818,10 @@ fn source_pattern_matches(patterns: &[String], path: &str, extension: &str) -> b
         } else {
             format!(
                 "{}/",
-                pattern
-                    .strip_prefix("./")
-                    .unwrap_or(pattern)
-                    .trim_end_matches('/')
+                pattern.strip_prefix("./").unwrap_or(pattern).trim_end_matches('/')
             )
         };
-        ruby_file_glob::fnmatch(pattern, path)
-            || ruby_file_glob::fnmatch(&format!("{prefix}**/*{extension}"), path)
+        ruby_file_glob::fnmatch(pattern, path) || ruby_file_glob::fnmatch(&format!("{prefix}**/*{extension}"), path)
     })
 }
 

@@ -78,7 +78,10 @@ pub fn run(arguments: &[String]) -> i32 {
         }
     };
     let workspace_path = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
-    let WorkspaceResult { results, signature_result } = check_workspace(&workspace_path, &options);
+    let WorkspaceResult {
+        results,
+        signature_result,
+    } = check_workspace(&workspace_path, &options);
     let unexpected_error_file_count = results.iter().filter(|result| result.has_unexpected_error).count();
     if let Some(warning) = unexpected_error_warning(unexpected_error_file_count) {
         eprintln!("{warning}");
@@ -126,7 +129,9 @@ pub fn check_workspace(workspace_path: &Path, options: &TypeCheckOptions) -> Wor
     let steepfile = loaded.steepfile.as_ref();
     let files = collect_files(workspace_path, steepfile, &options.paths);
     let default_code_diagnostics = DiagnosticConfiguration::default();
-    let analysis_options = AnalysisOptions { steep_compatible: options.steep_compatible };
+    let analysis_options = AnalysisOptions {
+        steep_compatible: options.steep_compatible,
+    };
     let results = files
         .par_iter()
         .map(|path| {
@@ -139,22 +144,41 @@ pub fn check_workspace(workspace_path: &Path, options: &TypeCheckOptions) -> Wor
             }
             let code_diagnostics =
                 project::code_diagnostics_for(workspace_path, steepfile, path).unwrap_or(&default_code_diagnostics);
-            check_file(environment, workspace_path, path, code_diagnostics, options.severity_level, analysis_options)
+            check_file(
+                environment,
+                workspace_path,
+                path,
+                code_diagnostics,
+                options.severity_level,
+                analysis_options,
+            )
         })
         .collect();
     let mut signature_result = FileResult::empty();
     for target in &loaded.targets {
-        let own_target = target
-            .name
-            .as_deref()
-            .and_then(|name| steepfile?.targets.iter().find(|steepfile_target| steepfile_target.name == name));
-        let owns = |path: &Path| own_target.is_none_or(|own_target| project::is_signature_path_of(workspace_path, own_target, path));
-        let result =
-            check_signatures(&target.environment, workspace_path, &options.paths, options.steep_compatible, &owns);
+        let own_target = target.name.as_deref().and_then(|name| {
+            steepfile?
+                .targets
+                .iter()
+                .find(|steepfile_target| steepfile_target.name == name)
+        });
+        let owns = |path: &Path| {
+            own_target.is_none_or(|own_target| project::is_signature_path_of(workspace_path, own_target, path))
+        };
+        let result = check_signatures(
+            &target.environment,
+            workspace_path,
+            &options.paths,
+            options.steep_compatible,
+            &owns,
+        );
         signature_result.error_count += result.error_count;
         signature_result.diagnostics.extend(result.diagnostics);
     }
-    WorkspaceResult { results, signature_result }
+    WorkspaceResult {
+        results,
+        signature_result,
+    }
 }
 
 fn use_color() -> bool {
@@ -193,7 +217,9 @@ pub fn check_signatures(
         .filter(|diagnostic| roots.is_empty() || roots.iter().any(|root| diagnostic.path.starts_with(root)))
         .filter(|diagnostic| owns(&diagnostic.path))
         .map(|diagnostic| {
-            let source = sources.entry(diagnostic.path.clone()).or_insert_with(|| std::fs::read(&diagnostic.path).unwrap_or_default());
+            let source = sources
+                .entry(diagnostic.path.clone())
+                .or_insert_with(|| std::fs::read(&diagnostic.path).unwrap_or_default());
             let line_offset = |line: u32| {
                 source.split_inclusive(|byte| *byte == b'\n').take(line as usize).map(<[u8]>::len).sum::<usize>()
             };
@@ -240,7 +266,11 @@ pub struct FileResult {
 
 impl FileResult {
     fn empty() -> FileResult {
-        FileResult { diagnostics: Vec::new(), error_count: 0, has_unexpected_error: false }
+        FileResult {
+            diagnostics: Vec::new(),
+            error_count: 0,
+            has_unexpected_error: false,
+        }
     }
 
     fn failure(path: String, message: String) -> FileResult {
@@ -442,7 +472,9 @@ mod tests {
         ]);
         assert_eq!(result.error_count, 2);
 
-        let result = check_signatures(&environment, workspace, &[PathBuf::from("sig/models")], false, &|_| true);
+        let result = check_signatures(&environment, workspace, &[PathBuf::from("sig/models")], false, &|_| {
+            true
+        });
         assert_eq!(result.diagnostics.len(), 1);
         assert!(result.lines()[0].starts_with("sig/models/b.rbs:1:5:"));
     }
@@ -462,10 +494,18 @@ mod tests {
         loader.add_signature_directory(&workspace.join("sig"));
         let environment = loader.finish();
 
-        assert_eq!(check_signatures(&environment, &workspace, &[], false, &|_| true).diagnostics.len(), 3);
-        assert_eq!(check_signatures(&environment, &workspace, &[], true, &|_| true).lines(), vec![
+        assert_eq!(
+            check_signatures(&environment, &workspace, &[], false, &|_| true)
+                .diagnostics
+                .len(),
+            3
+        );
+        assert_eq!(
+            check_signatures(&environment, &workspace, &[], true, &|_| true).lines(),
+            vec![
             "sig/searcher.rbs:3:21: [error] Cannot find type `Missing` (RBS::UnknownTypeName)".to_string()
-        ]);
+        ]
+        );
         std::fs::remove_dir_all(&workspace).unwrap();
     }
 

@@ -165,11 +165,7 @@ pub fn analyze_with_options(
 
 const ANALYSIS_STACK_SIZE: usize = 128 * 1024 * 1024;
 
-fn analyze_on_current_thread(
-    environment: &Environment,
-    source: &[u8],
-    options: AnalysisOptions,
-) -> Analysis {
+fn analyze_on_current_thread(environment: &Environment, source: &[u8], options: AnalysisOptions) -> Analysis {
     let parse_result = ruby_prism::parse(source);
     let root = parse_result.node();
     let line_index = source::LineIndex::new(source);

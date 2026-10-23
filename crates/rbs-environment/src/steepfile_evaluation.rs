@@ -100,7 +100,8 @@ pub fn evaluate_steepfile(
 }
 
 fn configuration_of(workspace_path: &Path, evaluated: EvaluatedSteepfile) -> SteepfileConfiguration {
-    let paths = |patterns: &[String]| -> Vec<PathBuf> { patterns.iter().map(|pattern| workspace_path.join(pattern)).collect() };
+    let paths =
+        |patterns: &[String]| -> Vec<PathBuf> { patterns.iter().map(|pattern| workspace_path.join(pattern)).collect() };
     let lockfile = |config: &Option<serde_yaml::Value>| match config {
         Some(serde_yaml::Value::String(path)) => Some(collection_lockfile_path(&workspace_path.join(path))),
         _ => None,

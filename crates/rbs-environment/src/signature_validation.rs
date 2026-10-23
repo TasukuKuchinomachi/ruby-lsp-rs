@@ -125,7 +125,9 @@ pub fn annotation_syntax_error_message(source: &str, syntax: AnnotationSyntax) -
             None
         } else {
             (*parser).error.as_ref().map(|error| {
-                let token_name = std::ffi::CStr::from_ptr(rbs_token_type_str(error.token.type_)).to_string_lossy().into_owned();
+                let token_name = std::ffi::CStr::from_ptr(rbs_token_type_str(error.token.type_))
+                    .to_string_lossy()
+                    .into_owned();
                 let start = (error.token.range.start.byte_pos.max(0) as usize).min(source.len());
                 let end = (error.token.range.end.byte_pos.max(0) as usize).clamp(start, source.len());
                 let token_source = source.get(start..end).unwrap_or_default();
@@ -232,7 +234,10 @@ impl ReferenceKind {
         match self {
             ReferenceKind::SuperClass { .. } => Some(AncestorStep::SuperClass),
             ReferenceKind::ModuleSelfType => Some(AncestorStep::SelfType),
-            ReferenceKind::Mixin { kind: MixinKind::Extend, .. } => Some(AncestorStep::Extend),
+            ReferenceKind::Mixin {
+                kind: MixinKind::Extend,
+                ..
+            } => Some(AncestorStep::Extend),
             ReferenceKind::Mixin { .. } => Some(AncestorStep::InstanceMixin),
             ReferenceKind::InterfaceInclude => Some(AncestorStep::InterfaceInclude),
             _ => None,
@@ -499,8 +504,11 @@ impl FileValidator<'_> {
             let first_new_diagnostic = diagnostics.len();
             self.validate_reference(reference, &mut diagnostics);
             if let Some(step) = reference.kind.ancestor_step() {
-                ancestor_keys
-                    .extend(diagnostics[first_new_diagnostic..].iter().map(|diagnostic| (diagnostic_key(diagnostic), step)));
+                ancestor_keys.extend(
+                    diagnostics[first_new_diagnostic..]
+                        .iter()
+                        .map(|diagnostic| (diagnostic_key(diagnostic), step)),
+                );
             }
         }
         for declaration in &validation.declarations {
@@ -509,7 +517,10 @@ impl FileValidator<'_> {
         for method_alias in &validation.method_aliases {
             self.validate_method_alias(method_alias, &mut diagnostics);
         }
-        diagnostics.extend(crate::definition_validation::validate_definitions(self.environment, validation));
+        diagnostics.extend(crate::definition_validation::validate_definitions(
+            self.environment,
+            validation,
+        ));
         (diagnostics, ancestor_keys)
     }
 

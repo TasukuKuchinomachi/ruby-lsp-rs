@@ -5,10 +5,10 @@ use ruby_prism::{Node, ParametersNode};
 
 use super::variables::IT_PARAMETER_KEY;
 use super::{Checker, Context, Locals};
-use crate::{Severity, TypeHintKind};
 use crate::annotations::AnnotationTarget;
 use crate::source::{Span, constant_text};
 use crate::type_utilities::{array_of, hash_of, is_bottom};
+use crate::{Severity, TypeHintKind};
 
 pub(crate) struct BlockSignature {
     pub(crate) function: Option<Function>,
@@ -168,7 +168,10 @@ impl<'pr> Checker<'_, 'pr> {
             block_context.self_type = annotated_self;
         }
         // Steep's `for_block`: `break` may also give the annotated type, which the call then returns too
-        let break_type = match (self.annotated_break_type(scope_start, &context.nesting), &signature.break_type) {
+        let break_type = match (
+            self.annotated_break_type(scope_start, &context.nesting),
+            &signature.break_type,
+        ) {
             (Some(annotated), Some(declared)) => Some(Type::union(vec![declared.clone(), annotated])),
             (annotated, declared) => annotated.or_else(|| declared.clone()),
         };
@@ -201,14 +204,19 @@ impl<'pr> Checker<'_, 'pr> {
             })
             .collect();
         if let Some((block_parameter_name, block_parameter_span)) = block_parameter_info
-            && let Some((_, annotated_type)) = annotated_parameters.iter().find(|(name, _)| *name == block_parameter_name)
+            && let Some((_, annotated_type)) = annotated_parameters
+                .iter()
+                .find(|(name, _)| *name == block_parameter_name)
             && !is_proc_or_optional_proc(&self.expand_alias_deeply(annotated_type, 0))
         {
             self.record_diagnostic(
                 block_parameter_span,
                 Severity::Error,
                 "Ruby::ProcTypeExpected",
-                format!("Proc type is expected but `{}` is specified", annotated_type.steep_display()),
+                format!(
+                    "Proc type is expected but `{}` is specified",
+                    annotated_type.steep_display()
+                ),
             );
         }
         parameter_locals.extend(annotated_parameters);

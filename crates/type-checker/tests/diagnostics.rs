@@ -567,10 +567,7 @@ end
             "Type `::Greeter` does not have method `no_such_method`",
         ]
     );
-    assert_eq!(
-        checked.diagnostic_text("Ruby::UnreachableBranch"),
-        Some("if")
-    );
+    assert_eq!(checked.diagnostic_text("Ruby::UnreachableBranch"), Some("if"));
 }
 
 #[test]

@@ -7,9 +7,9 @@ use crate::definition_validation::{
 use crate::environment::{Ancestor, ClassKind, Environment, Location, MethodKind};
 use crate::signature_validation::{
     AncestorStep, DUPLICATED_DECLARATION, DUPLICATED_METHOD_DEFINITION, GENERIC_PARAMETER_MISMATCH,
-    INVALID_METHOD_OVERLOAD, INVALID_TYPE_APPLICATION, SUPERCLASS_MISMATCH, SYNTAX_ERROR,
-    SignatureDiagnostic, UNKNOWN_METHOD_ALIAS, UNKNOWN_TYPE_NAME, ValidationMember, ValidationOwner,
-    ValidationScope, absolute_name, diagnostic_key,
+    INVALID_METHOD_OVERLOAD, INVALID_TYPE_APPLICATION, SUPERCLASS_MISMATCH, SYNTAX_ERROR, SignatureDiagnostic,
+    UNKNOWN_METHOD_ALIAS, UNKNOWN_TYPE_NAME, ValidationMember, ValidationOwner, ValidationScope, absolute_name,
+    diagnostic_key,
 };
 use crate::types::{MethodType, Type, TypeName};
 
@@ -124,8 +124,11 @@ impl Environment {
     /// `Services::SignatureService`: a syntax error hides the other problems, then the errors of loading the
     /// declarations, then those of loading the ancestors, and only without any of them the validator runs
     pub fn steep_compatible_signature_diagnostics(&self) -> Vec<SignatureDiagnostic> {
-        let syntax_errors: Vec<&SignatureDiagnostic> =
-            self.signature_diagnostics.iter().filter(|diagnostic| diagnostic.code == SYNTAX_ERROR).collect();
+        let syntax_errors: Vec<&SignatureDiagnostic> = self
+            .signature_diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == SYNTAX_ERROR)
+            .collect();
         if !syntax_errors.is_empty() {
             return syntax_errors.into_iter().cloned().collect();
         }
@@ -145,7 +148,9 @@ impl Environment {
 
     /// Whether Steep fails to load the signatures, in which case it type checks no Ruby file of the target
     pub fn steep_fails_to_load_signatures(&self) -> bool {
-        self.signature_diagnostics.iter().any(|diagnostic| diagnostic.code == SYNTAX_ERROR)
+        self.signature_diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == SYNTAX_ERROR)
             || !self.loading_errors().is_empty()
             || !self.ancestor_errors().is_empty()
     }
@@ -190,7 +195,10 @@ impl Environment {
         for steps in steps_of_owner.values_mut() {
             steps.sort_by_key(|(step, diagnostic)| (*step, diagnostic.start.line, diagnostic.start.byte_column));
             let first_of = |accepted: &[AncestorStep]| {
-                steps.iter().find(|(step, _)| step.is_none_or(|step| accepted.contains(&step))).map(|(_, diagnostic)| *diagnostic)
+                steps
+                    .iter()
+                    .find(|(step, _)| step.is_none_or(|step| accepted.contains(&step)))
+                    .map(|(_, diagnostic)| *diagnostic)
             };
             errors.extend(first_of(&[
                 AncestorStep::SuperClass,
@@ -201,7 +209,11 @@ impl Environment {
             errors.extend(first_of(&[AncestorStep::SuperClass, AncestorStep::Extend]));
         }
         errors.sort_by(|left, right| {
-            (&left.path, left.start.line, left.start.byte_column).cmp(&(&right.path, right.start.line, right.start.byte_column))
+            (&left.path, left.start.line, left.start.byte_column).cmp(&(
+                &right.path,
+                right.start.line,
+                right.start.byte_column,
+            ))
         });
         let mut seen = HashSet::new();
         errors
