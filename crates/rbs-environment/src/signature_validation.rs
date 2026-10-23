@@ -167,6 +167,9 @@ pub(crate) struct TypeReference {
     pub(crate) written_name: String,
     pub(crate) argument_count: usize,
     pub(crate) location: Location,
+    /// RBS resolves the names in inline declarations before validating them and makes a name it cannot resolve
+    /// absolute, so the message shows `::Name` for `Name`
+    pub(crate) unknown_name_shown_absolute: bool,
 }
 
 pub(crate) struct DeclarationRecord {
@@ -387,11 +390,16 @@ impl FileValidator<'_> {
         reference: &TypeReference,
         diagnostics: &mut Vec<SignatureDiagnostic>,
     ) {
+        let shown_name = if reference.unknown_name_shown_absolute {
+            absolute_name(&reference.written_name)
+        } else {
+            reference.written_name.clone()
+        };
         let unknown = |location: &Location| {
             SignatureDiagnostic::new(
                 location,
                 UNKNOWN_TYPE_NAME,
-                format!("Cannot find type `{}`", reference.written_name),
+                format!("Cannot find type `{shown_name}`"),
             )
         };
         let interface_or_class = interface_or_class(&reference.written_name);

@@ -9,7 +9,9 @@ use rbs_environment::{
     DiagnosticConfiguration, Environment, Literal, Location, MethodType, SignatureDiagnostic, SourcePosition,
     SteepfileConfiguration, Type, TypeName, WorkspaceSources,
 };
-use ruby_type_check::project::{self, LoadedEnvironment, code_diagnostics_for, configured_diagnostics, is_signature_path};
+use ruby_type_check::project::{
+    self, LoadedEnvironment, code_diagnostics_for, configured_diagnostics, is_inline_source_path, is_signature_path,
+};
 use serde_json::{Value, json};
 use type_checker::{Analysis, AnalysisOptions, HoverEntry, HoverKind, Severity, TypeHint, TypeHintKind};
 
@@ -164,6 +166,17 @@ pub fn signature_diagnostics(environment: &Environment, path: &Path, source: &st
             .cloned()
             .collect(),
     };
+    signature_diagnostic_values(&diagnostics, encoding)
+}
+
+/// The problems of the inline RBS declarations in a Ruby file. They come from the environment, which reads the saved
+/// file and is reloaded when it is saved
+pub fn inline_signature_diagnostics(environment: &Environment, path: &Path, encoding: Encoding) -> Vec<Value> {
+    let diagnostics: Vec<SignatureDiagnostic> = environment.signature_diagnostics_for(path).cloned().collect();
+    signature_diagnostic_values(&diagnostics, encoding)
+}
+
+fn signature_diagnostic_values(diagnostics: &[SignatureDiagnostic], encoding: Encoding) -> Vec<Value> {
     diagnostics
         .iter()
         .map(|diagnostic| {
@@ -211,6 +224,10 @@ impl TypeCheckingState {
 
     pub fn is_signature_path(&self, workspace_path: &Path, path: &Path) -> bool {
         is_signature_path(workspace_path, self.steepfile.as_ref(), path)
+    }
+
+    pub fn is_inline_source_path(&self, workspace_path: &Path, path: &Path) -> bool {
+        is_inline_source_path(workspace_path, self.steepfile.as_ref(), path)
     }
 
     pub fn analysis_for(&mut self, document: &Document) -> Option<Arc<Analysis>> {

@@ -70,6 +70,8 @@ fn read_steepfile_merges_every_target() {
             ],
             check_paths: vec![root.join("lib"), root.join("test")],
             ignore_paths: vec![root.join("lib/generated")],
+            inline_check_paths: Vec::new(),
+            inline_ignore_paths: Vec::new(),
             libraries: vec![
                 "set".to_string(),
                 "pathname".to_string(),
@@ -81,6 +83,8 @@ fn read_steepfile_merges_every_target() {
                     name: "lib".to_string(),
                     check_paths: vec![root.join("lib")],
                     ignore_paths: vec![root.join("lib/generated")],
+                    inline_check_paths: Vec::new(),
+                    inline_ignore_paths: Vec::new(),
                     code_diagnostics: strict_with_information_no_method(),
                     groups: Vec::new(),
                 },
@@ -88,6 +92,8 @@ fn read_steepfile_merges_every_target() {
                     name: "test".to_string(),
                     check_paths: vec![root.join("test")],
                     ignore_paths: Vec::new(),
+                    inline_check_paths: Vec::new(),
+                    inline_ignore_paths: Vec::new(),
                     code_diagnostics: DiagnosticConfiguration::default(),
                     groups: Vec::new(),
                 },
@@ -253,6 +259,8 @@ end
                 name: "app".to_string(),
                 check_paths: vec![root.join("app")],
                 ignore_paths: vec![root.join("app/generated")],
+                inline_check_paths: Vec::new(),
+                inline_ignore_paths: Vec::new(),
                 code_diagnostics: DiagnosticConfiguration::from_template(
                     DiagnosticTemplate::Strict
                 ),
@@ -261,12 +269,16 @@ end
                         name: "legacy".to_string(),
                         check_paths: vec![root.join("app/legacy")],
                         ignore_paths: Vec::new(),
+                        inline_check_paths: Vec::new(),
+                        inline_ignore_paths: Vec::new(),
                         code_diagnostics: legacy,
                     },
                     SteepfileGroup {
                         name: "plain".to_string(),
                         check_paths: vec![root.join("app/plain")],
                         ignore_paths: Vec::new(),
+                        inline_check_paths: Vec::new(),
+                        inline_ignore_paths: Vec::new(),
                         code_diagnostics: DiagnosticConfiguration::from_template(
                             DiagnosticTemplate::Strict
                         ),
@@ -277,6 +289,8 @@ end
                 name: "test".to_string(),
                 check_paths: vec![root.join("test")],
                 ignore_paths: Vec::new(),
+                inline_check_paths: Vec::new(),
+                inline_ignore_paths: Vec::new(),
                 code_diagnostics: DiagnosticConfiguration::from_template(
                     DiagnosticTemplate::Lenient
                 ),
@@ -363,6 +377,89 @@ end
             ("follows".to_string(), strict.clone()),
             ("reset".to_string(), strict),
         ]
+    );
+}
+
+#[test]
+fn read_steepfile_reads_inline_patterns_apart_from_the_others() {
+    let workspace = TemporaryDirectory::new("steepfile-inline");
+    workspace.write(
+        "Steepfile",
+        r#"
+target :app do
+  check "app"
+  check "lib", inline: true
+  ignore "lib/generated", inline: true
+
+  group :models do
+    check "app/models", inline: true
+  end
+end
+"#,
+    );
+    let root = &workspace.path;
+    let configuration = read_steepfile(root).unwrap();
+    assert_eq!(configuration.check_paths, vec![root.join("app")]);
+    assert_eq!(
+        configuration.inline_check_paths,
+        vec![root.join("lib"), root.join("app/models")]
+    );
+    let target = &configuration.targets[0];
+    assert_eq!(target.check_paths, vec![root.join("app")]);
+    assert_eq!(target.inline_check_paths, vec![root.join("lib")]);
+    assert_eq!(target.inline_ignore_paths, vec![root.join("lib/generated")]);
+    assert_eq!(target.groups[0].check_paths, Vec::<PathBuf>::new());
+    assert_eq!(
+        target.groups[0].inline_check_paths,
+        vec![root.join("app/models")]
+    );
+}
+
+#[test]
+fn load_workspace_reads_inline_declarations_from_the_inline_patterns() {
+    let workspace = TemporaryDirectory::new("inline-workspace");
+    workspace.write(
+        "Steepfile",
+        "target :app do\n  check \"lib\", inline: true\n  ignore \"lib/generated\", inline: true\nend\n",
+    );
+    workspace.write(
+        "lib/greeter.rb",
+        "class Greeter\n  # @rbs (String) -> String\n  def greet(name) = name\n\n  # @rbs (String\n  def broken(name) = name\nend\n",
+    );
+    workspace.write("lib/generated/ignored.rb", "class Ignored\nend\n");
+    workspace.write("app/plain.rb", "class Plain\nend\n");
+    let rbs_gem = TemporaryDirectory::new("inline-workspace-rbs-gem");
+    write_fake_rbs_gem(&rbs_gem);
+    let sources = WorkspaceSources {
+        core_directory: Some(rbs_gem.path.join("core")),
+        ..WorkspaceSources::default()
+    };
+    let environment = load_workspace(&workspace.path, &sources);
+
+    assert!(environment.classes.contains_key("Greeter"));
+    assert!(!environment.classes.contains_key("Ignored"));
+    assert!(!environment.classes.contains_key("Plain"));
+    let messages: Vec<(&Path, u32, &str, &str)> = environment
+        .signature_diagnostics
+        .iter()
+        .map(|diagnostic| {
+            (
+                diagnostic.path.as_path(),
+                diagnostic.start.line,
+                diagnostic.code,
+                diagnostic.message.as_str(),
+            )
+        })
+        .collect();
+    let greeter_path = workspace.path.join("lib/greeter.rb");
+    assert_eq!(
+        messages,
+        vec![(
+            greeter_path.as_path(),
+            4,
+            "RBS::InlineDiagnostic",
+            "Syntax error: unexpected token for function parameter name"
+        )]
     );
 }
 

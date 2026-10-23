@@ -76,6 +76,21 @@ end
 class DailyReport < Report
 end
 
+class TagCounter
+  def optional_count: () ?{ (String tag) -> Integer } -> Array[Integer]
+  def required_count: () { (String tag) -> Integer } -> Array[Integer]
+end
+
+interface _KeyValue[K, V]
+  def to_ary: () -> [K, V]
+end
+
+class PairMaker
+  def make: [K, V] () { (String) -> _KeyValue[K, V] } -> Hash[K, V]
+  def make_from_tuple: [K, V] () { (String) -> [K, V] } -> Hash[K, V]
+  def pair: () -> [Symbol, Integer]
+end
+
 class Uploader
   %a{pure}
   def small_file: () -> Uploader?

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+ruby-file-glob = { path = "../ruby-file-glob" }
 ruby-prism = { workspace = true }
 ruby-rbs = { workspace = true }
 ruby-rbs-sys = "0.3"

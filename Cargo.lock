@@ -371,6 +371,7 @@ dependencies = [
 name = "rbs-environment"
 version = "0.1.0"
 dependencies = [
+ "ruby-file-glob",
  "ruby-prism",
  "ruby-rbs",
  "ruby-rbs-sys",

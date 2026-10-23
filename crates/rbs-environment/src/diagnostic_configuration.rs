@@ -70,7 +70,7 @@ pub fn ruby_diagnostic_codes() -> impl Iterator<Item = &'static str> {
 
 use DiagnosticSeverity::{Error, Hint, Information, Warning};
 
-/// Transcribed from steep 2.0.0 `lib/steep/diagnostic/ruby.rb` (`Ruby.default`, `Ruby.strict`, `Ruby.lenient`). Each
+/// Transcribed from steep 2.1.0 `lib/steep/diagnostic/ruby.rb` (`Ruby.default`, `Ruby.strict`, `Ruby.lenient`). Each
 /// template there is `all_error.merge(...)`, so a code it leaves out is `:error`: that is why `Ruby::LibraryRBSError`,
 /// which `strict` does not list, is `Error` in the strict column. `silent` and `all_error` need no column
 const RUBY_DIAGNOSTIC_TEMPLATES: &[(
@@ -421,7 +421,7 @@ impl DiagnosticConfiguration {
     }
 
     /// `None` for a code Steep does not know, `Some(None)` for a disabled one. A known code missing from a partial hash
-    /// (a group given `{ D::Ruby::NoMethod => :hint }` without a block) is `Error`, because steep 2.0.0
+    /// (a group given `{ D::Ruby::NoMethod => :hint }` without a block) is `Error`, because steep 2.1.0
     /// `lib/steep/diagnostic/lsp_formatter.rb` looks severities up with `config.fetch(klass, ERROR)`
     pub fn severity(&self, code: &str) -> Option<Option<DiagnosticSeverity>> {
         match self.severities.get(code) {

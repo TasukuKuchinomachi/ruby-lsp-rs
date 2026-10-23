@@ -26,6 +26,9 @@ pub struct SteepfileConfiguration {
     pub signature_directories: Vec<PathBuf>,
     pub check_paths: Vec<PathBuf>,
     pub ignore_paths: Vec<PathBuf>,
+    /// `check ..., inline: true`: Ruby files that also declare types with inline RBS
+    pub inline_check_paths: Vec<PathBuf>,
+    pub inline_ignore_paths: Vec<PathBuf>,
     pub libraries: Vec<String>,
     pub collection_lockfile: Option<PathBuf>,
     /// In `Steepfile` order, which is the order Steep looks a file's target up in
@@ -37,6 +40,8 @@ pub struct SteepfileTarget {
     pub name: String,
     pub check_paths: Vec<PathBuf>,
     pub ignore_paths: Vec<PathBuf>,
+    pub inline_check_paths: Vec<PathBuf>,
+    pub inline_ignore_paths: Vec<PathBuf>,
     pub code_diagnostics: DiagnosticConfiguration,
     /// Looked up before the target itself, as Steep does
     pub groups: Vec<SteepfileGroup>,
@@ -47,6 +52,8 @@ pub struct SteepfileGroup {
     pub name: String,
     pub check_paths: Vec<PathBuf>,
     pub ignore_paths: Vec<PathBuf>,
+    pub inline_check_paths: Vec<PathBuf>,
+    pub inline_ignore_paths: Vec<PathBuf>,
     pub code_diagnostics: DiagnosticConfiguration,
 }
 
@@ -61,6 +68,8 @@ pub fn read_steepfile(workspace_path: &Path) -> Option<SteepfileConfiguration> {
             signature_directories: Vec::new(),
             check_paths: Vec::new(),
             ignore_paths: Vec::new(),
+            inline_check_paths: Vec::new(),
+            inline_ignore_paths: Vec::new(),
             libraries: Vec::new(),
             collection_lockfile: None,
             targets: Vec::new(),
@@ -77,6 +86,8 @@ struct GroupBuilder {
     name: String,
     check_paths: Vec<PathBuf>,
     ignore_paths: Vec<PathBuf>,
+    inline_check_paths: Vec<PathBuf>,
+    inline_ignore_paths: Vec<PathBuf>,
     code_diagnostics: Option<DiagnosticConfiguration>,
 }
 
@@ -109,14 +120,25 @@ impl Scope<'_> {
         }
     }
 
-    fn pattern_lists(&mut self) -> Option<(&mut Vec<PathBuf>, &mut Vec<PathBuf>)> {
-        match self {
-            Scope::TopLevel => None,
-            Scope::Target(builder) => Some((
+    /// The `check` and `ignore` lists of the target or group, or their `inline: true` lists
+    fn pattern_lists(&mut self, inline: bool) -> Option<(&mut Vec<PathBuf>, &mut Vec<PathBuf>)> {
+        match (self, inline) {
+            (Scope::TopLevel, _) => None,
+            (Scope::Target(builder), false) => Some((
                 &mut builder.target.check_paths,
                 &mut builder.target.ignore_paths,
             )),
-            Scope::Group { group, .. } => Some((&mut group.check_paths, &mut group.ignore_paths)),
+            (Scope::Target(builder), true) => Some((
+                &mut builder.target.inline_check_paths,
+                &mut builder.target.inline_ignore_paths,
+            )),
+            (Scope::Group { group, .. }, false) => {
+                Some((&mut group.check_paths, &mut group.ignore_paths))
+            }
+            (Scope::Group { group, .. }, true) => Some((
+                &mut group.inline_check_paths,
+                &mut group.inline_ignore_paths,
+            )),
         }
     }
 }
@@ -161,14 +183,26 @@ impl SteepfileReader<'_> {
             match call.name().as_slice() {
                 b"signature" => self.configuration.signature_directories.extend(paths()),
                 b"check" => {
-                    self.configuration.check_paths.extend(paths());
-                    if let Some((check_paths, _)) = scope.pattern_lists() {
+                    let inline = has_inline_keyword(&call);
+                    let configuration = &mut self.configuration;
+                    if inline {
+                        configuration.inline_check_paths.extend(paths());
+                    } else {
+                        configuration.check_paths.extend(paths());
+                    }
+                    if let Some((check_paths, _)) = scope.pattern_lists(inline) {
                         check_paths.extend(paths());
                     }
                 }
                 b"ignore" => {
-                    self.configuration.ignore_paths.extend(paths());
-                    if let Some((_, ignore_paths)) = scope.pattern_lists() {
+                    let inline = has_inline_keyword(&call);
+                    let configuration = &mut self.configuration;
+                    if inline {
+                        configuration.inline_ignore_paths.extend(paths());
+                    } else {
+                        configuration.ignore_paths.extend(paths());
+                    }
+                    if let Some((_, ignore_paths)) = scope.pattern_lists(inline) {
                         ignore_paths.extend(paths());
                     }
                 }
@@ -192,6 +226,8 @@ impl SteepfileReader<'_> {
                             name: arguments.first().cloned().unwrap_or_default(),
                             check_paths: Vec::new(),
                             ignore_paths: Vec::new(),
+                            inline_check_paths: Vec::new(),
+                            inline_ignore_paths: Vec::new(),
                             code_diagnostics: DiagnosticConfiguration::default(),
                             groups: Vec::new(),
                         },
@@ -207,6 +243,8 @@ impl SteepfileReader<'_> {
                             name: group.name,
                             check_paths: group.check_paths,
                             ignore_paths: group.ignore_paths,
+                            inline_check_paths: group.inline_check_paths,
+                            inline_ignore_paths: group.inline_ignore_paths,
                             code_diagnostics: group
                                 .code_diagnostics
                                 .unwrap_or_else(|| target.code_diagnostics.clone()),
@@ -223,6 +261,8 @@ impl SteepfileReader<'_> {
                         name: arguments.first().cloned().unwrap_or_default(),
                         check_paths: Vec::new(),
                         ignore_paths: Vec::new(),
+                        inline_check_paths: Vec::new(),
+                        inline_ignore_paths: Vec::new(),
                         code_diagnostics: None,
                     };
                     if let Some(block_statements) = &block_statements {
@@ -243,7 +283,7 @@ impl SteepfileReader<'_> {
         }
     }
 
-    /// Follows `TargetDSL#configure_code_diagnostics` and `GroupDSL#configure_code_diagnostics` in steep 2.0.0
+    /// Follows `TargetDSL#configure_code_diagnostics` and `GroupDSL#configure_code_diagnostics` in steep 2.1.0
     /// `lib/steep/project/dsl.rb`: a target merges the argument into its configuration (which starts as `Ruby.default`),
     /// while a group without a block replaces its configuration with the argument
     fn configure_code_diagnostics(&self, call: &ruby_prism::CallNode, scope: &mut Scope) {
@@ -428,6 +468,26 @@ fn severity_value(node: &ruby_prism::Node) -> Option<Option<DiagnosticSeverity>>
     }
     let symbol = node.as_symbol_node()?;
     DiagnosticSeverity::from_name(&String::from_utf8_lossy(symbol.unescaped())).map(Some)
+}
+
+/// `check "lib", inline: true`
+fn has_inline_keyword(call: &ruby_prism::CallNode) -> bool {
+    let Some(arguments) = call.arguments() else {
+        return false;
+    };
+    arguments.arguments().iter().any(|argument| {
+        argument.as_keyword_hash_node().is_some_and(|hash| {
+            hash.elements().iter().any(|element| {
+                element.as_assoc_node().is_some_and(|assoc| {
+                    assoc
+                        .key()
+                        .as_symbol_node()
+                        .is_some_and(|key| key.unescaped() == b"inline")
+                        && assoc.value().as_true_node().is_some()
+                })
+            })
+        })
+    })
 }
 
 fn string_arguments(call: &ruby_prism::CallNode) -> Vec<String> {
@@ -697,5 +757,136 @@ pub fn load_workspace(workspace_path: &Path, sources: &WorkspaceSources) -> Envi
             }
         }
     }
+    if let Some(configuration) = &configuration {
+        for path in inline_source_files(workspace_path, configuration) {
+            workspace_loader.loader.add_inline_file(&path);
+        }
+    }
     workspace_loader.loader.finish()
+}
+
+/// Steep's `Project::Pattern` with `ext: ".rb"`: a pattern matches the path by `File.fnmatch`, or as a directory that
+/// has the file somewhere under it
+struct SourcePattern {
+    patterns: Vec<String>,
+    ignores: Vec<String>,
+}
+
+impl SourcePattern {
+    fn new(
+        workspace_path: &Path,
+        check_paths: &[PathBuf],
+        ignore_paths: &[PathBuf],
+    ) -> SourcePattern {
+        let relative = |paths: &[PathBuf]| {
+            paths
+                .iter()
+                .map(|path| {
+                    path.strip_prefix(workspace_path)
+                        .unwrap_or(path)
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .map(|pattern| {
+                    if pattern.is_empty() {
+                        ".".to_string()
+                    } else {
+                        pattern
+                    }
+                })
+                .collect()
+        };
+        SourcePattern {
+            patterns: relative(check_paths),
+            ignores: relative(ignore_paths),
+        }
+    }
+
+    fn matches(&self, path: &str) -> bool {
+        source_pattern_matches(&self.patterns, path) && !self.ignores(path)
+    }
+
+    fn ignores(&self, path: &str) -> bool {
+        source_pattern_matches(&self.ignores, path)
+    }
+}
+
+fn source_pattern_matches(patterns: &[String], path: &str) -> bool {
+    patterns.iter().any(|pattern| {
+        let prefix = if pattern == "." || pattern == "./" {
+            String::new()
+        } else {
+            format!(
+                "{}/",
+                pattern
+                    .strip_prefix("./")
+                    .unwrap_or(pattern)
+                    .trim_end_matches('/')
+            )
+        };
+        ruby_file_glob::fnmatch(pattern, path)
+            || ruby_file_glob::fnmatch(&format!("{prefix}**/*.rb"), path)
+    })
+}
+
+/// `foo/./bar` and `./foo` as `foo/bar` and `foo`, the way `Pathname#relative_path_from` gives them
+fn normalized_relative_path(path: &str) -> String {
+    Path::new(path)
+        .components()
+        .filter(|component| !matches!(component, std::path::Component::CurDir))
+        .collect::<PathBuf>()
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// The Ruby files the `check ..., inline: true` patterns of every target and group take, as Steep's
+/// `Services::FileLoader#each_path_in_patterns` lists them
+pub fn inline_source_files(
+    workspace_path: &Path,
+    configuration: &SteepfileConfiguration,
+) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    let mut seen = HashSet::new();
+    for target in &configuration.targets {
+        let pattern_lists = target
+            .groups
+            .iter()
+            .map(|group| (&group.inline_check_paths, &group.inline_ignore_paths))
+            .chain(std::iter::once((
+                &target.inline_check_paths,
+                &target.inline_ignore_paths,
+            )));
+        for (check_paths, ignore_paths) in pattern_lists {
+            let pattern = SourcePattern::new(workspace_path, check_paths, ignore_paths);
+            for written in &pattern.patterns {
+                for matched in ruby_file_glob::glob(written, workspace_path) {
+                    let matched = normalized_relative_path(&matched);
+                    let absolute_path = workspace_path.join(&matched);
+                    if absolute_path.is_file() {
+                        if pattern.matches(&matched) && seen.insert(absolute_path.clone()) {
+                            files.push(absolute_path);
+                        }
+                        continue;
+                    }
+                    let directory_pattern = format!("{}/**/*.rb", matched.trim_end_matches('/'));
+                    let mut found: Vec<String> =
+                        ruby_file_glob::glob(&directory_pattern, workspace_path)
+                            .iter()
+                            .map(|path| normalized_relative_path(path))
+                            .collect();
+                    found.sort();
+                    for path in found {
+                        let absolute_path = workspace_path.join(&path);
+                        if absolute_path.is_file()
+                            && !pattern.ignores(&path)
+                            && seen.insert(absolute_path.clone())
+                        {
+                            files.push(absolute_path);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    files
 }

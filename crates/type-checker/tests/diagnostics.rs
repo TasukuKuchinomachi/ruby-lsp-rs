@@ -508,6 +508,32 @@ greeter.greet("b") { 1 }
 }
 
 #[test]
+fn a_symbol_block_argument_is_checked_against_the_block_return_type() {
+    let environment = environment_or_skip!();
+    let checked = support::check(
+        environment,
+        r#"
+counter = TagCounter.new
+counter.optional_count(&:size)
+counter.required_count(&:size)
+counter.optional_count(&:upcase)
+counter.required_count(&:upcase)
+"#,
+    );
+    assert_eq!(
+        checked.messages_with_code("Ruby::BlockTypeMismatch"),
+        vec![
+            "Cannot pass a value of type `^(String) -> String` as a block-pass-argument of type `^(String tag) -> Integer`",
+            "Cannot pass a value of type `^(String) -> String` as a block-pass-argument of type `^(String tag) -> Integer`",
+        ]
+    );
+    assert_eq!(
+        checked.diagnostic_text("Ruby::BlockTypeMismatch"),
+        Some("&:upcase")
+    );
+}
+
+#[test]
 fn unreachable_branches_and_unsupported_syntax_are_hints() {
     let environment = environment_or_skip!();
     let checked = support::check(
@@ -526,6 +552,37 @@ end
     assert_eq!(
         checked.diagnostic_codes(),
         vec!["Ruby::UnreachableBranch", "Ruby::UnsupportedSyntax"]
+    );
+    assert_eq!(
+        checked.diagnostic_text("Ruby::UnreachableBranch"),
+        Some("if")
+    );
+}
+
+#[test]
+fn comparing_with_a_literal_narrows_to_the_literal_when_it_can_be_a_value_of_the_type() {
+    let environment = environment_or_skip!();
+    let checked = support::check(
+        environment,
+        r#"
+name = Greeter.new("a").name
+if name == "Alice"
+  name.no_such_method
+else
+  name.no_such_method
+end
+greeter = Greeter.new("a")
+if greeter == :fatal
+  greeter
+end
+"#,
+    );
+    assert_eq!(
+        checked.messages_with_code("Ruby::NoMethod"),
+        vec![
+            "Type `\"Alice\"` does not have method `no_such_method`",
+            "Type `String` does not have method `no_such_method`",
+        ]
     );
     assert_eq!(
         checked.diagnostic_text("Ruby::UnreachableBranch"),

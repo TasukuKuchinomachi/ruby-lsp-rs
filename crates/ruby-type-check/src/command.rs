@@ -179,7 +179,7 @@ pub fn check_signatures(environment: &Environment, workspace_path: &Path, paths:
     FileResult { error_count: reported.len(), diagnostics: reported, has_unexpected_error: false }
 }
 
-/// steep 2.0.0 `Drivers::Check#print_result` fails when any diagnostic survives `--severity-level`, errors or not
+/// steep 2.1.0 `Drivers::Check#print_result` fails when any diagnostic survives `--severity-level`, errors or not
 pub fn exit_code(diagnostic_count: usize) -> i32 {
     if diagnostic_count > 0 { 1 } else { 0 }
 }
@@ -474,12 +474,16 @@ mod tests {
             signature_directories: Vec::new(),
             check_paths: vec![PathBuf::from("lib")],
             ignore_paths: vec![PathBuf::from("lib/templates")],
+            inline_check_paths: Vec::new(),
+            inline_ignore_paths: Vec::new(),
             libraries: Vec::new(),
             collection_lockfile: None,
             targets: vec![SteepfileTarget {
                 name: "lib".to_string(),
                 check_paths: vec![PathBuf::from("lib")],
                 ignore_paths: vec![PathBuf::from("lib/templates")],
+                inline_check_paths: Vec::new(),
+                inline_ignore_paths: Vec::new(),
                 code_diagnostics: DiagnosticConfiguration::default(),
                 groups: Vec::new(),
             }],

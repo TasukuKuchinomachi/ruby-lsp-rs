@@ -76,7 +76,9 @@ pub fn is_signature_path(workspace_path: &Path, steepfile: Option<&SteepfileConf
 static DEFAULT_CODE_DIAGNOSTICS: LazyLock<DiagnosticConfiguration> = LazyLock::new(DiagnosticConfiguration::default);
 
 /// The diagnostics configuration of the first group or target, in `Steepfile` order, whose `check` patterns take the
-/// file, as Steep's `Project#group_for_source_path` does. `None` when no target checks the file
+/// file, as Steep's `Project#group_for_source_path` does, or else whose `check ..., inline: true` patterns take it, as
+/// `Project#group_for_inline_source_path` does. A file an inline pattern takes is not a plain source of the same group
+/// or target. `None` when no target checks the file
 pub fn code_diagnostics_for<'a>(
     workspace_path: &Path,
     steepfile: Option<&'a SteepfileConfiguration>,
@@ -84,18 +86,53 @@ pub fn code_diagnostics_for<'a>(
 ) -> Option<&'a DiagnosticConfiguration> {
     let relative_path = path.strip_prefix(workspace_path).ok()?;
     let Some(steepfile) = steepfile else { return Some(&DEFAULT_CODE_DIAGNOSTICS) };
-    let takes = |check_paths: &[PathBuf], ignore_paths: &[PathBuf]| {
-        let matches = |pattern: &PathBuf| pattern_matches(workspace_path, pattern, relative_path);
-        check_paths.iter().any(matches) && !ignore_paths.iter().any(matches)
+    let takes = |check_paths: &[PathBuf], ignore_paths: &[PathBuf]| takes(workspace_path, relative_path, check_paths, ignore_paths);
+    let takes_as_source = |check_paths: &[PathBuf], ignore_paths: &[PathBuf], inline_check_paths: &[PathBuf], inline_ignore_paths: &[PathBuf]| {
+        takes(check_paths, ignore_paths) && !takes(inline_check_paths, inline_ignore_paths)
     };
+    let source_group = steepfile.targets.iter().find_map(|target| {
+        target
+            .groups
+            .iter()
+            .find(|group| {
+                takes_as_source(&group.check_paths, &group.ignore_paths, &group.inline_check_paths, &group.inline_ignore_paths)
+            })
+            .map(|group| &group.code_diagnostics)
+            .or_else(|| {
+                takes_as_source(&target.check_paths, &target.ignore_paths, &target.inline_check_paths, &target.inline_ignore_paths)
+                    .then_some(&target.code_diagnostics)
+            })
+    });
+    source_group.or_else(|| inline_code_diagnostics(workspace_path, steepfile, relative_path))
+}
+
+/// Whether a `check ..., inline: true` pattern of some group or target takes the file, so that the environment has the
+/// inline RBS declarations written in it
+pub fn is_inline_source_path(workspace_path: &Path, steepfile: Option<&SteepfileConfiguration>, path: &Path) -> bool {
+    let (Some(steepfile), Ok(relative_path)) = (steepfile, path.strip_prefix(workspace_path)) else { return false };
+    inline_code_diagnostics(workspace_path, steepfile, relative_path).is_some()
+}
+
+/// Steep's `Project#group_for_inline_source_path`
+fn inline_code_diagnostics<'a>(
+    workspace_path: &Path,
+    steepfile: &'a SteepfileConfiguration,
+    relative_path: &Path,
+) -> Option<&'a DiagnosticConfiguration> {
+    let takes = |check_paths: &[PathBuf], ignore_paths: &[PathBuf]| takes(workspace_path, relative_path, check_paths, ignore_paths);
     steepfile.targets.iter().find_map(|target| {
         target
             .groups
             .iter()
-            .find(|group| takes(&group.check_paths, &group.ignore_paths))
+            .find(|group| takes(&group.inline_check_paths, &group.inline_ignore_paths))
             .map(|group| &group.code_diagnostics)
-            .or_else(|| takes(&target.check_paths, &target.ignore_paths).then_some(&target.code_diagnostics))
+            .or_else(|| takes(&target.inline_check_paths, &target.inline_ignore_paths).then_some(&target.code_diagnostics))
     })
+}
+
+fn takes(workspace_path: &Path, relative_path: &Path, check_paths: &[PathBuf], ignore_paths: &[PathBuf]) -> bool {
+    let matches = |pattern: &PathBuf| pattern_matches(workspace_path, pattern, relative_path);
+    check_paths.iter().any(matches) && !ignore_paths.iter().any(matches)
 }
 
 fn pattern_matches(workspace_path: &Path, pattern: &Path, relative_path: &Path) -> bool {
@@ -163,6 +200,8 @@ mod tests {
             signature_directories: Vec::new(),
             check_paths: targets.iter().flat_map(|target| target.check_paths.clone()).collect(),
             ignore_paths: targets.iter().flat_map(|target| target.ignore_paths.clone()).collect(),
+            inline_check_paths: targets.iter().flat_map(|target| target.inline_check_paths.clone()).collect(),
+            inline_ignore_paths: targets.iter().flat_map(|target| target.inline_ignore_paths.clone()).collect(),
             libraries: Vec::new(),
             collection_lockfile: None,
             targets,
@@ -174,6 +213,8 @@ mod tests {
             name: name.to_string(),
             check_paths: check_paths.iter().map(PathBuf::from).collect(),
             ignore_paths: ignore_paths.iter().map(PathBuf::from).collect(),
+            inline_check_paths: Vec::new(),
+            inline_ignore_paths: Vec::new(),
             code_diagnostics,
             groups: Vec::new(),
         }
@@ -224,6 +265,8 @@ mod tests {
             name: "legacy".to_string(),
             check_paths: vec![PathBuf::from("app/legacy")],
             ignore_paths: Vec::new(),
+            inline_check_paths: Vec::new(),
+            inline_ignore_paths: Vec::new(),
             code_diagnostics: DiagnosticConfiguration::from_template(DiagnosticTemplate::Silent),
         });
         let steepfile = steepfile_with_targets(vec![
@@ -246,6 +289,32 @@ mod tests {
             target("jobs", &["app/jobs"], &[], DiagnosticConfiguration::default()),
         ]);
         assert!(is_checked_path(workspace, Some(&steepfile), Path::new("/workspace/app/jobs/foo_job.rb")));
+    }
+
+    #[test]
+    fn checks_inline_files_after_looking_for_the_plain_sources() {
+        let workspace = Path::new("/workspace");
+        let strict = DiagnosticConfiguration::from_template(DiagnosticTemplate::Strict);
+        let lenient = DiagnosticConfiguration::from_template(DiagnosticTemplate::Lenient);
+        let mut app = target("app", &["app"], &[], strict.clone());
+        app.inline_check_paths = vec![PathBuf::from("app/models"), PathBuf::from("lib")];
+        app.inline_ignore_paths = vec![PathBuf::from("lib/generated")];
+        let steepfile = steepfile_with_targets(vec![app, target("everything", &["."], &[], lenient.clone())]);
+        let lookup = |path: &str| code_diagnostics_for(workspace, Some(&steepfile), Path::new(path)).cloned();
+        assert_eq!(lookup("/workspace/app/controllers/users_controller.rb"), Some(strict.clone()));
+        assert_eq!(lookup("/workspace/app/models/user.rb"), Some(lenient.clone()));
+        assert_eq!(lookup("/workspace/lib/user.rb"), Some(lenient.clone()));
+
+        let mut inline_only = target("inline", &[], &[], strict.clone());
+        inline_only.inline_check_paths = vec![PathBuf::from("lib")];
+        inline_only.inline_ignore_paths = vec![PathBuf::from("lib/generated")];
+        let steepfile = steepfile_with_targets(vec![inline_only]);
+        let lookup = |path: &str| code_diagnostics_for(workspace, Some(&steepfile), Path::new(path)).cloned();
+        assert_eq!(lookup("/workspace/lib/user.rb"), Some(strict));
+        assert_eq!(lookup("/workspace/lib/generated/user.rb"), None);
+        assert!(is_inline_source_path(workspace, Some(&steepfile), Path::new("/workspace/lib/user.rb")));
+        assert!(!is_inline_source_path(workspace, Some(&steepfile), Path::new("/workspace/lib/generated/user.rb")));
+        assert!(!is_inline_source_path(workspace, None, Path::new("/workspace/lib/user.rb")));
     }
 
     #[test]

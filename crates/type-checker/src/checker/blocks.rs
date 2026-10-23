@@ -195,8 +195,19 @@ impl<'pr> Checker<'_, 'pr> {
                         .as_ref()
                         .map(|function| function.return_type.clone()),
                 });
-                let body = body.as_ref().map(prism_child_nodes::copy_node);
-                let body_type = checker.infer_optional_node(body, &block_context, iteration_locals);
+                let body_node = body.as_ref().map(prism_child_nodes::copy_node);
+                let body_type =
+                    checker.infer_optional_node(body_node, &block_context, iteration_locals);
+                let body_type = match &signature.function {
+                    Some(function) => checker.hinted_last_statement_type(
+                        body.as_ref().map(prism_child_nodes::copy_node),
+                        &function.return_type,
+                        &body_type,
+                        &block_context,
+                        iteration_locals,
+                    ),
+                    None => body_type,
+                };
                 checker.jump_expectations.pop();
                 let next_types = checker.block_next_frames.pop().unwrap_or_default();
                 (body_type, next_types)
@@ -258,7 +269,6 @@ impl<'pr> Checker<'_, 'pr> {
                     })
                     .collect()
             }
-            Node::ItParametersNode { .. } if self.options.steep_compatible => Vec::new(),
             Node::ItParametersNode { .. } => {
                 let yielded = YieldedValues::new(signature, 1);
                 locals.insert(IT_PARAMETER_KEY.to_string(), yielded.at(0));
@@ -503,12 +513,24 @@ fn lambda_parameters_function(node: &Node<'_>) -> Function {
         Node::BlockNode { .. } => node.as_block_node().and_then(|block| block.parameters()),
         _ => None,
     };
+    let untyped = || rbs_environment::Parameter::new(Type::Untyped);
+    let implicit_parameter_count = match &parameters {
+        Some(Node::NumberedParametersNode { .. }) => parameters
+            .as_ref()
+            .and_then(|parameters| parameters.as_numbered_parameters_node())
+            .map(|numbered| numbered.maximum() as usize),
+        Some(Node::ItParametersNode { .. }) => Some(1),
+        _ => None,
+    };
+    if let Some(count) = implicit_parameter_count {
+        function.required_positionals = (0..count).map(|_| untyped()).collect();
+        return function;
+    }
     let Some(parameters) =
         parameters.and_then(|parameters| parameters.as_block_parameters_node()?.parameters())
     else {
         return function;
     };
-    let untyped = || rbs_environment::Parameter::new(Type::Untyped);
     function.required_positionals = parameters.requireds().iter().map(|_| untyped()).collect();
     function.optional_positionals = parameters.optionals().iter().map(|_| untyped()).collect();
     if parameters

@@ -131,9 +131,9 @@ impl Analysis {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AnalysisOptions {
-    /// Reports what `steep check` (Steep 2.0.0) reports instead of inferring more than it does: `it` is a method call,
-    /// an instance variable without a signature is `untyped`, `proc { }` is a plain `Proc`, `$1` is `String?`, and a
-    /// node that needs the definition of a class RBS cannot build is `Ruby::UnexpectedError` and left untyped
+    /// Reports what `steep check` (Steep 2.1.0) reports instead of inferring more than it does: an instance variable
+    /// without a signature is `untyped`, `proc { }` is a plain `Proc`, `$1` is `String?`, and a node that needs the
+    /// definition of a class RBS cannot build is `Ruby::UnexpectedError` and left untyped
     pub steep_compatible: bool,
 }
 
