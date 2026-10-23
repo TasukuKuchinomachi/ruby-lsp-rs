@@ -22,4 +22,12 @@ jobs:
       - name: Install the rbs gem for core signatures
         run: gem install rbs
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace --locked
+      - run: cargo test --workspace --locked -- --skip reports_what_steep_expects_for_its_smoke_tests
+      # The test_expectations.yml of Steep 2.0.0's smoke tests are written against the signatures of rbs 4.0.2, while the
+      # indexer tests expect the latest rbs, so the smoke tests see only rbs 4.0.2 in a gem directory of their own
+      - name: Install rbs 4.0.2 for Steep's smoke tests
+        run: gem install rbs --version 4.0.2 --install-dir "$RUNNER_TEMP/rbs-4.0.2" --no-document
+      - run: cargo test --locked -p ruby-type-check --test smoke
+        env:
+          GEM_HOME: ${{ runner.temp }}/rbs-4.0.2
+          GEM_PATH: ${{ runner.temp }}/rbs-4.0.2
