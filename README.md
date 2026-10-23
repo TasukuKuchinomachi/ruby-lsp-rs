@@ -22,10 +22,12 @@ Rust で書いた Ruby の language server です。[Shopify Ruby LSP](https://g
 ## インストール
 
 ```sh
-cargo install --locked --git https://github.com/TasukuKuchinomachi/ruby-lsp-rs --tag steep-2.0.0-r1 ruby-lsp-rs ruby-type-check
+cargo install --locked --git https://github.com/TasukuKuchinomachi/ruby-lsp-rs --branch steep-2.0.0 ruby-lsp-rs ruby-type-check
 ```
 
-別の Steep に合わせたものに切り替えるときは、`--tag` を変えて同じコマンドを実行します。
+`steep-2.0.0` の branch は、Steep 2.0.0 に合わせた最新のリリースを指します。リリースの tag を push すると release.yml が進めます。別の Steep に合わせたものに切り替えるときは、`--branch` を変えて同じコマンドを実行します。
+
+branch は後から指す commit が変わるので、CI のように入れるものを固定したいときは `--tag steep-2.0.0-r1` のようにリリースの tag を指定します。
 
 ## ビルド
 
