@@ -1,6 +1,6 @@
 [package]
 name = "ruby-lsp-rs"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 
 [dependencies]
@@ -31,6 +31,9 @@ pretty_assertions = "1.4.1"
 
 [workspace]
 members = ["crates/*"]
+
+[workspace.package]
+version = "2.0.0-r1"
 
 [workspace.dependencies]
 ruby-prism = "1.9.0"

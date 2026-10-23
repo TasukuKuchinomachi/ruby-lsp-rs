@@ -13,6 +13,20 @@ Rust で書いた Ruby の language server です。[Shopify Ruby LSP](https://g
 - 対象プロジェクトの Bundler で `rbs` gem が入っていること。core と stdlib の RBS はこの gem から読み込みます
 - `Steepfile` と `sig/`、`rbs_collection.lock.yaml`（あれば読み込みます）
 
+## バージョン
+
+バージョンは `<合わせている Steep のバージョン>-r<同じ Steep に合わせたリリースの回数>` です。`2.0.0-r1` は Steep 2.0.0 に合わせた 1 回目のリリースで、tag は `steep-2.0.0-r1` です。rbs のバージョンは Steep の gemspec で決まるので、対象プロジェクトの `Gemfile.lock` にある steep のバージョンの tag を入れます。
+
+新しい Steep に合わせたリリースだけを出し、古い Steep 向けの修正は出しません。最初のリリースの `v0.1.0` は Steep 2.0.0 に合わせています。
+
+## インストール
+
+```sh
+cargo install --locked --git https://github.com/TasukuKuchinomachi/ruby-lsp-rs --tag steep-2.0.0-r1 ruby-lsp-rs ruby-type-check
+```
+
+別の Steep に合わせたものに切り替えるときは、`--tag` を変えて同じコマンドを実行します。
+
 ## ビルド
 
 ```sh
