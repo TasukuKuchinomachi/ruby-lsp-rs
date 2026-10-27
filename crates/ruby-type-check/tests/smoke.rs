@@ -44,7 +44,9 @@ impl std::fmt::Display for ExpectedDiagnostic {
 
 fn steep_smoke_directory() -> PathBuf {
     let steep_directory = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("steep-{STEEP_VERSION}"));
-    if !steep_directory.is_dir() {
+    // Not `is_dir`, because rust-cache in CI saves `target` with its directories kept and its files deleted
+    if !steep_directory.join("steep.gemspec").is_file() {
+        let _ = std::fs::remove_dir_all(&steep_directory);
         let downloading_directory = steep_directory.with_extension("downloading");
         let _ = std::fs::remove_dir_all(&downloading_directory);
         std::fs::create_dir_all(&downloading_directory).unwrap();
