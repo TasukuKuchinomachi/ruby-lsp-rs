@@ -265,6 +265,13 @@ impl PreparedCall {
         })))
     }
 
+    fn is_block_required(&self) -> bool {
+        self.overload
+            .as_ref()
+            .and_then(|overload| overload.block.as_ref())
+            .is_some_and(|block| block.required)
+    }
+
     fn block_first_parameter_type(&self) -> Option<Type> {
         let signature = self.block_signature();
         let function = signature.function?;
@@ -854,12 +861,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                     self.record_unexpected_error(*span, error);
                     (Type::Untyped, false)
                 } else {
-                    self.block_argument_result(
-                        argument_type,
-                        symbol.as_deref(),
-                        first_parameter,
-                        context,
-                    )
+                    self.block_argument_result(argument_type, symbol.as_deref(), first_parameter.clone(), context)
                 };
                 if site.reports_diagnostics
                     && let Some(expected) = primary_prepared
@@ -873,6 +875,15 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                         && self.is_certain_mismatch(argument_type, &expected)
                     {
                         Some(argument_type.clone())
+                    } else if let (Some(_), Some(first_parameter), Type::Proc(expected_proc)) =
+                        (symbol, first_parameter, &expected)
+                        && (self.options.steep_version >= SteepVersion::Version2_1
+                            || primary_prepared.as_ref().is_some_and(PreparedCall::is_block_required))
+                        && self.is_certain_mismatch(&block_type, &expected_proc.function.return_type)
+                    {
+                        let mut function = rbs_environment::Function::returning(block_type.clone());
+                        function.required_positionals = vec![rbs_environment::Parameter::new(first_parameter)];
+                        Some(Type::Proc(Box::new(rbs_environment::ProcType { function, block: None, self_type: None })))
                     } else {
                         None
                     };

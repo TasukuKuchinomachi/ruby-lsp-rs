@@ -542,6 +542,32 @@ end
 }
 
 #[test]
+fn a_symbol_block_argument_is_checked_against_the_block_return_type() {
+    let environment = environment_or_skip!();
+    let source = r#"
+counter = TagCounter.new
+counter.optional_count(&:size)
+counter.required_count(&:size)
+counter.optional_count(&:upcase)
+counter.required_count(&:upcase)
+"#;
+    let mismatch = "Cannot pass a value of type `^(::String) -> ::String` as a block-pass-argument of type `^(::String) -> ::Integer`\n  ^(::String) -> ::String <: ^(::String) -> ::Integer\n    ::String <: ::Integer\n      ::Object <: ::Integer\n        ::BasicObject <: ::Integer";
+    let checked = support::check(environment, source);
+    assert_eq!(
+        checked.messages_with_code("Ruby::BlockTypeMismatch"),
+        vec![mismatch, mismatch]
+    );
+    assert_eq!(checked.diagnostic_text("Ruby::BlockTypeMismatch"), Some("&:upcase"));
+
+    let options = AnalysisOptions {
+        steep_version: SteepVersion::Version2_0,
+        ..AnalysisOptions::default()
+    };
+    let checked = support::check_with_options(environment, source, options);
+    assert_eq!(checked.messages_with_code("Ruby::BlockTypeMismatch"), vec![mismatch]);
+}
+
+#[test]
 fn comparing_with_a_literal_narrows_to_the_equal_literal_types_in_steep_2_0() {
     let environment = environment_or_skip!();
     let checked = support::check_with_options(
