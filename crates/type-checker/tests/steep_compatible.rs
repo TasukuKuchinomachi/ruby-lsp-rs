@@ -361,14 +361,9 @@ class Clock
 end
 "#;
     let (default, compatible) = both_modes(environment, source);
-    assert_eq!(
-        compatible.messages_with_code("Ruby::IncompatibleAssignment"),
-        vec!["Cannot assign a value of type `void` to a variable of type `::String`\n  void <: ::String"]
-    );
-    assert_eq!(
-        diagnostics_with_code(&default, "Ruby::IncompatibleAssignment"),
-        Vec::<String>::new()
-    );
+    let expected = vec!["Cannot assign a value of type `void` to a variable of type `::String`\n  void <: ::String"];
+    assert_eq!(compatible.messages_with_code("Ruby::IncompatibleAssignment"), expected);
+    assert_eq!(default.messages_with_code("Ruby::IncompatibleAssignment"), expected);
 }
 
 #[test]

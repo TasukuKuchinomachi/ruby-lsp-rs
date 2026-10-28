@@ -5,6 +5,7 @@ mod constants;
 mod control_flow;
 mod definitions;
 mod expressions;
+mod hints;
 mod narrowing;
 mod variables;
 
@@ -114,8 +115,6 @@ pub(crate) struct Checker<'environment, 'pr> {
     jump_expectations: Vec<JumpExpectation>,
     /// The whole assignment being checked; Steep reports `IncompatibleAssignment` on the assignment node
     pub(crate) assignment_span: Option<Span>,
-    /// The declared type of a variable, for the call assigned to it at the span
-    pub(crate) call_hint: Option<(Span, Type)>,
     fresh_variable_count: usize,
     fully_known_cache: HashMap<String, bool>,
     repetition_depth: usize,
@@ -218,7 +217,6 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             block_next_frames: Vec::new(),
             jump_expectations: Vec::new(),
             assignment_span: None,
-            call_hint: None,
             fresh_variable_count: 0,
             fully_known_cache: HashMap::new(),
             repetition_depth: 0,
@@ -241,7 +239,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             method: None,
         };
         let mut locals = Locals::new();
-        self.infer_statements(&program.statements(), &context, &mut locals);
+        self.infer_statements(&program.statements(), None, &context, &mut locals);
         let mut seen = HashSet::new();
         self.analysis.diagnostics.retain(|diagnostic| {
             seen.insert((

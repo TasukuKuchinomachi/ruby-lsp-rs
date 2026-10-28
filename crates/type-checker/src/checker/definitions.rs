@@ -45,6 +45,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 let mut definition_locals = Locals::new();
                 self.infer_optional_node(
                     definition.body(),
+                    None,
                     &unknown_context,
                     &mut definition_locals,
                 );
@@ -201,7 +202,10 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 message,
             );
         }
-        let single_return_type = annotated_return_type.or(single_return_type);
+        // Steep's method context holds the return type with its alias expanded, which its messages show
+        let single_return_type = annotated_return_type
+            .or(single_return_type)
+            .map(|return_type| self.expand_alias_deeply(&return_type, 0));
         let block = match overloads.as_slice() {
             [overload] => overload.block.clone(),
             _ => overloads.iter().find_map(|overload| overload.block.clone()),
@@ -235,7 +239,10 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         self.instance_variable_write_frames.push(Vec::new());
         self.method_return_frames.push(Vec::new());
         let outer_jump_expectations = std::mem::take(&mut self.jump_expectations);
-        let body_type = self.infer_optional_node(definition.body(), &context, &mut locals);
+        let body_hint = single_return_type
+            .clone()
+            .filter(|declared| !matches!(declared, Type::Void));
+        let body_type = self.infer_optional_node(definition.body(), body_hint.as_ref(), &context, &mut locals);
         self.jump_expectations = outer_jump_expectations;
         let returned_types = self.method_return_frames.pop().unwrap_or_default();
         let writes = self
@@ -264,13 +271,6 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             && !matches!(declared, Type::Void)
             && method_name != "initialize"
             && self.is_certain_mismatch(&body_type, declared)
-            && self.last_statement_mismatches(
-                definition.body(),
-                declared,
-                &body_type,
-                &context,
-                &locals,
-            )
         {
             let is_setter = method_name.ends_with('=')
                 && !matches!(method_name.as_str(), "==" | "!=" | "<=" | ">=" | "===");
@@ -411,40 +411,6 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 span
             };
             self.record_diagnostic(span, severity, code, message);
-        }
-    }
-
-    fn last_statement_mismatches(
-        &mut self,
-        body: Option<Node<'pr>>,
-        declared: &Type,
-        body_type: &Type,
-        context: &Context,
-        locals: &Locals,
-    ) -> bool {
-        let hinted = self.hinted_last_statement_type(body, declared, body_type, context, locals);
-        self.is_certain_mismatch(&hinted, declared)
-    }
-
-    pub(crate) fn hinted_last_statement_type(
-        &mut self,
-        body: Option<Node<'pr>>,
-        declared: &Type,
-        body_type: &Type,
-        context: &Context,
-        locals: &Locals,
-    ) -> Type {
-        let last_statement = body.and_then(|body| match body {
-            Node::StatementsNode { .. } => body
-                .as_statements_node()
-                .and_then(|statements| statements.body().last()),
-            _ => None,
-        });
-        match last_statement {
-            Some(last_statement) => {
-                self.hinted_value_type(&last_statement, declared, body_type, context, locals, 0)
-            }
-            None => body_type.clone(),
         }
     }
 
@@ -801,7 +767,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         };
         let mut locals = Locals::new();
         let namespace_module = is_namespace_module(body.as_ref());
-        let result = self.infer_optional_node(body, &class_context, &mut locals);
+        let result = self.infer_optional_node(body, None, &class_context, &mut locals);
         if let Some(implemented) = implemented
             && !namespace_module
         {
@@ -987,6 +953,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         let mut singleton_locals = Locals::new();
         self.infer_optional_node(
             singleton_class.body(),
+            None,
             &singleton_context,
             &mut singleton_locals,
         )

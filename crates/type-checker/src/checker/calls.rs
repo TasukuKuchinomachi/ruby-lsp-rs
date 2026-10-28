@@ -10,7 +10,7 @@ use crate::file_index::FileMethod;
 use crate::source::{Span, constant_text};
 use crate::steep_relation;
 use crate::type_utilities::{
-    can_be_nil, contains_uncertain_part, contains_variable_in, hash_of, instance_type_of_class, is_bottom,
+    can_be_nil, contains_uncertain_part, contains_variable_in, instance_type_of_class, is_bottom,
     literal_class_name, members_of, remove_nil, self_instance_type,
 };
 use crate::unification::{Bindings, class_substitution};
@@ -95,7 +95,7 @@ pub(crate) struct CallSite<'pr> {
     pub(crate) expression_span: Span,
     pub(crate) send_span: Span,
     pub(crate) no_method_span: Span,
-    /// The declared type of the variable the call is assigned to, which Steep gives the call as its type hint
+    /// The type the context expects of the call, which constrains the type parameter the method returns
     pub(crate) return_hint: Option<Type>,
 }
 
@@ -200,6 +200,7 @@ impl PreparedCall {
                 .self_type
                 .as_ref()
                 .map(|self_type| self_type.substitute(&partial).substitute(&closing)),
+            body_hint: Some(block.function.return_type.substitute(&partial)),
         }
     }
 
@@ -233,14 +234,14 @@ impl PreparedCall {
                 pairs.get(positional_index)?.parameter_type.clone()
             }
         };
-        let parameter_type = &parameter_type;
         let partial = self.bindings.substitution(false);
         let closing = close_variables(self.bindings.variable_names());
-        let parameter_type = expand_aliases(
-            environment,
-            &parameter_type.substitute(&partial).substitute(&closing),
-            0,
-        );
+        let open_parameter_type = expand_aliases(environment, &parameter_type.substitute(&partial), 0);
+        let body_hint = members_of(&open_parameter_type).into_iter().find_map(|member| match member {
+            Type::Proc(proc_type) => Some(proc_type.function.return_type),
+            _ => None,
+        });
+        let parameter_type = expand_aliases(environment, &open_parameter_type.substitute(&closing), 0);
         let proc_type =
             members_of(&parameter_type)
                 .into_iter()
@@ -252,6 +253,7 @@ impl PreparedCall {
             function: Some(proc_type.function),
             self_type: proc_type.self_type,
             break_type: None,
+            body_hint,
         })
     }
 
@@ -417,7 +419,13 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         None
     }
 
-    pub(crate) fn infer_call(&mut self, call: &CallNode<'pr>, context: &Context, locals: &mut Locals) -> Type {
+    pub(crate) fn infer_call(
+        &mut self,
+        call: &CallNode<'pr>,
+        hint: Option<&Type>,
+        context: &Context,
+        locals: &mut Locals,
+    ) -> Type {
         let method_name = constant_text(&call.name());
         let receiver = call.receiver();
         let block_node = call.block();
@@ -430,7 +438,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 .filter(|block| matches!(block, Node::BlockNode { .. }))
         {
             self.infer_arguments(call.arguments(), context, locals);
-            return self.infer_lambda(block, context, locals);
+            return self.infer_lambda(block, hint, context, locals);
         }
         // The parser gem Steep uses reads `/regexp/ =~ value` as `match_with_lvasgn`, which Steep types as `untyped`
         // without looking the method up
@@ -446,7 +454,8 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         }
         let receiver_type = match &receiver {
             Some(receiver) => {
-                let receiver_type = self.infer(receiver, context, locals);
+                let receiver_hint = self.receiver_hint(receiver, &method_name, hint);
+                let receiver_type = self.infer_with_hint(receiver, receiver_hint, context, locals);
                 self.record_receiver(Span::of_node(receiver), &receiver_type);
                 receiver_type
             }
@@ -491,10 +500,6 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             _ => name_span,
         };
         let is_safe_navigation = call.is_safe_navigation();
-        let return_hint = self
-            .call_hint
-            .take_if(|(hinted_span, _)| *hinted_span == call_span)
-            .map(|(_, hint)| hint);
         let dispatch_receiver = if is_safe_navigation {
             remove_nil(&receiver_type)
         } else {
@@ -512,7 +517,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             expression_span: call_span,
             send_span,
             no_method_span,
-            return_hint,
+            return_hint: hint.cloned(),
         };
         if receiver_type.is_untyped()
             && let Some(arguments_node) = call.arguments()
@@ -568,13 +573,6 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         {
             result = element;
         }
-        if self.options.steep_version >= SteepVersion::Version2_1
-            && let Type::Tuple(elements) = &structural_receiver
-            && method_name == "to_ary"
-            && arguments.values.is_empty()
-        {
-            result = Type::Tuple(elements.clone());
-        }
         if method_name == "class"
             && arguments.values.is_empty()
             && matches!(&result, Type::ClassInstance { name, .. } if name == "Class")
@@ -594,6 +592,31 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             self.record_attribute_hints(call, &method_name, context);
         }
         result
+    }
+
+    /// Steep gives a receiver no hint, so `[{ name: "a" }].freeze` stays an array of hashes. Beyond Steep, the
+    /// default mode hints a collection literal with the hint of a call that returns the receiver itself
+    fn receiver_hint<'hint>(
+        &self,
+        receiver: &Node<'pr>,
+        method_name: &str,
+        hint: Option<&'hint Type>,
+    ) -> Option<&'hint Type> {
+        if self.options.steep_compatible {
+            return None;
+        }
+        let class_name = match receiver {
+            Node::ArrayNode { .. } => "Array",
+            Node::HashNode { .. } => "Hash",
+            _ => return None,
+        };
+        let method = self.environment.find_instance_method(class_name, method_name)?;
+        let returns_receiver = !method.overloads.is_empty()
+            && method
+                .overloads
+                .iter()
+                .all(|overload| matches!(overload.function.return_type, Type::SelfType));
+        if returns_receiver { hint } else { None }
     }
 
     /// Why Steep cannot build the definition it looks the method up in, when the receiver is an instance or the
@@ -1394,8 +1417,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 } else {
                     Type::union(elements.clone())
                 };
-                let array = Type::generic("Array", vec![element.clone()]);
-                self.lookup_instance("Array", &[element], &array, method_name, context, depth)
+                self.lookup_instance("Array", &[element], member, method_name, context, depth)
             }
             Type::Record(fields) => {
                 let value = Type::union(
@@ -1404,11 +1426,10 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                         .map(|field| field.field_type.clone())
                         .collect(),
                 );
-                let hash = hash_of(Type::instance("Symbol"), value.clone());
                 self.lookup_instance(
                     "Hash",
                     &[Type::instance("Symbol"), value],
-                    &hash,
+                    member,
                     method_name,
                     context,
                     depth,

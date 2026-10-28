@@ -39,29 +39,7 @@ impl Certainty {
 const MAXIMUM_DEPTH: usize = 24;
 
 pub(crate) fn is_subtype(environment: &Environment, subtype: &Type, supertype: &Type) -> Certainty {
-    let rules = Rules {
-        strict_collections: false,
-    };
-    check(environment, rules, subtype, supertype, 0)
-}
-
-/// Like `is_subtype`, but `Array` and `Hash` are certainly not tuples or records, as in Steep. The default leaves that
-/// undecided because this checker gives a literal the tuple or record type Steep would infer from the expected type
-/// in fewer places than Steep does
-pub(crate) fn is_subtype_with_strict_collections(
-    environment: &Environment,
-    subtype: &Type,
-    supertype: &Type,
-) -> Certainty {
-    let rules = Rules {
-        strict_collections: true,
-    };
-    check(environment, rules, subtype, supertype, 0)
-}
-
-#[derive(Clone, Copy)]
-struct Rules {
-    strict_collections: bool,
+    check(environment, subtype, supertype, 0)
 }
 
 pub(crate) fn is_fully_known_class(environment: &Environment, name: &str) -> bool {
@@ -78,7 +56,7 @@ pub(crate) fn is_fully_known_class(environment: &Environment, name: &str) -> boo
     })
 }
 
-fn check(environment: &Environment, rules: Rules, subtype: &Type, supertype: &Type, depth: usize) -> Certainty {
+fn check(environment: &Environment, subtype: &Type, supertype: &Type, depth: usize) -> Certainty {
     if depth > MAXIMUM_DEPTH {
         return Certainty::Unknown;
     }
@@ -90,32 +68,32 @@ fn check(environment: &Environment, rules: Rules, subtype: &Type, supertype: &Ty
         (_, Type::Untyped | Type::Top | Type::Void) => Certainty::Yes,
         (Type::Untyped | Type::Bottom, _) => Certainty::Yes,
         (Type::Alias { name, arguments }, _) => match environment.expand_alias(name, arguments) {
-            Some(expanded) => check(environment, rules, &expanded, supertype, next),
+            Some(expanded) => check(environment, &expanded, supertype, next),
             None => Certainty::Unknown,
         },
         (_, Type::Alias { name, arguments }) => match environment.expand_alias(name, arguments) {
-            Some(expanded) => check(environment, rules, subtype, &expanded, next),
+            Some(expanded) => check(environment, subtype, &expanded, next),
             None => Certainty::Unknown,
         },
         (Type::Union(members), _) => Certainty::all(
             members
                 .iter()
-                .map(|member| check(environment, rules, member, supertype, next)),
+                .map(|member| check(environment, member, supertype, next)),
         ),
         (_, Type::Union(members)) => Certainty::any(
             members
                 .iter()
-                .map(|member| check(environment, rules, subtype, member, next)),
+                .map(|member| check(environment, subtype, member, next)),
         ),
         (_, Type::Intersection(members)) => Certainty::all(
             members
                 .iter()
-                .map(|member| check(environment, rules, subtype, member, next)),
+                .map(|member| check(environment, subtype, member, next)),
         ),
         (Type::Intersection(members), _) => {
             if members
                 .iter()
-                .any(|member| check(environment, rules, member, supertype, next) == Certainty::Yes)
+                .any(|member| check(environment, member, supertype, next) == Certainty::Yes)
             {
                 Certainty::Yes
             } else {
@@ -143,10 +121,9 @@ fn check(environment: &Environment, rules: Rules, subtype: &Type, supertype: &Ty
         {
             Certainty::No
         }
-        (Type::Top, _) => Certainty::No,
+        (Type::Top | Type::Void, _) => Certainty::No,
         (
-            Type::Void
-            | Type::Variable(_)
+            Type::Variable(_)
             | Type::SelfType
             | Type::Instance
             | Type::Class
@@ -200,7 +177,6 @@ fn check(environment: &Environment, rules: Rules, subtype: &Type, supertype: &Ty
         },
         (Type::Literal(literal), _) => check(
             environment,
-            rules,
             &Type::instance(literal_class_name(literal)),
             supertype,
             next,
@@ -222,14 +198,12 @@ fn check(environment: &Environment, rules: Rules, subtype: &Type, supertype: &Ty
         (Type::Bool, _) => Certainty::all([
             check(
                 environment,
-                rules,
                 &Type::instance("TrueClass"),
                 supertype,
                 next,
             ),
             check(
                 environment,
-                rules,
                 &Type::instance("FalseClass"),
                 supertype,
                 next,
@@ -237,7 +211,6 @@ fn check(environment: &Environment, rules: Rules, subtype: &Type, supertype: &Ty
         ]),
         (Type::Nil, _) => check(
             environment,
-            rules,
             &Type::instance("NilClass"),
             supertype,
             next,
@@ -249,13 +222,12 @@ fn check(environment: &Environment, rules: Rules, subtype: &Type, supertype: &Ty
                 Certainty::all(
                     left.iter()
                         .zip(right)
-                        .map(|(left, right)| check(environment, rules, left, right, next)),
+                        .map(|(left, right)| check(environment, left, right, next)),
                 )
             }
         }
         (Type::Tuple(elements), _) => check(
             environment,
-            rules,
             &array_of(Type::union(elements.clone())),
             supertype,
             next,
@@ -268,8 +240,8 @@ fn check(environment: &Environment, rules: Rules, subtype: &Type, supertype: &Ty
             }
             Certainty::all(supertype_fields.iter().filter_map(|supertype_field| {
                 match (fields.iter().find(|field| field.name == supertype_field.name), supertype_field.required) {
-                    (Some(field), _) => Some(check(environment, rules, &field.field_type, &supertype_field.field_type, next)),
-                    (None, true) => Some(check(environment, rules, &Type::Nil, &supertype_field.field_type, next)),
+                    (Some(field), _) => Some(check(environment, &field.field_type, &supertype_field.field_type, next)),
+                    (None, true) => Some(check(environment, &Type::Nil, &supertype_field.field_type, next)),
                     (None, false) => None,
                 }
             }))
@@ -283,7 +255,6 @@ fn check(environment: &Environment, rules: Rules, subtype: &Type, supertype: &Ty
             );
             check(
                 environment,
-                rules,
                 &hash_of(Type::instance("Symbol"), value_type),
                 supertype,
                 next,
@@ -291,25 +262,13 @@ fn check(environment: &Environment, rules: Rules, subtype: &Type, supertype: &Ty
         }
         (Type::Proc(subtype_proc), Type::Proc(supertype_proc)) => proc_check(
             environment,
-            rules,
             &subtype_proc.function,
             &supertype_proc.function,
             next,
         ),
-        (Type::Proc(_), _) => check(environment, rules, &Type::instance("Proc"), supertype, next),
+        (Type::Proc(_), _) => check(environment, &Type::instance("Proc"), supertype, next),
+        // An `Array`, `Hash` or `Proc` instance is no tuple, record or proc type, even when its contents would fit
         (_, Type::Tuple(_) | Type::Record(_) | Type::Proc(_)) => match subtype {
-            Type::ClassInstance { name, .. }
-                if rules.strict_collections
-                    && (name == "Array" && matches!(supertype, Type::Tuple(_))
-                        || name == "Hash" && matches!(supertype, Type::Record(_))) =>
-            {
-                Certainty::No
-            }
-            Type::ClassInstance { name, .. }
-                if name == "Array" || name == "Hash" || name == "Proc" =>
-            {
-                Certainty::Unknown
-            }
             Type::ClassInstance { name, .. }
                 if is_fully_known_class(environment, name) && !is_module(environment, name) =>
             {
@@ -340,7 +299,6 @@ fn check(environment: &Environment, rules: Rules, subtype: &Type, supertype: &Ty
             };
             nominal(
                 environment,
-                rules,
                 metaclass,
                 &[],
                 supertype_name,
@@ -363,7 +321,6 @@ fn check(environment: &Environment, rules: Rules, subtype: &Type, supertype: &Ty
             },
         ) => nominal(
             environment,
-            rules,
             name,
             arguments,
             supertype_name,
@@ -402,7 +359,6 @@ fn is_ancestor(environment: &Environment, name: &str, ancestor_name: &str) -> Op
 
 fn nominal(
     environment: &Environment,
-    rules: Rules,
     name: &str,
     arguments: &[Type],
     supertype_name: &str,
@@ -424,7 +380,7 @@ fn nominal(
             .iter()
             .zip(supertype_arguments)
             .map(|(argument, supertype_argument)| {
-                check(environment, rules, argument, supertype_argument, depth)
+                check(environment, argument, supertype_argument, depth)
             })
             .collect();
         return Certainty::all(argument_results);
@@ -496,14 +452,12 @@ fn collect_interface_method_names(
 /// contravariant), and the result must fit (covariant)
 fn proc_check(
     environment: &Environment,
-    rules: Rules,
     subtype: &rbs_environment::Function,
     supertype: &rbs_environment::Function,
     depth: usize,
 ) -> Certainty {
     let return_result = check(
         environment,
-        rules,
         &subtype.return_type,
         &supertype.return_type,
         depth,
@@ -569,7 +523,6 @@ fn proc_check(
         .map(|(subtype_parameter, supertype_parameter)| {
             check(
                 environment,
-                rules,
                 supertype_parameter,
                 subtype_parameter,
                 depth,

@@ -7,7 +7,7 @@ use crate::file_index::InstanceVariableKey;
 use crate::source::{Span, constant_text};
 use crate::steep_relation;
 use crate::type_utilities::{array_of, can_be_falsy, element_type, falsy_part, truthy_part};
-use crate::{Severity, SteepVersion, TypeHintKind};
+use crate::{Severity, TypeHintKind};
 
 pub(crate) const IT_PARAMETER_KEY: &str = "\0it";
 
@@ -38,6 +38,7 @@ impl<'pr> Checker<'_, 'pr> {
     pub(crate) fn infer_variable(
         &mut self,
         node: &Node<'pr>,
+        hint: Option<&Type>,
         context: &Context,
         locals: &mut Locals,
     ) -> Type {
@@ -49,7 +50,7 @@ impl<'pr> Checker<'_, 'pr> {
                 | Node::InstanceVariableAndWriteNode { .. }
                 | Node::InstanceVariableOperatorWriteNode { .. }
         );
-        let result = self.infer_variable_node(node, context, locals, is_assignment);
+        let result = self.infer_variable_node(node, hint, context, locals, is_assignment);
         if is_assignment {
             self.assignment_span = None;
         }
@@ -59,6 +60,7 @@ impl<'pr> Checker<'_, 'pr> {
     fn infer_variable_node(
         &mut self,
         node: &Node<'pr>,
+        hint: Option<&Type>,
         context: &Context,
         locals: &mut Locals,
         is_assignment: bool,
@@ -99,19 +101,25 @@ impl<'pr> Checker<'_, 'pr> {
                 // usual way to cast, and does not even look at the value of `__skip__ = value`
                 match name.as_str() {
                     "_" | "__any__" => {
-                        self.infer(&value, context, locals);
+                        self.infer_with_hint(&value, Some(&Type::Untyped), context, locals);
                         return Type::Untyped;
                     }
                     "__skip__" => return Type::Untyped,
                     _ => {}
                 }
-                if self.options.steep_compatible
-                    && let Some(declared) = context.declared_locals.get(&name)
-                {
-                    self.call_hint = Some((Span::of_node(&value), declared.clone()));
-                }
-                let value_type = self.infer_assigned_value(&value, context, locals);
-                self.call_hint = None;
+                // Steep's `lvasgn` hints the value with the declared type of the variable unless the context gives a
+                // hint the declared type does not fit
+                let declared = context.declared_locals.get(&name).cloned();
+                let value_hint = match (hint, &declared) {
+                    (None, declared) => declared.clone(),
+                    (Some(hint), Some(declared))
+                        if steep_relation::is_subtype(self.environment, declared, hint) =>
+                    {
+                        Some(declared.clone())
+                    }
+                    (Some(hint), _) => Some(hint.clone()),
+                };
+                let value_type = self.infer_assigned_value(&value, value_hint.as_ref(), context, locals);
                 let is_obvious = is_obvious_value(&value);
                 if is_assignment {
                     self.assignment_span = Some(Span::of_node(node));
@@ -120,7 +128,6 @@ impl<'pr> Checker<'_, 'pr> {
                     &name,
                     &write.name_loc(),
                     value_type.clone(),
-                    Some(&value),
                     is_obvious,
                     context,
                     locals,
@@ -133,7 +140,8 @@ impl<'pr> Checker<'_, 'pr> {
                 };
                 let name = constant_text(&write.name());
                 let current = locals.get(&name).cloned().unwrap_or(Type::Nil);
-                let value_type = self.infer(&write.value(), context, locals);
+                let declared = context.declared_locals.get(&name).cloned();
+                let value_type = self.infer_with_hint(&write.value(), declared.as_ref(), context, locals);
                 let combined = or_assignment_type(&current, value_type);
                 let is_obvious = is_obvious_value(&write.value());
                 if is_assignment {
@@ -143,7 +151,6 @@ impl<'pr> Checker<'_, 'pr> {
                     &name,
                     &write.name_loc(),
                     combined.clone(),
-                    None,
                     is_obvious,
                     context,
                     locals,
@@ -206,8 +213,9 @@ impl<'pr> Checker<'_, 'pr> {
                     return Type::Untyped;
                 };
                 let value = write.value();
-                let value_type = self.infer_assigned_value(&value, context, locals);
                 let name = constant_text(&write.name());
+                let declared = self.declared_instance_variable_type(&name, context);
+                let value_type = self.infer_assigned_value(&value, declared.as_ref(), context, locals);
                 if is_assignment {
                     self.assignment_span = Some(Span::of_node(node));
                 }
@@ -215,7 +223,7 @@ impl<'pr> Checker<'_, 'pr> {
                     &name,
                     &write.name_loc(),
                     value_type.clone(),
-                    Some((&value_type, &value)),
+                    Some(&value_type),
                     is_obvious_value(&value),
                     context,
                     locals,
@@ -229,7 +237,8 @@ impl<'pr> Checker<'_, 'pr> {
                 let name = constant_text(&write.name());
                 let current = self.instance_variable_read_type(&name, context, locals);
                 let value = write.value();
-                let value_type = self.infer(&value, context, locals);
+                let declared = self.declared_instance_variable_type(&name, context);
+                let value_type = self.infer_with_hint(&value, declared.as_ref(), context, locals);
                 let combined = or_assignment_type(&current, value_type.clone());
                 if is_assignment {
                     self.assignment_span = Some(Span::of_node(node));
@@ -238,7 +247,7 @@ impl<'pr> Checker<'_, 'pr> {
                     &name,
                     &write.name_loc(),
                     combined.clone(),
-                    Some((&value_type, &value)),
+                    Some(&value_type),
                     is_obvious_value(&value),
                     context,
                     locals,
@@ -256,15 +265,7 @@ impl<'pr> Checker<'_, 'pr> {
                 if is_assignment {
                     self.assignment_span = Some(Span::of_node(node));
                 }
-                let snapshot = locals.clone();
-                self.report_instance_variable_write(
-                    &name,
-                    Span::of_location(&write.name_loc()),
-                    &value_type,
-                    None,
-                    context,
-                    &snapshot,
-                );
+                self.report_instance_variable_write(&name, Span::of_location(&write.name_loc()), &value_type, context);
                 self.record_instance_variable_write(&name, value_type, context);
                 locals.insert(instance_variable_local_key(&name), combined.clone());
                 self.record_type_hover(Span::of_location(&write.name_loc()), &combined);
@@ -288,15 +289,7 @@ impl<'pr> Checker<'_, 'pr> {
                 if is_assignment {
                     self.assignment_span = Some(Span::of_node(node));
                 }
-                let snapshot = locals.clone();
-                self.report_instance_variable_write(
-                    &name,
-                    Span::of_location(&write.name_loc()),
-                    &result,
-                    None,
-                    context,
-                    &snapshot,
-                );
+                self.report_instance_variable_write(&name, Span::of_location(&write.name_loc()), &result, context);
                 self.record_instance_variable_write(&name, result.clone(), context);
                 locals.insert(instance_variable_local_key(&name), result.clone());
                 self.record_type_hover(Span::of_location(&write.name_loc()), &result);
@@ -332,7 +325,7 @@ impl<'pr> Checker<'_, 'pr> {
                 let Some(match_write) = node.as_match_write_node() else {
                     return Type::Untyped;
                 };
-                let call_type = self.infer_call(&match_write.call(), context, locals);
+                let call_type = self.infer_call(&match_write.call(), None, context, locals);
                 for target in match_write.targets().iter() {
                     self.assign_target(
                         &target,
@@ -353,26 +346,28 @@ impl<'pr> Checker<'_, 'pr> {
         }
     }
 
+    /// A `#: T` assertion hints the value with the asserted type and gives the value that type, as Steep's `assertion`
     fn infer_assigned_value(
         &mut self,
         value: &Node<'pr>,
+        hint: Option<&Type>,
         context: &Context,
         locals: &mut Locals,
     ) -> Type {
-        let value_type = self.infer(value, context, locals);
         match self.inline_assertion_for(value.location().end_offset(), &context.nesting) {
-            Some(asserted_type) => asserted_type,
-            None => value_type,
+            Some(asserted_type) => {
+                self.infer_with_hint(value, Some(&asserted_type), context, locals);
+                asserted_type
+            }
+            None => self.infer_with_hint(value, hint, context, locals),
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn assign_local(
         &mut self,
         name: &str,
         name_location: &Location<'pr>,
         value_type: Type,
-        value_node: Option<&Node<'pr>>,
         is_obvious: bool,
         context: &Context,
         locals: &mut Locals,
@@ -381,16 +376,7 @@ impl<'pr> Checker<'_, 'pr> {
         locals.remove(&fallback_local_key(name));
         let span = Span::of_location(name_location);
         if let Some(declared) = context.declared_locals.get(name).cloned() {
-            let snapshot = locals.clone();
-            self.report_incompatible_assignment(
-                span,
-                &declared,
-                &value_type,
-                value_node,
-                "a variable",
-                context,
-                &snapshot,
-            );
+            self.report_incompatible_assignment(span, &declared, &value_type, "a variable");
         }
         let variable_type = context
             .declared_locals
@@ -413,7 +399,7 @@ impl<'pr> Checker<'_, 'pr> {
         name: &str,
         name_location: &Location<'pr>,
         value_type: Type,
-        checked_value: Option<(&Type, &Node<'pr>)>,
+        checked_type: Option<&Type>,
         is_obvious: bool,
         context: &Context,
         locals: &mut Locals,
@@ -426,25 +412,7 @@ impl<'pr> Checker<'_, 'pr> {
             is_obvious,
         );
         self.record_type_hover(span, &value_type);
-        let snapshot = locals.clone();
-        match checked_value {
-            Some((checked_type, value_node)) => self.report_instance_variable_write(
-                name,
-                span,
-                checked_type,
-                Some(value_node),
-                context,
-                &snapshot,
-            ),
-            None => self.report_instance_variable_write(
-                name,
-                span,
-                &value_type,
-                None,
-                context,
-                &snapshot,
-            ),
-        }
+        self.report_instance_variable_write(name, span, checked_type.unwrap_or(&value_type), context);
         self.record_instance_variable_write(name, value_type.clone(), context);
         let flow_type = self
             .declared_instance_variable_type(name, context)
@@ -460,9 +428,7 @@ impl<'pr> Checker<'_, 'pr> {
         name: &str,
         name_span: Span,
         value_type: &Type,
-        value_node: Option<&Node<'pr>>,
         context: &Context,
-        locals: &Locals,
     ) {
         match self.declared_instance_variable_type(name, context) {
             None => self.record_diagnostic(
@@ -471,43 +437,21 @@ impl<'pr> Checker<'_, 'pr> {
                 "Ruby::UnknownInstanceVariable",
                 format!("Cannot find the declaration of instance variable: `{name}`"),
             ),
-            Some(declared) => self.report_incompatible_assignment(
-                name_span,
-                &declared,
-                value_type,
-                value_node,
-                "a variable",
-                context,
-                locals,
-            ),
+            Some(declared) => self.report_incompatible_assignment(name_span, &declared, value_type, "a variable"),
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn report_incompatible_assignment(
         &mut self,
         span: Span,
         declared: &Type,
         value_type: &Type,
-        value_node: Option<&Node<'pr>>,
         element: &str,
-        context: &Context,
-        locals: &Locals,
     ) {
-        let is_hash_for_record = value_node.is_some_and(|value_node| matches!(value_node, Node::HashNode { .. }))
-            && matches!(self.expand_alias_deeply(declared, 0), Type::Record(_));
-        if self.is_silent()
-            || !is_hash_for_record && !self.is_certain_assignment_mismatch(value_type, declared, value_node)
-        {
+        if self.is_silent() {
             return;
         }
-        let value_type = match value_node {
-            Some(value_node) => {
-                self.hinted_value_type(value_node, declared, value_type, context, locals, 0)
-            }
-            None => value_type.clone(),
-        };
-        if self.is_certain_assignment_mismatch(&value_type, declared, value_node) {
+        if self.is_certain_mismatch(value_type, declared) {
             let message = steep_relation::with_detail_lines(
                 format!(
                     "Cannot assign a value of type `{}` to {element} of type `{}`",
@@ -515,7 +459,7 @@ impl<'pr> Checker<'_, 'pr> {
                     declared.steep_display()
                 ),
                 self.environment,
-                &value_type,
+                value_type,
                 declared,
             );
             self.record_diagnostic(
@@ -524,381 +468,6 @@ impl<'pr> Checker<'_, 'pr> {
                 "Ruby::IncompatibleAssignment",
                 message,
             );
-        }
-    }
-
-    /// Tuples that `to_ary` of the hint members returns, which Steep 2.1's `try_convert` gives an array literal whose
-    /// hint has no tuple, as `[K, V]` for `Hash::_Pair[K, V]`
-    fn to_ary_tuples(&self, hint_members: &[Type]) -> Vec<Type> {
-        let mut tuples = Vec::new();
-        for member in hint_members {
-            let (Type::ClassInstance { name, arguments } | Type::Interface { name, arguments }) = member else {
-                continue;
-            };
-            let Some(method) = self.environment.find_instance_method(name, "to_ary") else {
-                continue;
-            };
-            let mut substitution = crate::unification::class_substitution(self.environment, name, arguments, member);
-            if let Some(interface) = self.environment.interfaces.get(name.as_str()) {
-                for (type_parameter, argument) in interface.type_parameters.iter().zip(arguments) {
-                    substitution
-                        .variables
-                        .insert(type_parameter.name.clone(), argument.clone());
-                }
-            }
-            let Some(overload) = method.overloads.iter().find(|overload| {
-                let function = &overload.function;
-                function.required_positionals.is_empty()
-                    && function.trailing_positionals.is_empty()
-                    && function.required_keywords.is_empty()
-            }) else {
-                continue;
-            };
-            let return_type = self.expand_alias_deeply(&overload.function.return_type.substitute(&substitution), 0);
-            tuples.extend(
-                crate::type_utilities::members_of(&return_type)
-                    .into_iter()
-                    .filter(|converted| matches!(converted, Type::Tuple(_))),
-            );
-        }
-        tuples
-    }
-
-    /// The type Steep gives a literal checked against a declared type: symbols, strings and integers become literal
-    /// types the declaration names, hashes with symbol keys become records when a record is expected, and arrays
-    /// become tuples when a tuple, or in Steep 2.1 a type whose `to_ary` returns a tuple, is expected
-    pub(crate) fn hinted_value_type(
-        &mut self,
-        node: &Node<'pr>,
-        hint: &Type,
-        fallback: &Type,
-        context: &Context,
-        locals: &Locals,
-        depth: usize,
-    ) -> Type {
-        if depth > 16 {
-            return fallback.clone();
-        }
-        let hint = self.expand_alias_deeply(hint, 0);
-        let hint_members = crate::type_utilities::members_of(&hint);
-        let literal_from_hint = |literal: rbs_environment::Literal| -> Option<Type> {
-            let literal_type = Type::Literal(literal);
-            hint_members.contains(&literal_type).then_some(literal_type)
-        };
-        let silent_type = |checker: &mut Self, node: &Node<'pr>| -> Type {
-            let mut scratch_locals = locals.clone();
-            checker
-                .silently(|checker| checker.infer(node, context, &mut scratch_locals))
-                .unwrap_or(Type::Untyped)
-        };
-        match node {
-            Node::SymbolNode { .. } => node
-                .as_symbol_node()
-                .and_then(|symbol| {
-                    literal_from_hint(rbs_environment::Literal::Symbol(crate::source::bytes_text(
-                        symbol.unescaped(),
-                    )))
-                })
-                .unwrap_or_else(|| fallback.clone()),
-            Node::StringNode { .. } => node
-                .as_string_node()
-                .and_then(|string| {
-                    literal_from_hint(rbs_environment::Literal::String(crate::source::bytes_text(
-                        string.unescaped(),
-                    )))
-                })
-                .unwrap_or_else(|| fallback.clone()),
-            Node::IntegerNode { .. } => {
-                let text = crate::source::bytes_text(node.location().as_slice()).replace('_', "");
-                literal_from_hint(rbs_environment::Literal::Integer(text))
-                    .unwrap_or_else(|| fallback.clone())
-            }
-            Node::TrueNode { .. } => literal_from_hint(rbs_environment::Literal::True)
-                .unwrap_or_else(|| fallback.clone()),
-            Node::FalseNode { .. } => literal_from_hint(rbs_environment::Literal::False)
-                .unwrap_or_else(|| fallback.clone()),
-            Node::OrNode { .. } => {
-                let Some(or) = node.as_or_node() else {
-                    return fallback.clone();
-                };
-                let (left, right) = (or.left(), or.right());
-                let left_fallback = silent_type(self, &left);
-                let right_fallback = silent_type(self, &right);
-                let left_type = self.hinted_value_type(
-                    &left,
-                    &hint,
-                    &left_fallback,
-                    context,
-                    locals,
-                    depth + 1,
-                );
-                let right_type = self.hinted_value_type(
-                    &right,
-                    &hint,
-                    &right_fallback,
-                    context,
-                    locals,
-                    depth + 1,
-                );
-                Type::union(vec![
-                    crate::type_utilities::truthy_part(&left_type),
-                    right_type,
-                ])
-            }
-            Node::ParenthesesNode { .. } => {
-                let statement = node
-                    .as_parentheses_node()
-                    .and_then(|parentheses| parentheses.body())
-                    .and_then(|body| super::narrowing::single_statement(&body));
-                match statement {
-                    Some(statement) => self.hinted_value_type(
-                        &statement,
-                        &hint,
-                        fallback,
-                        context,
-                        locals,
-                        depth + 1,
-                    ),
-                    None => fallback.clone(),
-                }
-            }
-            Node::IfNode { .. } => {
-                let Some(if_node) = node.as_if_node() else {
-                    return fallback.clone();
-                };
-                let then_last = if_node
-                    .statements()
-                    .and_then(|statements| statements.body().last());
-                let else_last = match if_node.subsequent() {
-                    Some(subsequent) => match subsequent.as_else_node() {
-                        Some(else_node) => else_node
-                            .statements()
-                            .and_then(|statements| statements.body().last()),
-                        None => Some(subsequent),
-                    },
-                    None => None,
-                };
-                let (Some(then_last), Some(else_last)) = (then_last, else_last) else {
-                    return fallback.clone();
-                };
-                let then_fallback = silent_type(self, &then_last);
-                let else_fallback = silent_type(self, &else_last);
-                Type::union(vec![
-                    self.hinted_value_type(
-                        &then_last,
-                        &hint,
-                        &then_fallback,
-                        context,
-                        locals,
-                        depth + 1,
-                    ),
-                    self.hinted_value_type(
-                        &else_last,
-                        &hint,
-                        &else_fallback,
-                        context,
-                        locals,
-                        depth + 1,
-                    ),
-                ])
-            }
-            Node::ArrayNode { .. } => {
-                let Some(array) = node.as_array_node() else {
-                    return fallback.clone();
-                };
-                let elements: Vec<Node<'pr>> = array.elements().iter().collect();
-                if elements
-                    .iter()
-                    .any(|element| matches!(element, Node::SplatNode { .. }))
-                {
-                    return fallback.clone();
-                }
-                let converted_tuples = if self.options.steep_version < SteepVersion::Version2_1
-                    || hint_members.iter().any(|member| matches!(member, Type::Tuple(_)))
-                {
-                    Vec::new()
-                } else {
-                    self.to_ary_tuples(&hint_members)
-                };
-                for member in converted_tuples.iter().chain(&hint_members) {
-                    match member {
-                        Type::ClassInstance { name, arguments }
-                            if name == "Array" && arguments.len() == 1 =>
-                        {
-                            if elements.is_empty() {
-                                return member.clone();
-                            }
-                            let element_types: Vec<Type> = elements
-                                .iter()
-                                .map(|element| {
-                                    let element_fallback = silent_type(self, element);
-                                    self.hinted_value_type(
-                                        element,
-                                        &arguments[0],
-                                        &element_fallback,
-                                        context,
-                                        locals,
-                                        depth + 1,
-                                    )
-                                })
-                                .collect();
-                            return crate::type_utilities::array_of(Type::union(element_types));
-                        }
-                        Type::Tuple(element_hints) if element_hints.len() == elements.len() => {
-                            let element_types = elements
-                                .iter()
-                                .zip(element_hints)
-                                .map(|(element, element_hint)| {
-                                    let element_fallback = silent_type(self, element);
-                                    self.hinted_value_type(
-                                        element,
-                                        element_hint,
-                                        &element_fallback,
-                                        context,
-                                        locals,
-                                        depth + 1,
-                                    )
-                                })
-                                .collect();
-                            return Type::Tuple(element_types);
-                        }
-                        _ => {}
-                    }
-                }
-                fallback.clone()
-            }
-            Node::HashNode { .. } => {
-                let Some(hash) = node.as_hash_node() else {
-                    return fallback.clone();
-                };
-                let mut entries: Vec<(Node<'pr>, Node<'pr>)> = Vec::new();
-                for element in hash.elements().iter() {
-                    let Some(association) = element.as_assoc_node() else {
-                        return fallback.clone();
-                    };
-                    entries.push((association.key(), association.value()));
-                }
-                // Steep's `type_hash_record` for a record hint: a key the record does not have is reported and kept
-                // as an optional key, so that the assignment fails
-                if let Type::Record(fields) = &hint
-                    && entries.iter().all(|(key, _)| matches!(key, Node::SymbolNode { .. }))
-                {
-                    let mut record_fields = Vec::new();
-                    for (key, value) in &entries {
-                        let Some(symbol) = key.as_symbol_node() else {
-                            return fallback.clone();
-                        };
-                        let key_name = crate::source::bytes_text(symbol.unescaped());
-                        let value_fallback = silent_type(self, value);
-                        let field = fields.iter().find(|field| field.name == key_name);
-                        let value_type = match field {
-                            Some(field) => {
-                                let hinted =
-                                    self.hinted_value_type(value, &field.field_type, &value_fallback, context, locals, depth + 1);
-                                if hinted.is_untyped() { field.field_type.clone() } else { hinted }
-                            }
-                            None => {
-                                let key_span = symbol
-                                    .value_loc()
-                                    .map(|location| Span::of_location(&location))
-                                    .unwrap_or_else(|| Span::of_node(key));
-                                self.record_diagnostic(
-                                    key_span,
-                                    Severity::Error,
-                                    "Ruby::UnknownRecordKey",
-                                    format!(
-                                        "Unknown key `{}` is given to a record type",
-                                        Type::Literal(rbs_environment::Literal::Symbol(key_name.clone())).steep_display()
-                                    ),
-                                );
-                                value_fallback
-                            }
-                        };
-                        record_fields.push(rbs_environment::RecordField {
-                            name: key_name,
-                            field_type: value_type,
-                            required: field.is_some_and(|field| field.required),
-                        });
-                    }
-                    return Type::Record(record_fields);
-                }
-                for member in &hint_members {
-                    match member {
-                        Type::Record(fields) => {
-                            let mut record_fields = Vec::new();
-                            let mut matches_record = true;
-                            for (key, value) in &entries {
-                                let Some(key_name) = key
-                                    .as_symbol_node()
-                                    .map(|symbol| crate::source::bytes_text(symbol.unescaped()))
-                                else {
-                                    matches_record = false;
-                                    break;
-                                };
-                                let Some(field) =
-                                    fields.iter().find(|field| field.name == key_name)
-                                else {
-                                    matches_record = false;
-                                    break;
-                                };
-                                let value_fallback = silent_type(self, value);
-                                let value_type = self.hinted_value_type(
-                                    value,
-                                    &field.field_type,
-                                    &value_fallback,
-                                    context,
-                                    locals,
-                                    depth + 1,
-                                );
-                                record_fields.push(rbs_environment::RecordField {
-                                    name: key_name,
-                                    field_type: value_type,
-                                    required: true,
-                                });
-                            }
-                            if matches_record {
-                                return Type::Record(record_fields);
-                            }
-                        }
-                        Type::ClassInstance { name, arguments }
-                            if name == "Hash" && arguments.len() == 2 =>
-                        {
-                            if entries.is_empty() {
-                                return member.clone();
-                            }
-                            let mut key_types = Vec::new();
-                            let mut value_types = Vec::new();
-                            for (key, value) in &entries {
-                                let key_fallback = silent_type(self, key);
-                                key_types.push(self.hinted_value_type(
-                                    key,
-                                    &arguments[0],
-                                    &key_fallback,
-                                    context,
-                                    locals,
-                                    depth + 1,
-                                ));
-                                let value_fallback = silent_type(self, value);
-                                value_types.push(self.hinted_value_type(
-                                    value,
-                                    &arguments[1],
-                                    &value_fallback,
-                                    context,
-                                    locals,
-                                    depth + 1,
-                                ));
-                            }
-                            return crate::type_utilities::hash_of(
-                                Type::union(key_types),
-                                Type::union(value_types),
-                            );
-                        }
-                        _ => {}
-                    }
-                }
-                fallback.clone()
-            }
-            _ => fallback.clone(),
         }
     }
 
@@ -1179,7 +748,6 @@ impl<'pr> Checker<'_, 'pr> {
                     &constant_text(&local.name()),
                     &target.location(),
                     assigned_type,
-                    None,
                     false,
                     context,
                     locals,

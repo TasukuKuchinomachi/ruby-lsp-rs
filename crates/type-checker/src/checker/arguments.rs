@@ -435,7 +435,7 @@ impl<'pr> Checker<'_, 'pr> {
                     let Some(splat) = element.as_assoc_splat_node() else {
                         continue;
                     };
-                    let argument_type = self.infer_optional_node(splat.value(), context, locals);
+                    let argument_type = self.infer_optional_node(splat.value(), None, context, locals);
                     call_arguments.values.push(ArgumentValue {
                         argument_type,
                         span: Span::of_node(&element),
