@@ -20,6 +20,8 @@ struct EvaluatedSteepfile {
 struct EvaluatedPatterns {
     check: Vec<String>,
     ignore: Vec<String>,
+    inline_check: Vec<String>,
+    inline_ignore: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -110,6 +112,8 @@ fn configuration_of(workspace_path: &Path, evaluated: EvaluatedSteepfile) -> Ste
         signature_patterns: Vec::new(),
         check_paths: Vec::new(),
         ignore_paths: Vec::new(),
+        inline_check_paths: Vec::new(),
+        inline_ignore_paths: Vec::new(),
         libraries: evaluated.libraries,
         collection_lockfile: lockfile(&evaluated.collection_config),
         targets: Vec::new(),
@@ -120,10 +124,14 @@ fn configuration_of(workspace_path: &Path, evaluated: EvaluatedSteepfile) -> Ste
         for group in &target.groups {
             configuration.check_paths.extend(paths(&group.patterns.check));
             configuration.ignore_paths.extend(paths(&group.patterns.ignore));
+            configuration.inline_check_paths.extend(paths(&group.patterns.inline_check));
+            configuration.inline_ignore_paths.extend(paths(&group.patterns.inline_ignore));
             groups.push(SteepfileGroup {
                 name: group.name.clone(),
                 check_paths: paths(&group.patterns.check),
                 ignore_paths: paths(&group.patterns.ignore),
+                inline_check_paths: paths(&group.patterns.inline_check),
+                inline_ignore_paths: paths(&group.patterns.inline_ignore),
                 code_diagnostics: group
                     .code_diagnostics
                     .as_ref()
@@ -133,6 +141,8 @@ fn configuration_of(workspace_path: &Path, evaluated: EvaluatedSteepfile) -> Ste
         configuration.signature_patterns.extend(paths(&target.signature));
         configuration.check_paths.extend(paths(&target.patterns.check));
         configuration.ignore_paths.extend(paths(&target.patterns.ignore));
+        configuration.inline_check_paths.extend(paths(&target.patterns.inline_check));
+        configuration.inline_ignore_paths.extend(paths(&target.patterns.inline_ignore));
         configuration.libraries.extend(target.libraries);
         if let Some(lockfile) = lockfile(&target.collection_config) {
             configuration.collection_lockfile = Some(lockfile);
@@ -141,6 +151,8 @@ fn configuration_of(workspace_path: &Path, evaluated: EvaluatedSteepfile) -> Ste
             name: target.name,
             check_paths: paths(&target.patterns.check),
             ignore_paths: paths(&target.patterns.ignore),
+            inline_check_paths: paths(&target.patterns.inline_check),
+            inline_ignore_paths: paths(&target.patterns.inline_ignore),
             code_diagnostics,
             groups,
             implicitly_returns_nil: target.implicitly_returns_nil,

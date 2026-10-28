@@ -27,6 +27,9 @@ pub struct SteepfileConfiguration {
     pub signature_patterns: Vec<PathBuf>,
     pub check_paths: Vec<PathBuf>,
     pub ignore_paths: Vec<PathBuf>,
+    /// `check ..., inline: true`: Ruby files that also declare types with inline RBS
+    pub inline_check_paths: Vec<PathBuf>,
+    pub inline_ignore_paths: Vec<PathBuf>,
     pub libraries: Vec<String>,
     pub collection_lockfile: Option<PathBuf>,
     /// In `Steepfile` order, which is the order Steep looks a file's target up in
@@ -38,6 +41,8 @@ pub struct SteepfileTarget {
     pub name: String,
     pub check_paths: Vec<PathBuf>,
     pub ignore_paths: Vec<PathBuf>,
+    pub inline_check_paths: Vec<PathBuf>,
+    pub inline_ignore_paths: Vec<PathBuf>,
     pub code_diagnostics: DiagnosticConfiguration,
     /// Looked up before the target itself, as Steep does
     pub groups: Vec<SteepfileGroup>,
@@ -54,6 +59,8 @@ pub struct SteepfileGroup {
     pub name: String,
     pub check_paths: Vec<PathBuf>,
     pub ignore_paths: Vec<PathBuf>,
+    pub inline_check_paths: Vec<PathBuf>,
+    pub inline_ignore_paths: Vec<PathBuf>,
     pub code_diagnostics: DiagnosticConfiguration,
 }
 
@@ -68,6 +75,8 @@ pub fn read_steepfile(workspace_path: &Path) -> Option<SteepfileConfiguration> {
             signature_patterns: Vec::new(),
             check_paths: Vec::new(),
             ignore_paths: Vec::new(),
+            inline_check_paths: Vec::new(),
+            inline_ignore_paths: Vec::new(),
             libraries: Vec::new(),
             collection_lockfile: None,
             targets: Vec::new(),
@@ -84,6 +93,8 @@ struct GroupBuilder {
     name: String,
     check_paths: Vec<PathBuf>,
     ignore_paths: Vec<PathBuf>,
+    inline_check_paths: Vec<PathBuf>,
+    inline_ignore_paths: Vec<PathBuf>,
     code_diagnostics: Option<DiagnosticConfiguration>,
 }
 
@@ -116,14 +127,25 @@ impl Scope<'_> {
         }
     }
 
-    fn pattern_lists(&mut self) -> Option<(&mut Vec<PathBuf>, &mut Vec<PathBuf>)> {
-        match self {
-            Scope::TopLevel => None,
-            Scope::Target(builder) => Some((
+    /// The `check` and `ignore` lists of the target or group, or their `inline: true` lists
+    fn pattern_lists(&mut self, inline: bool) -> Option<(&mut Vec<PathBuf>, &mut Vec<PathBuf>)> {
+        match (self, inline) {
+            (Scope::TopLevel, _) => None,
+            (Scope::Target(builder), false) => Some((
                 &mut builder.target.check_paths,
                 &mut builder.target.ignore_paths,
             )),
-            Scope::Group { group, .. } => Some((&mut group.check_paths, &mut group.ignore_paths)),
+            (Scope::Target(builder), true) => Some((
+                &mut builder.target.inline_check_paths,
+                &mut builder.target.inline_ignore_paths,
+            )),
+            (Scope::Group { group, .. }, false) => {
+                Some((&mut group.check_paths, &mut group.ignore_paths))
+            }
+            (Scope::Group { group, .. }, true) => Some((
+                &mut group.inline_check_paths,
+                &mut group.inline_ignore_paths,
+            )),
         }
     }
 }
@@ -173,14 +195,26 @@ impl SteepfileReader<'_> {
                     }
                 }
                 b"check" => {
-                    self.configuration.check_paths.extend(paths());
-                    if let Some((check_paths, _)) = scope.pattern_lists() {
+                    let inline = has_inline_keyword(&call);
+                    let configuration = &mut self.configuration;
+                    if inline {
+                        configuration.inline_check_paths.extend(paths());
+                    } else {
+                        configuration.check_paths.extend(paths());
+                    }
+                    if let Some((check_paths, _)) = scope.pattern_lists(inline) {
                         check_paths.extend(paths());
                     }
                 }
                 b"ignore" => {
-                    self.configuration.ignore_paths.extend(paths());
-                    if let Some((_, ignore_paths)) = scope.pattern_lists() {
+                    let inline = has_inline_keyword(&call);
+                    let configuration = &mut self.configuration;
+                    if inline {
+                        configuration.inline_ignore_paths.extend(paths());
+                    } else {
+                        configuration.ignore_paths.extend(paths());
+                    }
+                    if let Some((_, ignore_paths)) = scope.pattern_lists(inline) {
                         ignore_paths.extend(paths());
                     }
                 }
@@ -220,6 +254,8 @@ impl SteepfileReader<'_> {
                             name: arguments.first().cloned().unwrap_or_default(),
                             check_paths: Vec::new(),
                             ignore_paths: Vec::new(),
+                            inline_check_paths: Vec::new(),
+                            inline_ignore_paths: Vec::new(),
                             code_diagnostics: DiagnosticConfiguration::default(),
                             groups: Vec::new(),
                             implicitly_returns_nil: false,
@@ -238,6 +274,8 @@ impl SteepfileReader<'_> {
                             name: group.name,
                             check_paths: group.check_paths,
                             ignore_paths: group.ignore_paths,
+                            inline_check_paths: group.inline_check_paths,
+                            inline_ignore_paths: group.inline_ignore_paths,
                             code_diagnostics: group
                                 .code_diagnostics
                                 .unwrap_or_else(|| target.code_diagnostics.clone()),
@@ -254,6 +292,8 @@ impl SteepfileReader<'_> {
                         name: arguments.first().cloned().unwrap_or_default(),
                         check_paths: Vec::new(),
                         ignore_paths: Vec::new(),
+                        inline_check_paths: Vec::new(),
+                        inline_ignore_paths: Vec::new(),
                         code_diagnostics: None,
                     };
                     if let Some(block_statements) = &block_statements {
@@ -459,6 +499,26 @@ fn severity_value(node: &ruby_prism::Node) -> Option<Option<DiagnosticSeverity>>
     }
     let symbol = node.as_symbol_node()?;
     DiagnosticSeverity::from_name(&String::from_utf8_lossy(symbol.unescaped())).map(Some)
+}
+
+/// `check "lib", inline: true`
+fn has_inline_keyword(call: &ruby_prism::CallNode) -> bool {
+    let Some(arguments) = call.arguments() else {
+        return false;
+    };
+    arguments.arguments().iter().any(|argument| {
+        argument.as_keyword_hash_node().is_some_and(|hash| {
+            hash.elements().iter().any(|element| {
+                element.as_assoc_node().is_some_and(|assoc| {
+                    assoc
+                        .key()
+                        .as_symbol_node()
+                        .is_some_and(|key| key.unescaped() == b"inline")
+                        && assoc.value().as_true_node().is_some()
+                })
+            })
+        })
+    })
 }
 
 fn string_arguments(call: &ruby_prism::CallNode) -> Vec<String> {
@@ -765,6 +825,11 @@ pub fn load_target(
             }
         }
     }
+    if let Some(configuration) = configuration {
+        for path in inline_source_files(workspace_path, configuration, target) {
+            workspace_loader.loader.add_inline_file(&path);
+        }
+    }
     workspace_loader.loader.finish()
 }
 
@@ -835,6 +900,8 @@ fn normalized_relative_path(path: &str) -> String {
         .into_owned()
 }
 
+/// The Ruby files the `check ..., inline: true` patterns of every target and group take, as Steep's
+/// `Services::FileLoader#each_path_in_patterns` lists them
 /// The signature patterns `load_target` loads for `target`, each with whether its files are validated
 fn signature_patterns_of<'a>(
     configuration: &'a SteepfileConfiguration,
@@ -854,6 +921,44 @@ fn signature_patterns_of<'a>(
             }
         })
         .collect()
+}
+
+/// The targets whose signatures `target` loads, as Steep's `Services::TypeCheckService#update_signature` picks them
+fn referenced_targets<'a>(
+    configuration: &'a SteepfileConfiguration,
+    target: Option<&'a SteepfileTarget>,
+) -> impl Iterator<Item = &'a SteepfileTarget> {
+    configuration.targets.iter().filter(move |other| match target {
+        Some(target) => other.name == target.name || !other.unreferenced,
+        None => true,
+    })
+}
+
+pub fn inline_source_files(
+    workspace_path: &Path,
+    configuration: &SteepfileConfiguration,
+    target: Option<&SteepfileTarget>,
+) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    let mut seen = HashSet::new();
+    for target in referenced_targets(configuration, target) {
+        let pattern_lists = target
+            .groups
+            .iter()
+            .map(|group| (&group.inline_check_paths, &group.inline_ignore_paths))
+            .chain(std::iter::once((
+                &target.inline_check_paths,
+                &target.inline_ignore_paths,
+            )));
+        for (check_paths, ignore_paths) in pattern_lists {
+            for path in pattern_files(workspace_path, check_paths, ignore_paths, ".rb") {
+                if seen.insert(path.clone()) {
+                    files.push(path);
+                }
+            }
+        }
+    }
+    files
 }
 
 /// The files with the extension that the patterns take, as Steep's `Services::FileLoader#each_path_in_patterns` lists

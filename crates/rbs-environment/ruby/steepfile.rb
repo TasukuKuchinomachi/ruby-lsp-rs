@@ -82,11 +82,11 @@ module Steep
   class SteepfileDSL
     module WithPattern
       def check(*patterns, inline: false)
-        @value["check"].concat(patterns.map(&:to_s))
+        (inline ? @value["inline_check"] : @value["check"]).concat(patterns.map(&:to_s))
       end
 
       def ignore(*patterns, inline: false)
-        @value["ignore"].concat(patterns.map(&:to_s))
+        (inline ? @value["inline_ignore"] : @value["ignore"]).concat(patterns.map(&:to_s))
       end
 
       def signature(*patterns)
@@ -123,7 +123,7 @@ module Steep
     end
 
     def self.patterns
-      { "check" => [], "ignore" => [], "signature" => [], "ignore_signature" => [] }
+      { "check" => [], "ignore" => [], "inline_check" => [], "inline_ignore" => [], "signature" => [], "ignore_signature" => [] }
     end
 
     class GroupDSL
