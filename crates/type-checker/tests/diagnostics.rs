@@ -1,6 +1,6 @@
 mod support;
 
-use type_checker::Severity;
+use type_checker::{AnalysisOptions, Severity, SteepVersion};
 
 #[test]
 fn calling_a_missing_method_on_an_optional_reports_no_method() {
@@ -542,9 +542,9 @@ end
 }
 
 #[test]
-fn comparing_with_a_literal_narrows_to_the_equal_literal_types() {
+fn comparing_with_a_literal_narrows_to_the_equal_literal_types_in_steep_2_0() {
     let environment = environment_or_skip!();
-    let checked = support::check(
+    let checked = support::check_with_options(
         environment,
         r#"
 # @type var result: Greeter | :missing
@@ -559,12 +559,41 @@ if name == "Alice"
   name
 end
 "#,
+        AnalysisOptions { steep_version: SteepVersion::Version2_0, ..AnalysisOptions::default() },
     );
     assert_eq!(
         checked.messages_with_code("Ruby::NoMethod"),
         vec![
             "Type `:missing` does not have method `no_such_method`",
             "Type `::Greeter` does not have method `no_such_method`",
+        ]
+    );
+    assert_eq!(checked.diagnostic_text("Ruby::UnreachableBranch"), Some("if"));
+}
+
+#[test]
+fn comparing_with_a_literal_narrows_to_the_literal_when_it_can_be_a_value_of_the_type_in_steep_2_1() {
+    let environment = environment_or_skip!();
+    let checked = support::check(
+        environment,
+        r#"
+name = Greeter.new("a").name
+if name == "Alice"
+  name.no_such_method
+else
+  name.no_such_method
+end
+greeter = Greeter.new("a")
+if greeter == :fatal
+  greeter
+end
+"#,
+    );
+    assert_eq!(
+        checked.messages_with_code("Ruby::NoMethod"),
+        vec![
+            "Type `\"Alice\"` does not have method `no_such_method`",
+            "Type `::String` does not have method `no_such_method`",
         ]
     );
     assert_eq!(checked.diagnostic_text("Ruby::UnreachableBranch"), Some("if"));
