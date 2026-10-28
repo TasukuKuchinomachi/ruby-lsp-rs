@@ -774,6 +774,10 @@ impl Server {
             if file_path.ends_with(".rb") {
                 let change_type = change["type"].as_u64().unwrap_or(0) as u8;
                 self.handle_ruby_file_change(&file_path, change_type);
+                let workspace_path = self.global_state.workspace_path();
+                if self.global_state.type_checking.is_inline_source_path(Path::new(&workspace_path), Path::new(&file_path)) {
+                    self.schedule_environment_reload();
+                }
                 continue;
             }
             if type_checking::is_rbs_related_file(&file_path) {

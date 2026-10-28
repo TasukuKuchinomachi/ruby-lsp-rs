@@ -285,6 +285,27 @@ fn reports_signature_problems_in_signature_files() {
 }
 
 #[test]
+fn reports_type_errors_and_signature_problems_in_inline_files() {
+    let Some(mut server) = start_server() else { return };
+    let uri = server.open("inline/calculator.rb");
+    let diagnostics = server.result("textDocument/diagnostic", json!({ "textDocument": { "uri": uri } }));
+    let items = diagnostics["items"].as_array().unwrap_or_else(|| panic!("No diagnostics: {diagnostics}"));
+    let found: Vec<(Value, Value)> = items
+        .iter()
+        .filter(|diagnostic| diagnostic["source"] == json!("ruby-lsp-rs"))
+        .map(|diagnostic| (diagnostic["code"].clone(), diagnostic["range"]["start"].clone()))
+        .collect();
+    assert_eq!(
+        found,
+        vec![
+            (json!("Ruby::ArgumentTypeMismatch"), position(8, 28)),
+            (json!("RBS::InlineDiagnostic"), position(4, 4)),
+        ],
+        "{diagnostics}"
+    );
+}
+
+#[test]
 fn reports_syntax_errors_of_unsaved_signatures() {
     let Some(mut server) = start_server() else { return };
     let uri = server.open_with_source("sig/user.rbs", "class User\n  def greeting: () ->\nend\n");

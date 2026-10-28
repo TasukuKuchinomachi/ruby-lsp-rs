@@ -1,5 +1,6 @@
 target :lib do
   signature "sig"
   check "lib"
+  check "inline", inline: true
   ignore "lib/ignored.rb"
 end
