@@ -300,6 +300,15 @@ impl PreparedCall {
     }
 }
 
+/// Steep sends a call without a receiver to `self` and names the expanded self type in its messages, or `self` itself
+/// when no shape of it can be built
+fn implicit_receiver_display(self_type: &Type) -> Type {
+    match self_type {
+        Type::Top | Type::Void => Type::SelfType,
+        _ => self_type.clone(),
+    }
+}
+
 fn close_variables(names: &[String]) -> Substitution {
     let mut substitution = Substitution::default();
     for name in names {
@@ -520,9 +529,13 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 }
             }
         }
+        let displayed_receiver_type = match &receiver {
+            Some(_) => receiver_type.clone(),
+            None => implicit_receiver_display(&receiver_type),
+        };
         let mut result = self.dispatch_call(
             &dispatch_receiver,
-            &receiver_type,
+            &displayed_receiver_type,
             &site,
             &arguments,
             context,
@@ -646,7 +659,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         let self_type = context.self_type.clone();
         self.dispatch_call(
             &self_type,
-            &self_type,
+            &implicit_receiver_display(&self_type),
             &site,
             &CallArguments { values: Vec::new() },
             context,
@@ -1330,9 +1343,9 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         }
         match member {
             Type::Bottom => Lookup::Unreachable,
-            Type::Untyped | Type::Top | Type::Void | Type::Variable(_) | Type::Class => {
-                Lookup::Unknown
-            }
+            Type::Untyped | Type::Variable(_) | Type::Class => Lookup::Unknown,
+            // Unlike `untyped`, Steep builds no shape for `top` and `void`, so no method is found on them
+            Type::Top | Type::Void => Lookup::Missing { reportable: true },
             Type::SelfType | Type::Instance => {
                 if matches!(context.self_type, Type::SelfType | Type::Instance) {
                     Lookup::Unknown

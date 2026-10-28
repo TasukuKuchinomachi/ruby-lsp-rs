@@ -143,9 +143,9 @@ fn check(environment: &Environment, rules: Rules, subtype: &Type, supertype: &Ty
         {
             Certainty::No
         }
+        (Type::Top, _) => Certainty::No,
         (
             Type::Void
-            | Type::Top
             | Type::Variable(_)
             | Type::SelfType
             | Type::Instance

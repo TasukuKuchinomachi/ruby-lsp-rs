@@ -20,6 +20,35 @@ name.upcase
 }
 
 #[test]
+fn no_method_is_found_on_top_unlike_untyped() {
+    let environment = environment_or_skip!();
+    let source = r#"
+class Greeter
+  define_method(:shout) do
+    public_send(:greet, "a")
+  end
+end
+
+# @type var anything: top
+anything = 1
+anything.to_s
+"#;
+    let expected = vec![
+        "Type `self` does not have method `public_send`",
+        "Type `top` does not have method `to_s`",
+    ];
+    assert_eq!(support::check(environment, source).messages_with_code("Ruby::NoMethod"), expected);
+    let options = AnalysisOptions {
+        steep_compatible: true,
+        ..AnalysisOptions::default()
+    };
+    assert_eq!(
+        support::check_with_options(environment, source, options).messages_with_code("Ruby::NoMethod"),
+        expected
+    );
+}
+
+#[test]
 fn calling_an_undefined_method_reports_no_method() {
     let environment = environment_or_skip!();
     let checked = support::check(
