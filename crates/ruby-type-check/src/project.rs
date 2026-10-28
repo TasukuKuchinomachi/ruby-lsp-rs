@@ -9,7 +9,7 @@ use rbs_environment::{
 };
 use ruby_environment::RubyEnvironment;
 use ruby_file_glob::fnmatch;
-use type_checker::{Analysis, AnalysisOptions, Severity, TypeDiagnostic};
+use type_checker::{Analysis, AnalysisOptions, Severity, SteepVersion, TypeDiagnostic};
 
 pub struct LoadedEnvironment {
     /// One for each target of the `Steepfile`, as Steep loads one environment for each target. A single one without
@@ -45,6 +45,33 @@ pub fn workspace_sources(ruby_environment: &RubyEnvironment) -> WorkspaceSources
         gem_directories.entry(gem.name.clone()).or_insert_with(|| PathBuf::from(&gem.full_gem_path));
     }
     WorkspaceSources { core_directory, stdlib_directory, gem_directories }
+}
+
+fn locked_steep_version(ruby_environment: &RubyEnvironment) -> Option<&str> {
+    ruby_environment
+        .locked_gems
+        .iter()
+        .find(|gem| gem.name == "steep")
+        .map(|gem| gem.version.as_str())
+}
+
+/// The Steep version `Gemfile.lock` locks, since the type checking of Steep differs between its minor versions. The
+/// latest supported one when the bundle has no steep or locks a version that is not supported
+pub fn steep_version(ruby_environment: &RubyEnvironment) -> SteepVersion {
+    locked_steep_version(ruby_environment)
+        .and_then(SteepVersion::from_version)
+        .unwrap_or(SteepVersion::LATEST)
+}
+
+pub fn unsupported_steep_version_warning(ruby_environment: &RubyEnvironment) -> Option<String> {
+    let locked_version = locked_steep_version(ruby_environment)?;
+    SteepVersion::from_version(locked_version).is_none().then(|| {
+        format!(
+            "Steep {locked_version} in Gemfile.lock is not supported, so Steep {} is followed (supported: {})",
+            SteepVersion::LATEST,
+            SteepVersion::SUPPORTED.map(SteepVersion::name).join(", ")
+        )
+    })
 }
 
 pub fn missing_core_warning(sources: &WorkspaceSources) -> Option<String> {
@@ -172,7 +199,9 @@ pub fn is_signature_path(workspace_path: &Path, steepfile: Option<&SteepfileConf
 static DEFAULT_CODE_DIAGNOSTICS: LazyLock<DiagnosticConfiguration> = LazyLock::new(DiagnosticConfiguration::default);
 
 /// The diagnostics configuration of the first group or target, in `Steepfile` order, whose `check` patterns take the
-/// file, as Steep's `Project#group_for_source_path` does. `None` when no target checks the file
+/// file, as Steep's `Project#group_for_source_path` does, or else whose `check ..., inline: true` patterns take it, as
+/// `Project#group_for_inline_source_path` does. A file an inline pattern takes is not a plain source of the same group
+/// or target. `None` when no target checks the file
 pub fn code_diagnostics_for<'a>(
     workspace_path: &Path,
     steepfile: Option<&'a SteepfileConfiguration>,
@@ -190,18 +219,71 @@ fn group_for<'a>(
     relative_path: &Path,
 ) -> Option<(&'a SteepfileTarget, &'a DiagnosticConfiguration)> {
     let takes = |check_paths: &[PathBuf], ignore_paths: &[PathBuf]| {
-        let matches = |pattern: &PathBuf| pattern_matches(workspace_path, pattern, relative_path);
-        check_paths.iter().any(matches) && !ignore_paths.iter().any(matches)
+        takes(workspace_path, relative_path, check_paths, ignore_paths)
+    };
+    let takes_as_source = |check_paths: &[PathBuf],
+                           ignore_paths: &[PathBuf],
+                           inline_check_paths: &[PathBuf],
+                           inline_ignore_paths: &[PathBuf]| {
+        takes(check_paths, ignore_paths) && !takes(inline_check_paths, inline_ignore_paths)
+    };
+    let source_group = steepfile.targets.iter().find_map(|target| {
+        target
+            .groups
+            .iter()
+            .find(|group| {
+                takes_as_source(
+                    &group.check_paths,
+                    &group.ignore_paths,
+                    &group.inline_check_paths,
+                    &group.inline_ignore_paths,
+                )
+            })
+            .map(|group| &group.code_diagnostics)
+            .or_else(|| {
+                takes_as_source(
+                    &target.check_paths,
+                    &target.ignore_paths,
+                    &target.inline_check_paths,
+                    &target.inline_ignore_paths,
+                )
+                .then_some(&target.code_diagnostics)
+            })
+            .map(|code_diagnostics| (target, code_diagnostics))
+    });
+    source_group.or_else(|| inline_group_for(workspace_path, steepfile, relative_path))
+}
+
+/// Whether a `check ..., inline: true` pattern of some group or target takes the file, so that the environment has the
+/// inline RBS declarations written in it
+pub fn is_inline_source_path(workspace_path: &Path, steepfile: Option<&SteepfileConfiguration>, path: &Path) -> bool {
+    let (Some(steepfile), Ok(relative_path)) = (steepfile, path.strip_prefix(workspace_path)) else { return false };
+    inline_group_for(workspace_path, steepfile, relative_path).is_some()
+}
+
+/// Steep's `Project#group_for_inline_source_path`
+fn inline_group_for<'a>(
+    workspace_path: &Path,
+    steepfile: &'a SteepfileConfiguration,
+    relative_path: &Path,
+) -> Option<(&'a SteepfileTarget, &'a DiagnosticConfiguration)> {
+    let takes = |check_paths: &[PathBuf], ignore_paths: &[PathBuf]| {
+        takes(workspace_path, relative_path, check_paths, ignore_paths)
     };
     steepfile.targets.iter().find_map(|target| {
         target
             .groups
             .iter()
-            .find(|group| takes(&group.check_paths, &group.ignore_paths))
+            .find(|group| takes(&group.inline_check_paths, &group.inline_ignore_paths))
             .map(|group| &group.code_diagnostics)
-            .or_else(|| takes(&target.check_paths, &target.ignore_paths).then_some(&target.code_diagnostics))
+            .or_else(|| takes(&target.inline_check_paths, &target.inline_ignore_paths).then_some(&target.code_diagnostics))
             .map(|code_diagnostics| (target, code_diagnostics))
     })
+}
+
+fn takes(workspace_path: &Path, relative_path: &Path, check_paths: &[PathBuf], ignore_paths: &[PathBuf]) -> bool {
+    let matches = |pattern: &PathBuf| pattern_matches(workspace_path, pattern, relative_path);
+    check_paths.iter().any(matches) && !ignore_paths.iter().any(matches)
 }
 
 fn pattern_matches(workspace_path: &Path, pattern: &Path, relative_path: &Path) -> bool {
@@ -269,6 +351,8 @@ mod tests {
             signature_patterns: Vec::new(),
             check_paths: targets.iter().flat_map(|target| target.check_paths.clone()).collect(),
             ignore_paths: targets.iter().flat_map(|target| target.ignore_paths.clone()).collect(),
+            inline_check_paths: targets.iter().flat_map(|target| target.inline_check_paths.clone()).collect(),
+            inline_ignore_paths: targets.iter().flat_map(|target| target.inline_ignore_paths.clone()).collect(),
             libraries: Vec::new(),
             collection_lockfile: None,
             targets,
@@ -285,6 +369,8 @@ mod tests {
             name: name.to_string(),
             check_paths: check_paths.iter().map(PathBuf::from).collect(),
             ignore_paths: ignore_paths.iter().map(PathBuf::from).collect(),
+            inline_check_paths: Vec::new(),
+            inline_ignore_paths: Vec::new(),
             code_diagnostics,
             groups: Vec::new(),
             implicitly_returns_nil: false,
@@ -295,6 +381,43 @@ mod tests {
 
     fn type_diagnostic(code: &'static str, severity: Severity) -> TypeDiagnostic {
         TypeDiagnostic { start: 0, end: 1, severity, code, message: String::new() }
+    }
+
+    fn ruby_environment_locking(gems: &[(&str, &str)]) -> RubyEnvironment {
+        let locked_gems = gems
+            .iter()
+            .map(|(name, version)| ruby_environment::LockedGem {
+                name: name.to_string(),
+                version: version.to_string(),
+                ..ruby_environment::LockedGem::default()
+            })
+            .collect();
+        RubyEnvironment {
+            locked_gems,
+            ..RubyEnvironment::default()
+        }
+    }
+
+    #[test]
+    fn follows_the_steep_version_of_gemfile_lock() {
+        let steep_2_0 = ruby_environment_locking(&[("rbs", "4.0.2"), ("steep", "2.0.0")]);
+        assert_eq!(steep_version(&steep_2_0), SteepVersion::Version2_0);
+        assert_eq!(unsupported_steep_version_warning(&steep_2_0), None);
+        assert_eq!(
+            steep_version(&ruby_environment_locking(&[("steep", "2.1.3")])),
+            SteepVersion::Version2_1
+        );
+
+        let without_steep = ruby_environment_locking(&[("rbs", "4.2.0")]);
+        assert_eq!(steep_version(&without_steep), SteepVersion::LATEST);
+        assert_eq!(unsupported_steep_version_warning(&without_steep), None);
+
+        let steep_1 = ruby_environment_locking(&[("steep", "1.10.0")]);
+        assert_eq!(steep_version(&steep_1), SteepVersion::LATEST);
+        assert_eq!(
+            unsupported_steep_version_warning(&steep_1).as_deref(),
+            Some("Steep 1.10.0 in Gemfile.lock is not supported, so Steep 2.1 is followed (supported: 2.0, 2.1)")
+        );
     }
 
     #[test]
@@ -338,6 +461,8 @@ mod tests {
             name: "legacy".to_string(),
             check_paths: vec![PathBuf::from("app/legacy")],
             ignore_paths: Vec::new(),
+            inline_check_paths: Vec::new(),
+            inline_ignore_paths: Vec::new(),
             code_diagnostics: DiagnosticConfiguration::from_template(DiagnosticTemplate::Silent),
         });
         let steepfile = steepfile_with_targets(vec![
@@ -360,6 +485,32 @@ mod tests {
             target("jobs", &["app/jobs"], &[], DiagnosticConfiguration::default()),
         ]);
         assert!(is_checked_path(workspace, Some(&steepfile), Path::new("/workspace/app/jobs/foo_job.rb")));
+    }
+
+    #[test]
+    fn checks_inline_files_after_looking_for_the_plain_sources() {
+        let workspace = Path::new("/workspace");
+        let strict = DiagnosticConfiguration::from_template(DiagnosticTemplate::Strict);
+        let lenient = DiagnosticConfiguration::from_template(DiagnosticTemplate::Lenient);
+        let mut app = target("app", &["app"], &[], strict.clone());
+        app.inline_check_paths = vec![PathBuf::from("app/models"), PathBuf::from("lib")];
+        app.inline_ignore_paths = vec![PathBuf::from("lib/generated")];
+        let steepfile = steepfile_with_targets(vec![app, target("everything", &["."], &[], lenient.clone())]);
+        let lookup = |path: &str| code_diagnostics_for(workspace, Some(&steepfile), Path::new(path)).cloned();
+        assert_eq!(lookup("/workspace/app/controllers/users_controller.rb"), Some(strict.clone()));
+        assert_eq!(lookup("/workspace/app/models/user.rb"), Some(lenient.clone()));
+        assert_eq!(lookup("/workspace/lib/user.rb"), Some(lenient.clone()));
+
+        let mut inline_only = target("inline", &[], &[], strict.clone());
+        inline_only.inline_check_paths = vec![PathBuf::from("lib")];
+        inline_only.inline_ignore_paths = vec![PathBuf::from("lib/generated")];
+        let steepfile = steepfile_with_targets(vec![inline_only]);
+        let lookup = |path: &str| code_diagnostics_for(workspace, Some(&steepfile), Path::new(path)).cloned();
+        assert_eq!(lookup("/workspace/lib/user.rb"), Some(strict));
+        assert_eq!(lookup("/workspace/lib/generated/user.rb"), None);
+        assert!(is_inline_source_path(workspace, Some(&steepfile), Path::new("/workspace/lib/user.rb")));
+        assert!(!is_inline_source_path(workspace, Some(&steepfile), Path::new("/workspace/lib/generated/user.rb")));
+        assert!(!is_inline_source_path(workspace, None, Path::new("/workspace/lib/user.rb")));
     }
 
     #[test]

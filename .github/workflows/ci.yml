@@ -23,11 +23,22 @@ jobs:
         run: gem install rbs
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --locked -- --skip reports_what_steep_expects_for_its_smoke_tests
-      # The test_expectations.yml of Steep 2.0.0's smoke tests are written against the signatures of rbs 4.0.2, while the
-      # indexer tests expect the latest rbs, so the smoke tests see only rbs 4.0.2 in a gem directory of their own
-      - name: Install rbs 4.0.2 for Steep's smoke tests
+      # The test_expectations.yml of Steep's smoke tests are written against the signatures of the rbs version each Steep
+      # release locks, while the indexer tests expect the latest rbs, so the smoke tests of each Steep version see only
+      # its rbs in a gem directory of their own
+      - name: Install rbs 4.0.2 for the smoke tests of Steep 2.0.0
         run: gem install rbs --version 4.0.2 --install-dir "$RUNNER_TEMP/rbs-4.0.2" --no-document
-      - run: cargo test --locked -p ruby-type-check --test smoke
+      - name: Run the smoke tests of Steep 2.0.0
+        run: cargo test --locked -p ruby-type-check --test smoke
         env:
+          STEEP_VERSION: "2.0.0"
           GEM_HOME: ${{ runner.temp }}/rbs-4.0.2
           GEM_PATH: ${{ runner.temp }}/rbs-4.0.2
+      - name: Install rbs 4.2.0 for the smoke tests of Steep 2.1.0
+        run: gem install rbs --version 4.2.0 --install-dir "$RUNNER_TEMP/rbs-4.2.0" --no-document
+      - name: Run the smoke tests of Steep 2.1.0
+        run: cargo test --locked -p ruby-type-check --test smoke
+        env:
+          STEEP_VERSION: "2.1.0"
+          GEM_HOME: ${{ runner.temp }}/rbs-4.2.0
+          GEM_PATH: ${{ runner.temp }}/rbs-4.2.0

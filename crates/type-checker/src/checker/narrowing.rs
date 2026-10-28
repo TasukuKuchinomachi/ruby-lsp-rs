@@ -3,6 +3,7 @@ use ruby_prism::Node;
 
 use super::variables::instance_variable_local_key;
 use super::{Checker, Context, Locals};
+use crate::SteepVersion;
 use crate::source::constant_text;
 use crate::subtyping::{Certainty, is_subtype};
 use crate::type_utilities::{
@@ -268,7 +269,8 @@ impl<'pr> Checker<'_, 'pr> {
 
     /// Steep replaces `==` of the core value classes with `ReceiverIsArg`, so `receiver == literal` splits the
     /// receiver type into what can be equal and what cannot by `literal_var_type_case_select` with `for_receiver`:
-    /// only an equal literal type can be equal, and a non-literal type such as `String` can only be unequal. `None`
+    /// only an equal literal type can be equal. A non-literal type can only be unequal in Steep 2.0, and can also be
+    /// equal in Steep 2.1 when an integer, string or symbol literal can be its value, as `Symbol` for `:fatal`. `None`
     /// when Steep does not split the type
     pub(crate) fn literal_equality_split(
         &mut self,
@@ -325,9 +327,18 @@ impl<'pr> Checker<'_, 'pr> {
             };
             if matches {
                 equal_types.push(member);
-            } else {
-                unequal_types.push(member);
+                continue;
             }
+            if self.options.steep_version >= SteepVersion::Version2_1
+                && let Some(literal @ (Literal::Integer(_) | Literal::String(_) | Literal::Symbol(_))) = &literal
+                && !matches!(member, Type::Literal(_))
+            {
+                let literal_type = Type::Literal(literal.clone());
+                if is_subtype(self.environment, &literal_type, &member) != Certainty::No {
+                    equal_types.push(literal_type);
+                }
+            }
+            unequal_types.push(member);
         }
         Some((equal_types, unequal_types))
     }

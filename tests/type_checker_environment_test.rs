@@ -100,7 +100,10 @@ fn start_server() -> Option<TypeCheckedServer> {
         &json!({ "workspaceFolders": [{ "uri": ruby_lsp_rs::uri::from_path_buf(&workspace_path()), "name": "workspace" }] }),
         Arc::new(RubyEnvironment { rbs_core_path: Some(core_directory.to_string_lossy().into_owned()), ..RubyEnvironment::default() }),
     );
-    server.global_state_mut().type_checking.set_environment(loaded);
+    server
+        .global_state_mut()
+        .type_checking
+        .set_environment(&workspace_path(), loaded);
     let gem_path = support::repository_path().join("tests/type_checker_gem/lib");
     for path in ruby_files(&workspace_path().join("lib")).into_iter().chain(ruby_files(&gem_path)) {
         let source = std::fs::read_to_string(&path).unwrap();
@@ -282,6 +285,27 @@ fn reports_signature_problems_in_signature_files() {
     let valid_uri = server.open("sig/user.rbs");
     let diagnostics = server.result("textDocument/diagnostic", json!({ "textDocument": { "uri": valid_uri } }));
     assert_eq!(diagnostics["items"], json!([]));
+}
+
+#[test]
+fn reports_type_errors_and_signature_problems_in_inline_files() {
+    let Some(mut server) = start_server() else { return };
+    let uri = server.open("inline/calculator.rb");
+    let diagnostics = server.result("textDocument/diagnostic", json!({ "textDocument": { "uri": uri } }));
+    let items = diagnostics["items"].as_array().unwrap_or_else(|| panic!("No diagnostics: {diagnostics}"));
+    let found: Vec<(Value, Value)> = items
+        .iter()
+        .filter(|diagnostic| diagnostic["source"] == json!("ruby-lsp-rs"))
+        .map(|diagnostic| (diagnostic["code"].clone(), diagnostic["range"]["start"].clone()))
+        .collect();
+    assert_eq!(
+        found,
+        vec![
+            (json!("Ruby::ArgumentTypeMismatch"), position(8, 28)),
+            (json!("RBS::InlineDiagnostic"), position(4, 4)),
+        ],
+        "{diagnostics}"
+    );
 }
 
 #[test]

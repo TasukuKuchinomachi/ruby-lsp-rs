@@ -1,6 +1,7 @@
 mod definition_validation;
 pub mod diagnostic_configuration;
 pub mod environment;
+mod inline_source;
 pub mod loader;
 pub mod lookup;
 pub mod navigation;

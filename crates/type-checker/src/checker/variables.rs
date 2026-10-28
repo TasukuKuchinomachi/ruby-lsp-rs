@@ -7,7 +7,7 @@ use crate::file_index::InstanceVariableKey;
 use crate::source::{Span, constant_text};
 use crate::steep_relation;
 use crate::type_utilities::{array_of, can_be_falsy, element_type, falsy_part, truthy_part};
-use crate::{Severity, TypeHintKind};
+use crate::{Severity, SteepVersion, TypeHintKind};
 
 pub(crate) const IT_PARAMETER_KEY: &str = "\0it";
 
@@ -81,7 +81,7 @@ impl<'pr> Checker<'_, 'pr> {
                 self.record_type_hover(Span::of_node(node), &variable_type);
                 variable_type
             }
-            Node::ItLocalVariableReadNode { .. } if self.options.steep_compatible => {
+            Node::ItLocalVariableReadNode { .. } if self.is_it_a_method_call() => {
                 self.infer_it_as_method_call(node, context, locals)
             }
             Node::ItLocalVariableReadNode { .. } => {
@@ -527,8 +527,46 @@ impl<'pr> Checker<'_, 'pr> {
         }
     }
 
+    /// Tuples that `to_ary` of the hint members returns, which Steep 2.1's `try_convert` gives an array literal whose
+    /// hint has no tuple, as `[K, V]` for `Hash::_Pair[K, V]`
+    fn to_ary_tuples(&self, hint_members: &[Type]) -> Vec<Type> {
+        let mut tuples = Vec::new();
+        for member in hint_members {
+            let (Type::ClassInstance { name, arguments } | Type::Interface { name, arguments }) = member else {
+                continue;
+            };
+            let Some(method) = self.environment.find_instance_method(name, "to_ary") else {
+                continue;
+            };
+            let mut substitution = crate::unification::class_substitution(self.environment, name, arguments, member);
+            if let Some(interface) = self.environment.interfaces.get(name.as_str()) {
+                for (type_parameter, argument) in interface.type_parameters.iter().zip(arguments) {
+                    substitution
+                        .variables
+                        .insert(type_parameter.name.clone(), argument.clone());
+                }
+            }
+            let Some(overload) = method.overloads.iter().find(|overload| {
+                let function = &overload.function;
+                function.required_positionals.is_empty()
+                    && function.trailing_positionals.is_empty()
+                    && function.required_keywords.is_empty()
+            }) else {
+                continue;
+            };
+            let return_type = self.expand_alias_deeply(&overload.function.return_type.substitute(&substitution), 0);
+            tuples.extend(
+                crate::type_utilities::members_of(&return_type)
+                    .into_iter()
+                    .filter(|converted| matches!(converted, Type::Tuple(_))),
+            );
+        }
+        tuples
+    }
+
     /// The type Steep gives a literal checked against a declared type: symbols, strings and integers become literal
-    /// types the declaration names, and hashes with symbol keys become records when a record is expected
+    /// types the declaration names, hashes with symbol keys become records when a record is expected, and arrays
+    /// become tuples when a tuple, or in Steep 2.1 a type whose `to_ary` returns a tuple, is expected
     pub(crate) fn hinted_value_type(
         &mut self,
         node: &Node<'pr>,
@@ -675,7 +713,14 @@ impl<'pr> Checker<'_, 'pr> {
                 {
                     return fallback.clone();
                 }
-                for member in &hint_members {
+                let converted_tuples = if self.options.steep_version < SteepVersion::Version2_1
+                    || hint_members.iter().any(|member| matches!(member, Type::Tuple(_)))
+                {
+                    Vec::new()
+                } else {
+                    self.to_ary_tuples(&hint_members)
+                };
+                for member in converted_tuples.iter().chain(&hint_members) {
                     match member {
                         Type::ClassInstance { name, arguments }
                             if name == "Array" && arguments.len() == 1 =>

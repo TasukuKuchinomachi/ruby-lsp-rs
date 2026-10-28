@@ -26,7 +26,7 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
 
     let global_state = &*context.global_state;
     let signature_markdown = truthy_string(&data["receiver_type"]).and_then(|receiver_type| {
-        let environment = global_state.type_checking.environment.as_deref()?;
+        let environment = global_state.type_checking.environment_for(data["uri"].as_str()?)?;
         receiver_methods::method_markdown(environment, receiver_type, &label)
     });
 

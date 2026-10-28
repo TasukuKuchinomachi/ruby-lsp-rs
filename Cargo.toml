@@ -33,7 +33,7 @@ pretty_assertions = "1.4.1"
 members = ["crates/*"]
 
 [workspace.package]
-version = "2.0.0-r1"
+version = "0.2.0"
 
 [workspace.dependencies]
 ruby-prism = "1.9.0"

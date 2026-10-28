@@ -546,7 +546,13 @@ impl Server {
                 if let Some(report) = project::load_error_report(&loaded) {
                     self.outgoing.log_message(&report, message_type::WARNING);
                 }
-                self.global_state.type_checking.set_environment(loaded);
+                let ruby_environment = &self.global_state.ruby_environment;
+                if let Some(warning) = project::unsupported_steep_version_warning(ruby_environment) {
+                    self.outgoing.log_message(&warning, message_type::WARNING);
+                }
+                self.global_state.type_checking.steep_version = project::steep_version(ruby_environment);
+                let workspace_path = PathBuf::from(self.global_state.workspace_path());
+                self.global_state.type_checking.set_environment(&workspace_path, loaded);
                 self.refresh_type_information();
             }
             Err(message) => {
@@ -604,7 +610,7 @@ impl Server {
         if self.initialized
             && !self.options.test_mode
             && type_checking.settings.enabled
-            && type_checking.environment.is_none()
+            && !type_checking.is_loaded()
             && !self.environment_loading
         {
             self.start_environment_load();
@@ -769,6 +775,10 @@ impl Server {
             if file_path.ends_with(".rb") {
                 let change_type = change["type"].as_u64().unwrap_or(0) as u8;
                 self.handle_ruby_file_change(&file_path, change_type);
+                let workspace_path = self.global_state.workspace_path();
+                if self.global_state.type_checking.is_inline_source_path(Path::new(&workspace_path), Path::new(&file_path)) {
+                    self.schedule_environment_reload();
+                }
                 continue;
             }
             if type_checking::is_rbs_related_file(&file_path) {

@@ -324,7 +324,7 @@ dependencies = [
 
 [[package]]
 name = "prism-child-nodes"
-version = "2.0.0-r1"
+version = "0.2.0"
 dependencies = [
  "ruby-prism",
 ]
@@ -369,7 +369,7 @@ dependencies = [
 
 [[package]]
 name = "rbs-environment"
-version = "2.0.0-r1"
+version = "0.2.0"
 dependencies = [
  "ruby-file-glob",
  "ruby-prism",
@@ -410,7 +410,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "ruby-environment"
-version = "2.0.0-r1"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -418,11 +418,11 @@ dependencies = [
 
 [[package]]
 name = "ruby-file-glob"
-version = "2.0.0-r1"
+version = "0.2.0"
 
 [[package]]
 name = "ruby-lsp-rs"
-version = "2.0.0-r1"
+version = "0.2.0"
 dependencies = [
  "crossbeam-channel",
  "fancy-regex",
@@ -492,7 +492,7 @@ dependencies = [
 
 [[package]]
 name = "ruby-type-check"
-version = "2.0.0-r1"
+version = "0.2.0"
 dependencies = [
  "rayon",
  "rbs-environment",
@@ -647,7 +647,7 @@ dependencies = [
 
 [[package]]
 name = "type-checker"
-version = "2.0.0-r1"
+version = "0.2.0"
 dependencies = [
  "prism-child-nodes",
  "rbs-environment",

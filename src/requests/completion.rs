@@ -81,7 +81,10 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
     let trigger_character = params.context.as_ref().and_then(|context| context.trigger_character.as_deref());
     let mut index = global_state.index();
     let mut listener = Completion::new(&mut index, &parsed, &node_context, sorbet_level, document.uri(), trigger_character);
-    if let (Some(analysis), Some(environment)) = (analysis.as_deref(), global_state.type_checking.environment.as_deref()) {
+    if let (Some(analysis), Some(environment)) = (
+        analysis.as_deref(),
+        global_state.type_checking.environment_for(document.uri()),
+    ) {
         listener = listener.with_type_checking(analysis, environment);
     }
     listener.dispatch(target);

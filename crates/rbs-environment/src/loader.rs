@@ -15,6 +15,7 @@ use crate::environment::{
     Ancestor, ClassDeclaration, ClassKind, ConstantDeclaration, Environment, GlobalDeclaration, InterfaceDeclaration,
     LoadError, Location, MethodDefinition, MethodKind, SourcePosition, TypeAliasDeclaration, Visibility,
 };
+use crate::inline_source::InlineSignature;
 use crate::lookup::SingletonAncestor;
 use crate::navigation::SignatureTarget;
 use crate::signature_validation::{
@@ -30,16 +31,32 @@ use crate::types::{
 };
 
 enum PendingSource {
-    Text { path: PathBuf, source: String },
+    Text {
+        path: PathBuf,
+        source: String,
+    },
     File(PathBuf),
+    /// A Ruby file with inline RBS declarations
+    InlineText {
+        path: PathBuf,
+        source: String,
+    },
+    InlineFile(PathBuf),
 }
 
 impl PendingSource {
     fn path(&self) -> &Path {
         match self {
-            PendingSource::Text { path, .. } => path,
-            PendingSource::File(path) => path,
+            PendingSource::Text { path, .. } | PendingSource::InlineText { path, .. } => path,
+            PendingSource::File(path) | PendingSource::InlineFile(path) => path,
         }
+    }
+
+    fn is_inline(&self) -> bool {
+        matches!(
+            self,
+            PendingSource::InlineText { .. } | PendingSource::InlineFile(_)
+        )
     }
 }
 
@@ -76,6 +93,25 @@ impl Loader {
     pub fn add_signature_source(&mut self, path: &Path, source: &str) {
         self.signature_files.insert(path.to_path_buf());
         self.add_source(path, source);
+    }
+
+    /// Declarations written as inline RBS in a Ruby file of the project, validated into
+    /// `Environment::signature_diagnostics` like `add_signature_source`
+    pub fn add_inline_source(&mut self, path: &Path, source: &str) {
+        self.signature_files.insert(path.to_path_buf());
+        self.sources.push(PendingSource::InlineText {
+            path: path.to_path_buf(),
+            source: source.to_string(),
+        });
+    }
+
+    /// Like `add_inline_source`, reading the file when the environment is built
+    pub fn add_inline_file(&mut self, path: &Path) {
+        if self.added_files.insert(path.to_path_buf()) {
+            self.signature_files.insert(path.to_path_buf());
+            self.sources
+                .push(PendingSource::InlineFile(path.to_path_buf()));
+        }
     }
 
     /// Adds every `*.rbs` under `directory`, recursively. A path to a file adds that file alone
@@ -177,6 +213,7 @@ impl Loader {
         synthesize_new_methods(&mut environment);
         let MergeState {
             pending_overloadings,
+            unannotated_methods,
             diagnostics: merge_diagnostics,
             duplicated_method_definitions,
             ..
@@ -188,6 +225,7 @@ impl Loader {
             pending_overloadings,
             &signature_files,
         ));
+        apply_super_method_types(&mut environment, &unannotated_methods);
         let (validation_diagnostics, ancestor_phase_diagnostics) = validate_files(&environment, &validations);
         signature_diagnostics.extend(validation_diagnostics);
         environment.ancestor_phase_diagnostics = ancestor_phase_diagnostics;
@@ -342,6 +380,8 @@ struct ClassFragment {
 struct MethodFragment {
     definition: MethodDefinition,
     overloading: bool,
+    /// An inline `def` without type annotations
+    unannotated: bool,
 }
 
 /// `None` when the source has a syntax error
@@ -364,8 +404,10 @@ fn parse_pending_source(
     let path = pending.path().to_path_buf();
     let read_source;
     let source = match pending {
-        PendingSource::Text { source, .. } => source.as_str(),
-        PendingSource::File(file) => {
+        PendingSource::Text { source, .. } | PendingSource::InlineText { source, .. } => {
+            source.as_str()
+        }
+        PendingSource::File(file) | PendingSource::InlineFile(file) => {
             read_source = std::fs::read_to_string(file).map_err(|error| ParseFailure {
                 error: LoadError {
                     path: path.clone(),
@@ -376,17 +418,47 @@ fn parse_pending_source(
             read_source.as_str()
         }
     };
-    let signature = ruby_rbs::node::parse(source).map_err(|message| ParseFailure {
-        diagnostic: validated.then(|| syntax_error_diagnostic(&path, source, &message)),
+    let inline_signature = pending
+        .is_inline()
+        .then(|| crate::inline_source::translate(source));
+    let rbs_source = inline_signature
+        .as_ref()
+        .map_or(source, |inline_signature| inline_signature.rbs.as_str());
+    let signature = ruby_rbs::node::parse(rbs_source).map_err(|message| ParseFailure {
+        diagnostic: (validated && inline_signature.is_none())
+            .then(|| syntax_error_diagnostic(&path, source, &message)),
         error: LoadError {
             path: path.clone(),
             message,
         },
     })?;
-    let mut converter = Converter::new(source, Arc::new(path));
+    let path = Arc::new(path);
+    let mut converter = Converter::new(rbs_source, path.clone());
     converter.implicitly_returns_nil = implicitly_returns_nil;
+    if let Some(inline_signature) = &inline_signature {
+        converter.inline = Some(InlineMapping::new(inline_signature, source));
+    }
     if validated {
         converter.validation = Some(ValidationCollector::default());
+        if let Some(inline_signature) = &inline_signature
+            && let Some(collector) = &converter.validation
+        {
+            let source_line_starts = line_starts(source);
+            collector.file.borrow_mut().diagnostics.extend(
+                inline_signature.diagnostics.iter().map(|diagnostic| {
+                    let location = Location {
+                        path: path.clone(),
+                        start: position_in(source, &source_line_starts, diagnostic.range.start),
+                        end: position_in(source, &source_line_starts, diagnostic.range.end),
+                    };
+                    SignatureDiagnostic::new(
+                        &location,
+                        "RBS::InlineDiagnostic",
+                        diagnostic.message.clone(),
+                    )
+                }),
+            );
+        }
     }
     let mut file = ParsedFile {
         uses: Vec::new(),
@@ -504,25 +576,73 @@ struct ValidationCollector {
     file: RefCell<FileValidation>,
 }
 
+/// Locations in the RBS text written for inline declarations, mapped back to the Ruby file
+struct InlineMapping<'source> {
+    signature: &'source InlineSignature,
+    source: &'source str,
+    line_starts: Vec<usize>,
+}
+
+impl<'source> InlineMapping<'source> {
+    fn new(signature: &'source InlineSignature, source: &'source str) -> InlineMapping<'source> {
+        InlineMapping {
+            signature,
+            source,
+            line_starts: line_starts(source),
+        }
+    }
+}
+
+fn line_starts(source: &str) -> Vec<usize> {
+    let mut line_starts = vec![0];
+    line_starts.extend(source.match_indices('\n').map(|(index, _)| index + 1));
+    line_starts
+}
+
+fn position_in(source: &str, line_starts: &[usize], byte_offset: usize) -> SourcePosition {
+    let byte_offset = byte_offset.min(source.len());
+    let line = line_starts.partition_point(|start| *start <= byte_offset) - 1;
+    let line_start = line_starts[line];
+    let byte_column = byte_offset - line_start;
+    let utf16_column = source
+        .get(line_start..byte_offset)
+        .map(|prefix| prefix.chars().map(char::len_utf16).sum::<usize>())
+        .unwrap_or(byte_column);
+    SourcePosition {
+        line: line as u32,
+        byte_column: byte_column as u32,
+        utf16_column: utf16_column as u32,
+    }
+}
+
 struct Converter<'source> {
     source: &'source str,
     path: Arc<PathBuf>,
     line_starts: Vec<usize>,
     validation: Option<ValidationCollector>,
+    inline: Option<InlineMapping<'source>>,
     implicitly_returns_nil: bool,
 }
 
 impl<'source> Converter<'source> {
     fn new(source: &'source str, path: Arc<PathBuf>) -> Converter<'source> {
-        let mut line_starts = vec![0];
-        line_starts.extend(source.match_indices('\n').map(|(index, _)| index + 1));
         Converter {
             source,
             path,
-            line_starts,
+            line_starts: line_starts(source),
             validation: None,
+            inline: None,
             implicitly_returns_nil: false,
         }
+    }
+
+    fn is_unannotated_method(&self, range: RBSLocationRange) -> bool {
+        self.inline.as_ref().is_some_and(|inline| {
+            inline
+                .signature
+                .method_starting_at(range.start().max(0) as usize)
+                .is_some_and(|method| !method.annotated)
+        })
     }
 
     fn with_context<T>(&self, context: &Arc<[String]>, body: impl FnOnce() -> T) -> T {
@@ -565,6 +685,7 @@ impl<'source> Converter<'source> {
             written_name: type_name_string(name),
             argument_count,
             location: self.location(range),
+            unknown_name_shown_absolute: self.inline.is_some(),
         });
     }
 
@@ -745,26 +866,33 @@ impl<'source> Converter<'source> {
     }
 
     fn position(&self, byte_offset: i32) -> SourcePosition {
-        let byte_offset = (byte_offset.max(0) as usize).min(self.source.len());
-        let line = self
-            .line_starts
-            .partition_point(|start| *start <= byte_offset)
-            - 1;
-        let line_start = self.line_starts[line];
-        let byte_column = byte_offset - line_start;
-        let utf16_column = self
-            .source
-            .get(line_start..byte_offset)
-            .map(|prefix| prefix.chars().map(char::len_utf16).sum::<usize>())
-            .unwrap_or(byte_column);
-        SourcePosition {
-            line: line as u32,
-            byte_column: byte_column as u32,
-            utf16_column: utf16_column as u32,
+        let byte_offset = byte_offset.max(0) as usize;
+        match &self.inline {
+            Some(inline) => position_in(
+                inline.source,
+                &inline.line_starts,
+                inline.signature.source_offset(byte_offset),
+            ),
+            None => position_in(self.source, &self.line_starts, byte_offset),
         }
     }
 
     fn location(&self, range: RBSLocationRange) -> Location {
+        if let Some(inline) = &self.inline
+            && let Some(method) = inline
+                .signature
+                .method_starting_at(range.start().max(0) as usize)
+        {
+            return Location {
+                path: self.path.clone(),
+                start: position_in(
+                    inline.source,
+                    &inline.line_starts,
+                    method.source_range.start,
+                ),
+                end: position_in(inline.source, &inline.line_starts, method.source_range.end),
+            };
+        }
         Location {
             path: self.path.clone(),
             start: self.position(range.start()),
@@ -1241,6 +1369,7 @@ impl<'source> Converter<'source> {
                                 ends_with_inherited_overloads: false,
                             },
                             overloading: method.overloading(),
+                            unannotated: self.is_unannotated_method(method.location()),
                         });
                     }
                 }
@@ -1296,6 +1425,7 @@ impl<'source> Converter<'source> {
                             ends_with_inherited_overloads: false,
                         },
                         overloading: false,
+                        unannotated: false,
                     });
                 }
                 Node::AttrReader(attribute) => {
@@ -1887,6 +2017,7 @@ impl Attribute {
                     ends_with_inherited_overloads: false,
                 },
                 overloading: false,
+                unannotated: false,
             })
         };
         if matches!(access, AttributeAccess::Reader | AttributeAccess::Accessor) {
@@ -2106,6 +2237,7 @@ struct PendingOverloading {
 struct MergeState<'a> {
     signature_files: &'a HashSet<PathBuf>,
     pending_overloadings: Vec<PendingOverloading>,
+    unannotated_methods: Vec<PendingOverloading>,
     /// The number of type parameters and the location of the first declaration of each class
     first_declarations: HashMap<TypeName, (usize, Location)>,
     /// The first superclass given to each class, which RBS calls the primary declaration
@@ -2150,6 +2282,7 @@ impl MergeState<'_> {
         MergeState {
             signature_files,
             pending_overloadings: Vec::new(),
+            unannotated_methods: Vec::new(),
             first_declarations: HashMap::new(),
             first_super_classes: HashMap::new(),
             diagnostics: Vec::new(),
@@ -2410,8 +2543,16 @@ fn merge_class(environment: &mut Environment, class: ClassFragment, state: &mut 
     for MethodFragment {
         definition,
         overloading,
+        unannotated,
     } in class.methods
     {
+        if unannotated {
+            state.unannotated_methods.push(PendingOverloading {
+                class_name: declaration.name.clone(),
+                kind: definition.kind,
+                method_name: definition.name.clone(),
+            });
+        }
         let methods = match definition.kind {
             MethodKind::Instance => &mut declaration.instance_methods,
             MethodKind::Singleton => &mut declaration.singleton_methods,
@@ -2607,6 +2748,58 @@ fn apply_inherited_overloadings(
         }
     }
     diagnostics
+}
+
+/// An inline `def` without type annotations takes the type of the method it overrides, as RBS's
+/// `DefinitionBuilder#define_method` does, and keeps `(?) -> untyped` when there is none. A method overriding another
+/// unannotated method takes what that one takes, so this repeats until nothing changes
+fn apply_super_method_types(
+    environment: &mut Environment,
+    unannotated_methods: &[PendingOverloading],
+) {
+    for _ in 0..=unannotated_methods.len() {
+        let mut changed = false;
+        for pending in unannotated_methods {
+            let chain = match pending.kind {
+                MethodKind::Instance => environment
+                    .instance_lookup_chain(&pending.class_name)
+                    .into_iter()
+                    .map(SingletonAncestor::Instance)
+                    .collect::<Vec<_>>(),
+                MethodKind::Singleton => environment.singleton_ancestors(&pending.class_name),
+            };
+            let Some(super_method) = environment.find_in_chain(
+                chain.get(1..).unwrap_or_default(),
+                &pending.method_name,
+                0,
+            ) else {
+                continue;
+            };
+            let overloads = super_method.overloads;
+            let Some(method) =
+                environment
+                    .classes
+                    .get_mut(&pending.class_name)
+                    .and_then(|declaration| match pending.kind {
+                        MethodKind::Instance => {
+                            declaration.instance_methods.get_mut(&pending.method_name)
+                        }
+                        MethodKind::Singleton => {
+                            declaration.singleton_methods.get_mut(&pending.method_name)
+                        }
+                    })
+            else {
+                continue;
+            };
+            if method.overloads != overloads {
+                method.overloads = overloads;
+                changed = true;
+            }
+        }
+        if !changed {
+            return;
+        }
+    }
 }
 
 /// Parses a single RBS type such as `Array[String]?`. Names are left as written; resolve them with

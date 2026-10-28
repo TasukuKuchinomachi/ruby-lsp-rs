@@ -14,7 +14,7 @@ use crate::type_utilities::{
     literal_class_name, members_of, remove_nil, self_instance_type,
 };
 use crate::unification::{Bindings, class_substitution};
-use crate::{HoverKind, Severity, TypeHintKind};
+use crate::{HoverKind, Severity, SteepVersion, TypeHintKind};
 
 const MAXIMUM_LOOKUP_DEPTH: usize = 8;
 
@@ -263,6 +263,13 @@ impl PreparedCall {
             block: None,
             self_type: block.self_type.clone(),
         })))
+    }
+
+    fn is_block_required(&self) -> bool {
+        self.overload
+            .as_ref()
+            .and_then(|overload| overload.block.as_ref())
+            .is_some_and(|block| block.required)
     }
 
     fn block_first_parameter_type(&self) -> Option<Type> {
@@ -548,6 +555,13 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         {
             result = element;
         }
+        if self.options.steep_version >= SteepVersion::Version2_1
+            && let Type::Tuple(elements) = &structural_receiver
+            && method_name == "to_ary"
+            && arguments.values.is_empty()
+        {
+            result = Type::Tuple(elements.clone());
+        }
         if method_name == "class"
             && arguments.values.is_empty()
             && matches!(&result, Type::ClassInstance { name, .. } if name == "Class")
@@ -605,7 +619,12 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         );
     }
 
-    /// `it` is a method call to Steep, whose parser follows Ruby 3.3
+    /// Steep 2.0 parses with the grammar of Ruby 3.3, where `it` is not a block parameter, and Steep 2.1 with the
+    /// grammar of Ruby 3.4
+    pub(crate) fn is_it_a_method_call(&self) -> bool {
+        self.options.steep_compatible && self.options.steep_version < SteepVersion::Version2_1
+    }
+
     pub(crate) fn infer_it_as_method_call(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let span = Span::of_node(node);
         if let Some(error) = self.definition_error_of(&context.self_type) {
@@ -842,12 +861,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                     self.record_unexpected_error(*span, error);
                     (Type::Untyped, false)
                 } else {
-                    self.block_argument_result(
-                        argument_type,
-                        symbol.as_deref(),
-                        first_parameter,
-                        context,
-                    )
+                    self.block_argument_result(argument_type, symbol.as_deref(), first_parameter.clone(), context)
                 };
                 if site.reports_diagnostics
                     && let Some(expected) = primary_prepared
@@ -861,6 +875,15 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                         && self.is_certain_mismatch(argument_type, &expected)
                     {
                         Some(argument_type.clone())
+                    } else if let (Some(_), Some(first_parameter), Type::Proc(expected_proc)) =
+                        (symbol, first_parameter, &expected)
+                        && (self.options.steep_version >= SteepVersion::Version2_1
+                            || primary_prepared.as_ref().is_some_and(PreparedCall::is_block_required))
+                        && self.is_certain_mismatch(&block_type, &expected_proc.function.return_type)
+                    {
+                        let mut function = rbs_environment::Function::returning(block_type.clone());
+                        function.required_positionals = vec![rbs_environment::Parameter::new(first_parameter)];
+                        Some(Type::Proc(Box::new(rbs_environment::ProcType { function, block: None, self_type: None })))
                     } else {
                         None
                     };

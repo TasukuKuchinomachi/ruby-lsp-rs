@@ -102,7 +102,8 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
         None => Vec::new(),
     };
 
-    let instance_variable_declarations = match (instance_variable_name, global_state.type_checking.environment.as_ref()) {
+    let environment = global_state.type_checking.environment_for(document.uri());
+    let instance_variable_declarations = match (instance_variable_name, environment) {
         (Some(variable_name), Some(environment)) => TypeInferrer::new(&mut index)
             .infer_receiver_type(&node_context)
             .map(|self_type| {
@@ -142,9 +143,10 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
 /// A type name leads to both its implementation and its declaration, while the name of a method, class or constant being
 /// declared leads to its implementation, since its declaration is where the cursor already is
 fn signature_definitions(global_state: &GlobalState, document: &Document, position: Position) -> Vec<LocationLink> {
-    let (Some(environment), Some(path)) =
-        (global_state.type_checking.environment.as_ref(), crate::uri::to_path_buf(document.uri()))
-    else {
+    let (Some(environment), Some(path)) = (
+        global_state.type_checking.environment_for(document.uri()),
+        crate::uri::to_path_buf(document.uri()),
+    ) else {
         return Vec::new();
     };
     let encoding = global_state.encoding;

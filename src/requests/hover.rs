@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use rbs_environment::Type;
 use ruby_prism::Node;
@@ -111,7 +112,10 @@ fn type_links_markdown(
     let label = |named_type: &NamedType, links: String| {
         if labelled { format!("`{}` {links}", named_type.name()) } else { links }
     };
-    let environment = global_state.type_checking.environment.as_deref();
+    let environment = global_state
+        .type_checking
+        .environment_for(document_uri)
+        .map(Arc::as_ref);
     let core_directory = global_state.ruby_environment.rbs_core_path.as_deref().map(Path::new);
     let index = global_state.index();
     let mut signature_groups = Vec::new();

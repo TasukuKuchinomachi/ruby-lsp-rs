@@ -4,12 +4,12 @@ use std::path::{Path, PathBuf};
 use rayon::prelude::*;
 use rbs_environment::{DiagnosticConfiguration, DiagnosticSeverity, Environment, SignatureDiagnostic, SteepfileConfiguration};
 use ruby_environment::RubyEnvironment;
-use type_checker::{AnalysisOptions, Severity};
+use type_checker::{AnalysisOptions, Severity, SteepVersion};
 
 use crate::project;
 use crate::report::{OutputFormat, Renderer, ReportedDiagnostic, ReportedLocation};
 
-pub const USAGE: &str = "Usage: ruby-type-check [--ruby-command \"mise exec -- ruby\"] [--severity-level error|warning|information|hint] [--steep-compatible] [--format pretty|line] [paths...]";
+pub const USAGE: &str = "Usage: ruby-type-check [--ruby-command \"mise exec -- ruby\"] [--severity-level error|warning|information|hint] [--steep-compatible] [--steep-version 2.0|2.1] [--format pretty|line] [paths...]";
 
 const UNEXPECTED_ERROR_CODE: &str = "Ruby::UnexpectedError";
 
@@ -21,6 +21,8 @@ pub struct TypeCheckOptions {
     pub severity_level: DiagnosticSeverity,
     /// Report what `steep check` reports, so that the command can replace it in CI
     pub steep_compatible: bool,
+    /// The Steep version to follow instead of the one `Gemfile.lock` locks
+    pub steep_version: Option<SteepVersion>,
     pub format: OutputFormat,
     pub paths: Vec<PathBuf>,
 }
@@ -40,6 +42,7 @@ pub fn parse_arguments(arguments: &[String]) -> Result<TypeCheckOptions, String>
     let mut ruby_command = vec!["ruby".to_string()];
     let mut severity_level = DiagnosticSeverity::Warning;
     let mut steep_compatible = false;
+    let mut steep_version = None;
     let mut format = OutputFormat::default();
     let mut paths = Vec::new();
     let mut remaining = arguments.iter();
@@ -52,6 +55,11 @@ pub fn parse_arguments(arguments: &[String]) -> Result<TypeCheckOptions, String>
         } else if let Some(level) = option_value("--severity-level", argument, &mut remaining)? {
             severity_level = DiagnosticSeverity::from_name(level)
                 .ok_or(format!("--severity-level must be error, warning, information, or hint: {level}"))?;
+        } else if let Some(version) = option_value("--steep-version", argument, &mut remaining)? {
+            steep_version = Some(SteepVersion::from_version(version).ok_or(format!(
+                "--steep-version must be one of {}: {version}",
+                SteepVersion::SUPPORTED.map(SteepVersion::name).join(", ")
+            ))?);
         } else if let Some(name) = option_value("--format", argument, &mut remaining)? {
             format = OutputFormat::from_name(name).ok_or(format!("--format must be pretty or line: {name}"))?;
         } else if argument == "--steep-compatible" {
@@ -62,7 +70,14 @@ pub fn parse_arguments(arguments: &[String]) -> Result<TypeCheckOptions, String>
             paths.push(PathBuf::from(argument));
         }
     }
-    Ok(TypeCheckOptions { ruby_command, severity_level, steep_compatible, format, paths })
+    Ok(TypeCheckOptions {
+        ruby_command,
+        severity_level,
+        steep_compatible,
+        steep_version,
+        format,
+        paths,
+    })
 }
 
 pub fn run(arguments: &[String]) -> i32 {
@@ -120,6 +135,15 @@ pub fn check_workspace(workspace_path: &Path, options: &TypeCheckOptions) -> Wor
     if let Some(warning) = project::missing_core_warning(&sources) {
         eprintln!("{warning}");
     }
+    let steep_version = match options.steep_version {
+        Some(steep_version) => steep_version,
+        None => {
+            if let Some(warning) = project::unsupported_steep_version_warning(&ruby_environment) {
+                eprintln!("{warning}");
+            }
+            project::steep_version(&ruby_environment)
+        }
+    };
     let loaded = project::load_environment(workspace_path, &sources, &options.ruby_command);
     eprintln!("{}", project::load_summary(&loaded));
     if let Some(report) = project::load_error_report(&loaded) {
@@ -131,6 +155,7 @@ pub fn check_workspace(workspace_path: &Path, options: &TypeCheckOptions) -> Wor
     let default_code_diagnostics = DiagnosticConfiguration::default();
     let analysis_options = AnalysisOptions {
         steep_compatible: options.steep_compatible,
+        steep_version,
     };
     let results = files
         .par_iter()
@@ -398,9 +423,28 @@ mod tests {
             ruby_command: arguments(&["ruby"]),
             severity_level: DiagnosticSeverity::Warning,
             steep_compatible: false,
+            steep_version: None,
             format: OutputFormat::Pretty,
             paths: Vec::new()
         });
+    }
+
+    #[test]
+    fn parses_the_steep_version_to_follow() {
+        assert_eq!(
+            parse_arguments(&arguments(&["--steep-version", "2.0"]))
+                .unwrap()
+                .steep_version,
+            Some(SteepVersion::Version2_0)
+        );
+        assert_eq!(
+            parse_arguments(&arguments(&["--steep-version=2.1.0"]))
+                .unwrap()
+                .steep_version,
+            Some(SteepVersion::Version2_1)
+        );
+        assert!(parse_arguments(&arguments(&["--steep-version=1.10.0"])).is_err());
+        assert!(parse_arguments(&arguments(&["--steep-version"])).is_err());
     }
 
     #[test]
@@ -523,7 +567,10 @@ mod tests {
         );
         let environment = loader.finish();
         let configuration = DiagnosticConfiguration::default();
-        let compatible = AnalysisOptions { steep_compatible: true };
+        let compatible = AnalysisOptions {
+            steep_compatible: true,
+            ..AnalysisOptions::default()
+        };
 
         let result = check_file(&environment, &workspace, &ruby_path, &configuration, DiagnosticSeverity::Hint, compatible);
         assert_eq!(result.diagnostics.len(), 1);
@@ -555,12 +602,16 @@ mod tests {
             signature_patterns: Vec::new(),
             check_paths: vec![PathBuf::from("lib")],
             ignore_paths: vec![PathBuf::from("lib/templates")],
+            inline_check_paths: Vec::new(),
+            inline_ignore_paths: Vec::new(),
             libraries: Vec::new(),
             collection_lockfile: None,
             targets: vec![SteepfileTarget {
                 name: "lib".to_string(),
                 check_paths: vec![PathBuf::from("lib")],
                 ignore_paths: vec![PathBuf::from("lib/templates")],
+                inline_check_paths: Vec::new(),
+                inline_ignore_paths: Vec::new(),
                 code_diagnostics: DiagnosticConfiguration::default(),
                 groups: Vec::new(),
                 implicitly_returns_nil: false,

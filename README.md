@@ -13,21 +13,37 @@ Rust で書いた Ruby の language server です。[Shopify Ruby LSP](https://g
 - 対象プロジェクトの Bundler で `rbs` gem が入っていること。core と stdlib の RBS はこの gem から読み込みます
 - `Steepfile` と `sig/`、`rbs_collection.lock.yaml`（あれば読み込みます）
 
-## バージョン
+## 対応している Steep・rbs・Ruby
 
-バージョンは `<合わせている Steep のバージョン>-r<同じ Steep に合わせたリリースの回数>` です。`2.0.0-r1` は Steep 2.0.0 に合わせた 1 回目のリリースで、tag は `steep-2.0.0-r1` です。rbs のバージョンは Steep の gemspec で決まるので、対象プロジェクトの `Gemfile.lock` にある steep のバージョンの tag を入れます。
+| Steep | rbs | Ruby |
+| --- | --- | --- |
+| 2.0.x | `~> 4.0`（Steep の smoke test は 4.0.2 で確認） | 3.2 以上 |
+| 2.1.x | `~> 4.2`（Steep の smoke test は 4.2.0 で確認） | 3.3 以上 |
 
-新しい Steep に合わせたリリースだけを出し、古い Steep 向けの修正は出しません。最初のリリースの `v0.1.0` は Steep 2.0.0 に合わせています。
+rbs と Ruby の範囲は各 Steep の gemspec のものです。
+
+型検査は Steep のマイナーバージョンごとの違いに合わせます。どの Steep に合わせるかは、対象プロジェクトの `Gemfile.lock` にある steep のバージョンで決まります。`Gemfile.lock` に steep が無いときと、対応していないバージョンのときは、対応している最新の Steep（2.1）に合わせます（後者は警告を出します）。`ruby-type-check` では `--steep-version` で指定することもできます。
+
+Steep のバージョンで変わるのは次の点です。
+
+- `it`: Steep 2.0 は Ruby 3.3 の文法で読むので、`--steep-compatible` では `it` を self へのメソッド呼び出しとして扱います。Steep 2.1 では `_1` と同じブロック引数です
+- `receiver == literal` の絞り込み: Steep 2.1 では、literal が receiver の型（`Symbol` など）の値になりうるとき、then 側で literal の型に絞り込みます。Steep 2.0 ではその then 側は到達しないものとして扱います
+- ブロックが返す array literal: Steep 2.1 では、ブロックの返り値の型をヒントに tuple として推論し、tuple を含まないヒントは `to_ary` で変換します（rbs 4.2 の `Array#to_h` などが `Hash::_Pair[K, V]` を返すブロックを取るため）
+- `&:sym` の返り値の検査（`Ruby::BlockTypeMismatch`）: Steep 2.0 は必須のブロックだけ、Steep 2.1 は省略できるブロックも検査します
+
+core と stdlib の RBS は、対象プロジェクトに入っている rbs gem から読み込みます。RBS のパーサは [ruby-rbs](https://crates.io/crates/ruby-rbs) crate 0.3.0（RBS 4.0.2 相当）を使うため、RBS 4.1 で書けるようになった非 ASCII の名前は読めません。
+
+`Steepfile` に `check "lib", inline: true` と書いたファイルは、Steep と同じく inline RBS（`# @rbs` や `#:` のコメント）から型を読み込み、型検査もします。
+
+Ruby のコードは、対象プロジェクトの Ruby のバージョンにかかわらず、ruby-prism crate 1.9.0 の既定の文法で読みます。
 
 ## インストール
 
 ```sh
-cargo install --locked --git https://github.com/TasukuKuchinomachi/ruby-lsp-rs --branch steep-2.0.0 ruby-lsp-rs ruby-type-check
+cargo install --locked --git https://github.com/TasukuKuchinomachi/ruby-lsp-rs --tag v0.2.0 ruby-lsp-rs ruby-type-check
 ```
 
-`steep-2.0.0` の branch は、Steep 2.0.0 に合わせた最新のリリースを指します。リリースの tag を push すると release.yml が進めます。別の Steep に合わせたものに切り替えるときは、`--branch` を変えて同じコマンドを実行します。
-
-branch は後から指す commit が変わるので、CI のように入れるものを固定したいときは `--tag steep-2.0.0-r1` のようにリリースの tag を指定します。
+リリースの tag は `v<バージョン>` です。1 つのリリースで上の表のすべての Steep に対応します。
 
 ## ビルド
 
@@ -53,6 +69,7 @@ ruby-type-check --ruby-command "mise exec -- ruby"
 | `--ruby-command` | Bundler 環境の検出に使う Ruby の起動コマンド（既定は `ruby`） |
 | `--severity-level` | `error` / `warning` / `information` / `hint`（既定は `warning`） |
 | `--steep-compatible` | `steep check` と同じ診断を出す。既定では Steep より型を強く推論するため、Steep が見逃すエラーも報告します |
+| `--steep-version` | 合わせる Steep のバージョン（`2.0` / `2.1`）。省略時は `Gemfile.lock` の steep のバージョン |
 | `--format` | `pretty`（既定。rustc のようにソースの該当箇所を示す）/ `line`（1 診断 1 行） |
 | パス | 検査するファイル・ディレクトリ（省略時は `Steepfile` の `check` 対象） |
 

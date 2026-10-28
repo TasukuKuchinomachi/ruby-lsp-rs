@@ -3,7 +3,7 @@ mod support;
 use std::sync::OnceLock;
 
 use rbs_environment::Environment;
-use type_checker::{AnalysisOptions, Severity};
+use type_checker::{AnalysisOptions, Severity, SteepVersion, TypeHintKind};
 
 const SIGNATURES: &str = r#"
 class Time
@@ -43,6 +43,7 @@ end
 
 const STEEP_COMPATIBLE: AnalysisOptions = AnalysisOptions {
     steep_compatible: true,
+    steep_version: SteepVersion::Version2_0,
 };
 
 fn environment() -> Option<&'static Environment> {
@@ -212,13 +213,37 @@ end
 }
 
 #[test]
-fn it_is_a_method_call() {
+fn it_is_a_method_call_to_steep_2_0() {
     let environment = steep_compatible_environment_or_skip!();
     let (default, compatible) = both_modes(environment, "[1].map { it.no_such_method }\n");
     assert_eq!(diagnostics(&compatible), Vec::<(&str, String)>::new());
     assert_eq!(
         diagnostics_with_code(&default, "Ruby::NoMethod"),
         vec!["no_such_method"]
+    );
+}
+
+#[test]
+fn it_is_the_block_parameter_to_steep_2_1() {
+    let environment = steep_compatible_environment_or_skip!();
+    let options = AnalysisOptions {
+        steep_version: SteepVersion::Version2_1,
+        ..STEEP_COMPATIBLE
+    };
+    let source = "[1].map { it.no_such_method }\nwith_it‸ = -> { it }\n";
+    let checked = support::check_with_options(environment, source, options);
+    assert_eq!(
+        diagnostics_with_code(&checked, "Ruby::NoMethod"),
+        vec!["no_such_method"]
+    );
+    assert_eq!(
+        checked.hint(0, TypeHintKind::VariableType).as_deref(),
+        Some("^(untyped) -> untyped")
+    );
+    let checked = support::check_with_options(environment, source, STEEP_COMPATIBLE);
+    assert_eq!(
+        checked.hint(0, TypeHintKind::VariableType).as_deref(),
+        Some("^() -> untyped")
     );
 }
 
