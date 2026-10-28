@@ -546,6 +546,11 @@ impl Server {
                 if let Some(report) = project::load_error_report(&loaded) {
                     self.outgoing.log_message(&report, message_type::WARNING);
                 }
+                let ruby_environment = &self.global_state.ruby_environment;
+                if let Some(warning) = project::unsupported_steep_version_warning(ruby_environment) {
+                    self.outgoing.log_message(&warning, message_type::WARNING);
+                }
+                self.global_state.type_checking.steep_version = project::steep_version(ruby_environment);
                 self.global_state.type_checking.set_environment(loaded);
                 self.refresh_type_information();
             }

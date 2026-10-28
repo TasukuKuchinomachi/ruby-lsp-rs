@@ -11,7 +11,7 @@ use rbs_environment::{
 };
 use ruby_type_check::project::{self, LoadedEnvironment, code_diagnostics_for, configured_diagnostics, is_signature_path};
 use serde_json::{Value, json};
-use type_checker::{Analysis, AnalysisOptions, HoverEntry, HoverKind, Severity, TypeHint, TypeHintKind};
+use type_checker::{Analysis, AnalysisOptions, HoverEntry, HoverKind, Severity, SteepVersion, TypeHint, TypeHintKind};
 
 use crate::document::Document;
 use crate::position::{Encoding, LineIndex, Position, Range, range_covers};
@@ -183,6 +183,7 @@ pub struct TypeCheckingState {
     pub settings: TypeCheckerSettings,
     pub environment: Option<Arc<Environment>>,
     pub steepfile: Option<SteepfileConfiguration>,
+    pub steep_version: SteepVersion,
     analyses: HashMap<String, (u64, Arc<Analysis>)>,
 }
 
@@ -226,7 +227,11 @@ impl TypeCheckingState {
         {
             return Some(analysis.clone());
         }
-        let analysis = analyze(environment, document.source().as_bytes())?;
+        let options = AnalysisOptions {
+            steep_version: self.steep_version,
+            ..AnalysisOptions::default()
+        };
+        let analysis = project::analyze_with_options(environment, document.source().as_bytes(), options)?;
         self.analyses.insert(document.uri().to_string(), (fingerprint, analysis.clone()));
         Some(analysis)
     }
@@ -239,10 +244,6 @@ fn source_fingerprint(document: &Document) -> u64 {
     document.version().hash(&mut hasher);
     document.source().hash(&mut hasher);
     hasher.finish()
-}
-
-pub fn analyze(environment: &Environment, source: &[u8]) -> Option<Arc<Analysis>> {
-    project::analyze_with_options(environment, source, AnalysisOptions::default())
 }
 
 pub fn truncate_type(type_text: &str, maximum_length: Option<usize>) -> Option<String> {

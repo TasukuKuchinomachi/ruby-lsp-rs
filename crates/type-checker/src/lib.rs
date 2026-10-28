@@ -130,12 +130,49 @@ impl Analysis {
     }
 }
 
+/// A minor version of Steep whose type checking is followed. Patch releases of Steep type check alike
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SteepVersion {
+    Version2_0,
+    #[default]
+    Version2_1,
+}
+
+impl SteepVersion {
+    pub const SUPPORTED: [SteepVersion; 2] = [SteepVersion::Version2_0, SteepVersion::Version2_1];
+    pub const LATEST: SteepVersion = SteepVersion::Version2_1;
+
+    /// `2.0` for `2.0`, `2.0.0` or `2.0.1`. `None` for a version that is not supported
+    pub fn from_version(version: &str) -> Option<SteepVersion> {
+        let mut segments = version.trim().split('.');
+        let (major, minor) = (segments.next()?, segments.next()?);
+        SteepVersion::SUPPORTED
+            .into_iter()
+            .find(|supported| supported.name() == format!("{major}.{minor}"))
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            SteepVersion::Version2_0 => "2.0",
+            SteepVersion::Version2_1 => "2.1",
+        }
+    }
+}
+
+impl std::fmt::Display for SteepVersion {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.name())
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AnalysisOptions {
     /// Reports what `steep check` (Steep 2.0.0) reports instead of inferring more than it does: `it` is a method call,
     /// an instance variable without a signature is `untyped`, `proc { }` is a plain `Proc`, `$1` is `String?`, and a
     /// node that needs the definition of a class RBS cannot build is `Ruby::UnexpectedError` and left untyped
     pub steep_compatible: bool,
+    /// The Steep version whose type checking is followed where Steep versions differ
+    pub steep_version: SteepVersion,
 }
 
 /// Infers types for a whole Ruby file. Must not panic on any input, including files with syntax errors

@@ -9,6 +9,7 @@ use rbs_environment::DiagnosticSeverity;
 use ruby_type_check::command::{TypeCheckOptions, WorkspaceResult, check_workspace};
 use ruby_type_check::project::severity_name;
 use ruby_type_check::report::{OutputFormat, ReportedDiagnostic};
+use type_checker::SteepVersion;
 
 const STEEP_VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION_MAJOR"),
@@ -122,6 +123,7 @@ fn reported_diagnostics(smoke_case_directory: &Path) -> BTreeMap<String, Vec<Exp
         ruby_command: vec!["ruby".to_string()],
         severity_level: DiagnosticSeverity::Warning,
         steep_compatible: true,
+        steep_version: SteepVersion::from_version(STEEP_VERSION),
         format: OutputFormat::Line,
         paths: Vec::new(),
     };

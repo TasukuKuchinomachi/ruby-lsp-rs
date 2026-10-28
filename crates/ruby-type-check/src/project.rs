@@ -9,7 +9,7 @@ use rbs_environment::{
 };
 use ruby_environment::RubyEnvironment;
 use ruby_file_glob::fnmatch;
-use type_checker::{Analysis, AnalysisOptions, Severity, TypeDiagnostic};
+use type_checker::{Analysis, AnalysisOptions, Severity, SteepVersion, TypeDiagnostic};
 
 pub struct LoadedEnvironment {
     /// One for each target of the `Steepfile`, as Steep loads one environment for each target. A single one without
@@ -45,6 +45,33 @@ pub fn workspace_sources(ruby_environment: &RubyEnvironment) -> WorkspaceSources
         gem_directories.entry(gem.name.clone()).or_insert_with(|| PathBuf::from(&gem.full_gem_path));
     }
     WorkspaceSources { core_directory, stdlib_directory, gem_directories }
+}
+
+fn locked_steep_version(ruby_environment: &RubyEnvironment) -> Option<&str> {
+    ruby_environment
+        .locked_gems
+        .iter()
+        .find(|gem| gem.name == "steep")
+        .map(|gem| gem.version.as_str())
+}
+
+/// The Steep version `Gemfile.lock` locks, since the type checking of Steep differs between its minor versions. The
+/// latest supported one when the bundle has no steep or locks a version that is not supported
+pub fn steep_version(ruby_environment: &RubyEnvironment) -> SteepVersion {
+    locked_steep_version(ruby_environment)
+        .and_then(SteepVersion::from_version)
+        .unwrap_or(SteepVersion::LATEST)
+}
+
+pub fn unsupported_steep_version_warning(ruby_environment: &RubyEnvironment) -> Option<String> {
+    let locked_version = locked_steep_version(ruby_environment)?;
+    SteepVersion::from_version(locked_version).is_none().then(|| {
+        format!(
+            "Steep {locked_version} in Gemfile.lock is not supported, so Steep {} is followed (supported: {})",
+            SteepVersion::LATEST,
+            SteepVersion::SUPPORTED.map(SteepVersion::name).join(", ")
+        )
+    })
 }
 
 pub fn missing_core_warning(sources: &WorkspaceSources) -> Option<String> {
@@ -295,6 +322,43 @@ mod tests {
 
     fn type_diagnostic(code: &'static str, severity: Severity) -> TypeDiagnostic {
         TypeDiagnostic { start: 0, end: 1, severity, code, message: String::new() }
+    }
+
+    fn ruby_environment_locking(gems: &[(&str, &str)]) -> RubyEnvironment {
+        let locked_gems = gems
+            .iter()
+            .map(|(name, version)| ruby_environment::LockedGem {
+                name: name.to_string(),
+                version: version.to_string(),
+                ..ruby_environment::LockedGem::default()
+            })
+            .collect();
+        RubyEnvironment {
+            locked_gems,
+            ..RubyEnvironment::default()
+        }
+    }
+
+    #[test]
+    fn follows_the_steep_version_of_gemfile_lock() {
+        let steep_2_0 = ruby_environment_locking(&[("rbs", "4.0.2"), ("steep", "2.0.0")]);
+        assert_eq!(steep_version(&steep_2_0), SteepVersion::Version2_0);
+        assert_eq!(unsupported_steep_version_warning(&steep_2_0), None);
+        assert_eq!(
+            steep_version(&ruby_environment_locking(&[("steep", "2.1.3")])),
+            SteepVersion::Version2_1
+        );
+
+        let without_steep = ruby_environment_locking(&[("rbs", "4.2.0")]);
+        assert_eq!(steep_version(&without_steep), SteepVersion::LATEST);
+        assert_eq!(unsupported_steep_version_warning(&without_steep), None);
+
+        let steep_1 = ruby_environment_locking(&[("steep", "1.10.0")]);
+        assert_eq!(steep_version(&steep_1), SteepVersion::LATEST);
+        assert_eq!(
+            unsupported_steep_version_warning(&steep_1).as_deref(),
+            Some("Steep 1.10.0 in Gemfile.lock is not supported, so Steep 2.1 is followed (supported: 2.0, 2.1)")
+        );
     }
 
     #[test]

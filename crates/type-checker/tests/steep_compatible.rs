@@ -3,7 +3,7 @@ mod support;
 use std::sync::OnceLock;
 
 use rbs_environment::Environment;
-use type_checker::{AnalysisOptions, Severity};
+use type_checker::{AnalysisOptions, Severity, SteepVersion};
 
 const SIGNATURES: &str = r#"
 class Time
@@ -43,6 +43,7 @@ end
 
 const STEEP_COMPATIBLE: AnalysisOptions = AnalysisOptions {
     steep_compatible: true,
+    steep_version: SteepVersion::Version2_0,
 };
 
 fn environment() -> Option<&'static Environment> {
