@@ -11,13 +11,17 @@ use ruby_type_check::project::severity_name;
 use ruby_type_check::report::{OutputFormat, ReportedDiagnostic};
 use type_checker::SteepVersion;
 
-const STEEP_VERSION: &str = concat!(
-    env!("CARGO_PKG_VERSION_MAJOR"),
-    ".",
-    env!("CARGO_PKG_VERSION_MINOR"),
-    ".",
-    env!("CARGO_PKG_VERSION_PATCH")
-);
+const LATEST_STEEP_RELEASE: &str = "2.1.0";
+
+/// The Steep release whose smoke tests are run: `STEEP_VERSION`, or else the latest supported one. Its
+/// `test_expectations.yml` are written against the signatures of the rbs version that release locks, so the rbs gem
+/// installed has to be that version
+fn steep_release() -> String {
+    std::env::var("STEEP_VERSION")
+        .ok()
+        .filter(|version| !version.is_empty())
+        .unwrap_or(LATEST_STEEP_RELEASE.to_string())
+}
 
 /// The numbers in the type variables of its expectation depend on what else Steep's worker checked before, so
 /// Steep's `bin/output_test.rb` allows this one to fail too
@@ -43,15 +47,15 @@ impl std::fmt::Display for ExpectedDiagnostic {
     }
 }
 
-fn steep_smoke_directory() -> PathBuf {
-    let steep_directory = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("steep-{STEEP_VERSION}"));
+fn steep_smoke_directory(steep_release: &str) -> PathBuf {
+    let steep_directory = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("steep-{steep_release}"));
     // Not `is_dir`, because rust-cache in CI saves `target` with its directories kept and its files deleted
     if !steep_directory.join("steep.gemspec").is_file() {
         let _ = std::fs::remove_dir_all(&steep_directory);
         let downloading_directory = steep_directory.with_extension("downloading");
         let _ = std::fs::remove_dir_all(&downloading_directory);
         std::fs::create_dir_all(&downloading_directory).unwrap();
-        let url = format!("https://codeload.github.com/soutaro/steep/tar.gz/refs/tags/v{STEEP_VERSION}");
+        let url = format!("https://codeload.github.com/soutaro/steep/tar.gz/refs/tags/v{steep_release}");
         let status = Command::new("sh")
             .arg("-c")
             .arg(format!(
@@ -60,7 +64,7 @@ fn steep_smoke_directory() -> PathBuf {
             .current_dir(&downloading_directory)
             .status()
             .expect("curl and tar are needed to download Steep");
-        assert!(status.success(), "Failed to download Steep {STEEP_VERSION} from {url}");
+        assert!(status.success(), "Failed to download Steep {steep_release} from {url}");
         std::fs::rename(&downloading_directory, &steep_directory).unwrap();
     }
     steep_directory.join("smoke")
@@ -118,12 +122,15 @@ fn reported_diagnostic(diagnostic: &ReportedDiagnostic) -> ExpectedDiagnostic {
     }
 }
 
-fn reported_diagnostics(smoke_case_directory: &Path) -> BTreeMap<String, Vec<ExpectedDiagnostic>> {
+fn reported_diagnostics(
+    smoke_case_directory: &Path,
+    steep_version: SteepVersion,
+) -> BTreeMap<String, Vec<ExpectedDiagnostic>> {
     let options = TypeCheckOptions {
         ruby_command: vec!["ruby".to_string()],
         severity_level: DiagnosticSeverity::Warning,
         steep_compatible: true,
-        steep_version: SteepVersion::from_version(STEEP_VERSION),
+        steep_version: Some(steep_version),
         format: OutputFormat::Line,
         paths: Vec::new(),
     };
@@ -183,7 +190,10 @@ fn reports_what_steep_expects_for_its_smoke_tests() {
         eprintln!("skipped: the rbs gem is not installed");
         return;
     }
-    let smoke_directory = steep_smoke_directory();
+    let steep_release = steep_release();
+    let steep_version = SteepVersion::from_version(&steep_release)
+        .unwrap_or_else(|| panic!("Steep {steep_release} is not a supported version"));
+    let smoke_directory = steep_smoke_directory(&steep_release);
     let mut smoke_case_directories: Vec<PathBuf> = std::fs::read_dir(&smoke_directory)
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -199,7 +209,7 @@ fn reports_what_steep_expects_for_its_smoke_tests() {
     let failures: Vec<String> = smoke_case_directories
         .iter()
         .filter_map(|directory| {
-            let lines = differences(&expected_diagnostics(directory), &reported_diagnostics(directory));
+            let lines = differences(&expected_diagnostics(directory), &reported_diagnostics(directory, steep_version));
             let name = directory.file_name().unwrap().to_string_lossy();
             if !lines.is_empty() && ALLOW_FAILURE.contains(&name.as_ref()) {
                 eprintln!("{name} failed (allowed)\n{}", lines.join("\n"));
@@ -210,7 +220,7 @@ fn reports_what_steep_expects_for_its_smoke_tests() {
         .collect();
     assert!(
         failures.is_empty(),
-        "{} of {} smoke tests failed\n{}",
+        "{} of {} smoke tests of Steep {steep_release} failed\n{}",
         failures.len(),
         smoke_case_directories.len(),
         failures.join("\n")
