@@ -167,7 +167,7 @@ impl std::fmt::Display for SteepVersion {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AnalysisOptions {
-    /// Reports what `steep check` (Steep 2.0.0) reports instead of inferring more than it does: `it` is a method call,
+    /// Reports what `steep check` reports instead of inferring more than it does: `it` is a method call to Steep 2.0,
     /// an instance variable without a signature is `untyped`, `proc { }` is a plain `Proc`, `$1` is `String?`, and a
     /// node that needs the definition of a class RBS cannot build is `Ruby::UnexpectedError` and left untyped
     pub steep_compatible: bool,

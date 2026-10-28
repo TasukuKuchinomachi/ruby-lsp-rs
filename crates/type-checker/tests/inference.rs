@@ -162,10 +162,17 @@ fn numbered_and_it_parameters_are_typed() {
         r#"
 ["a"].each { _1‸ }
 ["a"].each { it‸ }
+with_numbered‸ = -> { _1.to_s + _2.to_s }
+with_it‸ = -> { it.to_s }
 "#,
     );
     assert_eq!(checked.hover_type(0).as_deref(), Some("String"));
     assert_eq!(checked.hover_type(1).as_deref(), Some("String"));
+    assert_eq!(
+        checked.hint(2, VariableType).as_deref(),
+        Some("^(untyped, untyped) -> untyped")
+    );
+    assert_eq!(checked.hint(3, VariableType).as_deref(), Some("^(untyped) -> untyped"));
 }
 
 #[test]

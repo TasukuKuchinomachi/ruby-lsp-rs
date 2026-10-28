@@ -14,7 +14,7 @@ use crate::type_utilities::{
     literal_class_name, members_of, remove_nil, self_instance_type,
 };
 use crate::unification::{Bindings, class_substitution};
-use crate::{HoverKind, Severity, TypeHintKind};
+use crate::{HoverKind, Severity, SteepVersion, TypeHintKind};
 
 const MAXIMUM_LOOKUP_DEPTH: usize = 8;
 
@@ -605,7 +605,12 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         );
     }
 
-    /// `it` is a method call to Steep, whose parser follows Ruby 3.3
+    /// Steep 2.0 parses with the grammar of Ruby 3.3, where `it` is not a block parameter, and Steep 2.1 with the
+    /// grammar of Ruby 3.4
+    pub(crate) fn is_it_a_method_call(&self) -> bool {
+        self.options.steep_compatible && self.options.steep_version < SteepVersion::Version2_1
+    }
+
     pub(crate) fn infer_it_as_method_call(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let span = Span::of_node(node);
         if let Some(error) = self.definition_error_of(&context.self_type) {

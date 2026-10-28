@@ -296,7 +296,7 @@ impl<'pr> Checker<'_, 'pr> {
                     })
                     .collect()
             }
-            Node::ItParametersNode { .. } if self.options.steep_compatible => Vec::new(),
+            Node::ItParametersNode { .. } if self.is_it_a_method_call() => Vec::new(),
             Node::ItParametersNode { .. } => {
                 let yielded = YieldedValues::new(signature, 1);
                 locals.insert(IT_PARAMETER_KEY.to_string(), yielded.at(0));
@@ -524,7 +524,7 @@ impl<'pr> Checker<'_, 'pr> {
         };
         let mut function = match &signature.function {
             Some(function) => function.clone(),
-            None => lambda_parameters_function(node),
+            None => lambda_parameters_function(node, self.is_it_a_method_call()),
         };
         function.return_type = return_type;
         Type::Proc(Box::new(ProcType {
@@ -555,19 +555,31 @@ fn is_proc_or_optional_proc(parameter_type: &Type) -> bool {
 }
 
 /// Parameters of a lambda without a hint, all `untyped`, the way Steep shows `^(untyped, ?untyped) -> T`
-fn lambda_parameters_function(node: &Node<'_>) -> Function {
+fn lambda_parameters_function(node: &Node<'_>, is_it_a_method_call: bool) -> Function {
     let mut function = Function::returning(Type::Untyped);
     let parameters = match node {
         Node::LambdaNode { .. } => node.as_lambda_node().and_then(|lambda| lambda.parameters()),
         Node::BlockNode { .. } => node.as_block_node().and_then(|block| block.parameters()),
         _ => None,
     };
+    let untyped = || rbs_environment::Parameter::new(Type::Untyped);
+    let implicit_parameter_count = match &parameters {
+        Some(Node::NumberedParametersNode { .. }) => parameters
+            .as_ref()
+            .and_then(|parameters| parameters.as_numbered_parameters_node())
+            .map(|numbered| numbered.maximum() as usize),
+        Some(Node::ItParametersNode { .. }) if !is_it_a_method_call => Some(1),
+        _ => None,
+    };
+    if let Some(count) = implicit_parameter_count {
+        function.required_positionals = (0..count).map(|_| untyped()).collect();
+        return function;
+    }
     let Some(parameters) =
         parameters.and_then(|parameters| parameters.as_block_parameters_node()?.parameters())
     else {
         return function;
     };
-    let untyped = || rbs_environment::Parameter::new(Type::Untyped);
     function.required_positionals = parameters.requireds().iter().map(|_| untyped()).collect();
     function.optional_positionals = parameters.optionals().iter().map(|_| untyped()).collect();
     if parameters
