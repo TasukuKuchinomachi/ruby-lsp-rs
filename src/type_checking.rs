@@ -10,7 +10,8 @@ use rbs_environment::{
     SteepfileConfiguration, Type, TypeName, WorkspaceSources,
 };
 use ruby_type_check::project::{
-    self, LoadedEnvironment, code_diagnostics_for, configured_diagnostics, is_inline_source_path, is_signature_path,
+    self, LoadedEnvironment, LoadedTarget, code_diagnostics_for, configured_diagnostics, is_inline_source_path,
+    is_signature_path,
 };
 use serde_json::{Value, json};
 use type_checker::{Analysis, AnalysisOptions, HoverEntry, HoverKind, Severity, SteepVersion, TypeHint, TypeHintKind};
@@ -194,7 +195,8 @@ fn signature_diagnostic_values(diagnostics: &[SignatureDiagnostic], encoding: En
 #[derive(Default)]
 pub struct TypeCheckingState {
     pub settings: TypeCheckerSettings,
-    pub environment: Option<Arc<Environment>>,
+    workspace_path: PathBuf,
+    targets: Vec<LoadedTarget>,
     pub steepfile: Option<SteepfileConfiguration>,
     pub steep_version: SteepVersion,
     analyses: HashMap<String, (u64, Arc<Analysis>)>,
@@ -202,15 +204,44 @@ pub struct TypeCheckingState {
 
 impl TypeCheckingState {
     pub fn is_active(&self) -> bool {
-        self.settings.enabled && self.environment.is_some()
+        self.settings.enabled && self.is_loaded()
     }
 
-    pub fn set_environment(&mut self, loaded: LoadedEnvironment) {
-        // Every target shares one environment unless `unreferenced!` or `implicitly_returns_nil!` differs among them,
-        // and the language server does not pick the environment of the target of each file yet
-        self.environment = loaded.targets.into_iter().next().map(|target| target.environment);
+    pub fn is_loaded(&self) -> bool {
+        !self.targets.is_empty()
+    }
+
+    pub fn set_environment(&mut self, workspace_path: &Path, loaded: LoadedEnvironment) {
+        self.workspace_path = workspace_path.to_path_buf();
+        self.targets = loaded.targets;
         self.steepfile = loaded.steepfile;
         self.analyses.clear();
+    }
+
+    /// The environment of the target the file belongs to, as Steep picks the signature service of the target that
+    /// `Project#target_for_source_path`, `#target_for_inline_source_path` or `#target_for_signature_path` finds. A file
+    /// no target takes still gets the first environment, so that hover and completion work there too
+    pub fn environment_for(&self, uri: &str) -> Option<&Arc<Environment>> {
+        let path = crate::uri::to_path_buf(uri);
+        let target_name = self
+            .steepfile
+            .as_ref()
+            .zip(path.as_deref())
+            .and_then(|(steepfile, path)| {
+                project::target_for(&self.workspace_path, Some(steepfile), path)
+                    .or_else(|| {
+                        steepfile
+                            .targets
+                            .iter()
+                            .find(|target| project::is_signature_path_of(&self.workspace_path, target, path))
+                    })
+                    .map(|target| target.name.as_str())
+            });
+        self.targets
+            .iter()
+            .find(|target| target.name.is_none() || target.name.as_deref() == target_name)
+            .or_else(|| self.targets.first())
+            .map(|target| &target.environment)
     }
 
     pub fn forget(&mut self, uri: &str) {
@@ -237,7 +268,7 @@ impl TypeCheckingState {
         if !document.is_ruby() || !self.settings.enabled {
             return None;
         }
-        let environment = self.environment.as_ref()?;
+        let environment = self.environment_for(document.uri())?;
         let fingerprint = source_fingerprint(document);
         if let Some((cached_fingerprint, analysis)) = self.analyses.get(document.uri())
             && *cached_fingerprint == fingerprint
@@ -735,6 +766,76 @@ mod tests {
         settings.merge(&json!({ "inlayHints": { "maxLength": 12 } }));
         assert!(!settings.enabled);
         assert_eq!(settings.inlay_hints.maximum_length, Some(12));
+    }
+
+    fn steepfile_target(name: &str, check_path: &str, signature_path: &str) -> rbs_environment::SteepfileTarget {
+        rbs_environment::SteepfileTarget {
+            name: name.to_string(),
+            check_paths: vec![PathBuf::from(check_path)],
+            ignore_paths: Vec::new(),
+            inline_check_paths: Vec::new(),
+            inline_ignore_paths: Vec::new(),
+            code_diagnostics: DiagnosticConfiguration::default(),
+            groups: Vec::new(),
+            implicitly_returns_nil: false,
+            signature_patterns: vec![PathBuf::from(signature_path)],
+            unreferenced: true,
+        }
+    }
+
+    #[test]
+    fn uses_the_environment_of_the_target_the_file_belongs_to() {
+        let targets = vec![
+            steepfile_target("app", "app", "sig/app"),
+            steepfile_target("test", "test", "sig/test"),
+        ];
+        let steepfile = SteepfileConfiguration {
+            signature_patterns: vec![PathBuf::from("sig/app"), PathBuf::from("sig/test")],
+            check_paths: vec![PathBuf::from("app"), PathBuf::from("test")],
+            ignore_paths: Vec::new(),
+            inline_check_paths: Vec::new(),
+            inline_ignore_paths: Vec::new(),
+            libraries: Vec::new(),
+            collection_lockfile: None,
+            targets,
+        };
+        let app_environment = Arc::new(Environment::default());
+        let test_environment = Arc::new(Environment::default());
+        let mut state = TypeCheckingState::default();
+        state.set_environment(
+            Path::new("/workspace"),
+            LoadedEnvironment {
+                targets: vec![
+                    LoadedTarget {
+                        name: Some("app".to_string()),
+                        environment: app_environment.clone(),
+                    },
+                    LoadedTarget {
+                        name: Some("test".to_string()),
+                        environment: test_environment.clone(),
+                    },
+                ],
+                steepfile: Some(steepfile),
+                duration: std::time::Duration::ZERO,
+            },
+        );
+        let environment_for = |path: &str| state.environment_for(&crate::uri::from_path(path)).unwrap().clone();
+        assert!(Arc::ptr_eq(
+            &environment_for("/workspace/app/user.rb"),
+            &app_environment
+        ));
+        assert!(Arc::ptr_eq(
+            &environment_for("/workspace/test/user_test.rb"),
+            &test_environment
+        ));
+        assert!(Arc::ptr_eq(
+            &environment_for("/workspace/sig/test/user_test.rbs"),
+            &test_environment
+        ));
+        assert!(Arc::ptr_eq(
+            &environment_for("/workspace/bin/setup.rb"),
+            &app_environment
+        ));
     }
 
     #[test]

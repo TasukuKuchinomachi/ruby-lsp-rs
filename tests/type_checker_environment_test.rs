@@ -100,7 +100,10 @@ fn start_server() -> Option<TypeCheckedServer> {
         &json!({ "workspaceFolders": [{ "uri": ruby_lsp_rs::uri::from_path_buf(&workspace_path()), "name": "workspace" }] }),
         Arc::new(RubyEnvironment { rbs_core_path: Some(core_directory.to_string_lossy().into_owned()), ..RubyEnvironment::default() }),
     );
-    server.global_state_mut().type_checking.set_environment(loaded);
+    server
+        .global_state_mut()
+        .type_checking
+        .set_environment(&workspace_path(), loaded);
     let gem_path = support::repository_path().join("tests/type_checker_gem/lib");
     for path in ruby_files(&workspace_path().join("lib")).into_iter().chain(ruby_files(&gem_path)) {
         let source = std::fs::read_to_string(&path).unwrap();

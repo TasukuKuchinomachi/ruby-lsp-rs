@@ -508,7 +508,7 @@ impl<'a, 'pr> Completion<'a, 'pr> {
                     continue;
                 }
                 if seen_names.insert(name.clone()) {
-                    let item = receiver_method_completion_item(&name, &method, member, range);
+                    let item = receiver_method_completion_item(&name, &method, member, range, self.uri);
                     self.response.push(item);
                 }
             }
@@ -532,6 +532,7 @@ impl<'a, 'pr> Completion<'a, 'pr> {
                         "owner_name": entry.owner(),
                         "guessed_type": false,
                         "receiver_type": member.to_string(),
+                        "uri": self.uri,
                     })),
                 });
             }
@@ -651,7 +652,13 @@ impl<'a, 'pr> Completion<'a, 'pr> {
     }
 }
 
-fn receiver_method_completion_item(name: &str, method: &ReceiverMethod<'_>, member: &Type, range: Range) -> CompletionItem {
+fn receiver_method_completion_item(
+    name: &str,
+    method: &ReceiverMethod<'_>,
+    member: &Type,
+    range: Range,
+    uri: &str,
+) -> CompletionItem {
     let owner = method.definition.owner.as_str();
     CompletionItem {
         label: name.to_string(),
@@ -662,7 +669,7 @@ fn receiver_method_completion_item(name: &str, method: &ReceiverMethod<'_>, memb
         kind: completion_item_kind::METHOD,
         filter_text: Some(name.to_string()),
         text_edit: TextEdit { range, new_text: method_insertion_text(name) },
-        data: Some(json!({ "owner_name": owner, "guessed_type": false, "receiver_type": member.to_string() })),
+        data: Some(json!({ "owner_name": owner, "guessed_type": false, "receiver_type": member.to_string(), "uri": uri })),
     }
 }
 

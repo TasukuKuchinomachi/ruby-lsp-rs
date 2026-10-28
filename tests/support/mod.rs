@@ -56,7 +56,8 @@ pub fn with_server(source: Option<&str>, uri: &str, options: TestOptions) -> Tes
         global_state.test_library = test_library.clone();
     }
     if let Some(environment) = &options.type_checking_environment {
-        global_state.type_checking.set_environment(LoadedEnvironment {
+        let workspace_path = std::path::PathBuf::from(global_state.workspace_path());
+        global_state.type_checking.set_environment(&workspace_path, LoadedEnvironment {
             targets: vec![LoadedTarget { name: None, environment: environment.clone() }],
             steepfile: None,
             duration: Duration::ZERO,

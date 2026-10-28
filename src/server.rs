@@ -551,7 +551,8 @@ impl Server {
                     self.outgoing.log_message(&warning, message_type::WARNING);
                 }
                 self.global_state.type_checking.steep_version = project::steep_version(ruby_environment);
-                self.global_state.type_checking.set_environment(loaded);
+                let workspace_path = PathBuf::from(self.global_state.workspace_path());
+                self.global_state.type_checking.set_environment(&workspace_path, loaded);
                 self.refresh_type_information();
             }
             Err(message) => {
@@ -609,7 +610,7 @@ impl Server {
         if self.initialized
             && !self.options.test_mode
             && type_checking.settings.enabled
-            && type_checking.environment.is_none()
+            && !type_checking.is_loaded()
             && !self.environment_loading
         {
             self.start_environment_load();

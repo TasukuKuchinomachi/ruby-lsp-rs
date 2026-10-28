@@ -21,7 +21,8 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
     let offset = document.parse().offset_of(params.position)?;
     delegate_request_if_needed(global_state, document, offset)?;
 
-    let (Some(analysis), Some(environment)) = (analysis, global_state.type_checking.environment.as_ref()) else {
+    let (Some(analysis), Some(environment)) = (analysis, global_state.type_checking.environment_for(document.uri()))
+    else {
         return Ok(Value::Null);
     };
     let Some(hover_entry) = analysis.hover_at(offset) else { return Ok(Value::Null) };
