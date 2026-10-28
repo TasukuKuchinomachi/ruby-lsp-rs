@@ -89,7 +89,8 @@ pub(crate) struct CallSite<'pr> {
     pub(crate) block: CallBlock<'pr>,
     pub(crate) is_self_call: bool,
     pub(crate) reports_diagnostics: bool,
-    pub(crate) deferred_lambdas: Vec<(usize, Node<'pr>)>,
+    /// Arguments typed only once the parameter that takes them is known, by their index in the arguments
+    pub(crate) deferred_arguments: Vec<(usize, Node<'pr>)>,
     /// Where Steep puts diagnostics that cover the whole call (`UnresolvedOverloading`), the call from the method
     /// name to its last argument (`Insufficient*Arguments`), and `NoMethod` (the `=` of an attribute write)
     pub(crate) expression_span: Span,
@@ -112,13 +113,23 @@ impl PreparedCall {
         has_block: bool,
     ) -> PreparedCall {
         if found.overloads.is_empty() {
+            return PreparedCall::with_overload(environment, None, arguments);
+        }
+        let index = select_overload(environment, &found.overloads, |_| arguments, has_block);
+        PreparedCall::with_overload(environment, Some(&found.overloads[index]), arguments)
+    }
+
+    fn with_overload(
+        environment: &rbs_environment::Environment,
+        overload: Option<&MethodType>,
+        arguments: &CallArguments,
+    ) -> PreparedCall {
+        let Some(overload) = overload.cloned() else {
             return PreparedCall {
                 overload: None,
                 bindings: Bindings::new(Vec::new()),
             };
-        }
-        let index = select_overload(environment, &found.overloads, arguments, has_block);
-        let overload = found.overloads[index].clone();
+        };
         let mut bindings = Bindings::new(
             overload
                 .type_parameters
@@ -128,21 +139,7 @@ impl PreparedCall {
         );
         if let Ok(pairs) = match_arguments(&overload.function, arguments) {
             for pair in &pairs {
-                // Steep types a hash literal passed to a record parameter as a record, whose values bind the type
-                // variables of the fields
-                let argument_type = match (&pair.parameter_type, &pair.literal_type) {
-                    (Type::Record(_), Some(Type::Record(fields))) => Type::Record(
-                        fields
-                            .iter()
-                            .map(|field| rbs_environment::RecordField {
-                                field_type: widen_literal(&field.field_type),
-                                ..field.clone()
-                            })
-                            .collect(),
-                    ),
-                    _ => pair.argument_type.clone(),
-                };
-                bindings.unify(environment, &pair.parameter_type, &argument_type);
+                bindings.unify(environment, &pair.parameter_type, &pair.argument_type);
             }
         }
         PreparedCall {
@@ -319,19 +316,6 @@ fn close_variables(names: &[String]) -> Substitution {
     substitution
 }
 
-/// The class of a literal type, as Steep types a literal without a literal hint
-fn widen_literal(target: &Type) -> Type {
-    match target {
-        Type::Literal(literal) => Type::instance(literal_class_name(literal)),
-        Type::ClassInstance { name, arguments } => Type::ClassInstance {
-            name: name.clone(),
-            arguments: arguments.iter().map(widen_literal).collect(),
-        },
-        Type::Union(members) => Type::union(members.iter().map(widen_literal).collect()),
-        other => other.clone(),
-    }
-}
-
 fn substitute_overload(overload: &MethodType, substitution: &Substitution) -> MethodType {
     let shadows = overload
         .type_parameters
@@ -470,12 +454,12 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             self.record_unexpected_error(Span::of_location(&call.location()), error);
             return Type::Untyped;
         }
-        let mut deferred_lambdas = Vec::new();
-        let arguments = self.infer_arguments_deferring_lambdas(
+        let mut deferred_arguments = Vec::new();
+        let arguments = self.infer_arguments_deferring(
             call.arguments(),
             context,
             locals,
-            Some(&mut deferred_lambdas),
+            Some(&mut deferred_arguments),
         );
         let block = self.call_block(block_node, context, locals);
         let call_span = Span::of_location(&call.location());
@@ -513,7 +497,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 .as_ref()
                 .is_none_or(|receiver| matches!(receiver, Node::SelfNode { .. })),
             reports_diagnostics: true,
-            deferred_lambdas,
+            deferred_arguments,
             expression_span: call_span,
             send_span,
             no_method_span,
@@ -673,7 +657,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             block: CallBlock::Absent,
             is_self_call: true,
             reports_diagnostics: true,
-            deferred_lambdas: Vec::new(),
+            deferred_arguments: Vec::new(),
             expression_span: span,
             send_span: span,
             no_method_span: span,
@@ -756,26 +740,58 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         let primary_index = lookups
             .iter()
             .position(|lookup| matches!(lookup, Lookup::Found(_)));
+        let primary_overloads: Vec<MethodType> = match primary_index.map(|index| &lookups[index]) {
+            Some(Lookup::Found(found)) => found.overloads.clone(),
+            _ => Vec::new(),
+        };
+        let mut overload_arguments: Vec<CallArguments> = if site.deferred_arguments.is_empty() {
+            Vec::new()
+        } else {
+            primary_overloads
+                .iter()
+                .map(|overload| {
+                    self.hint_deferred_arguments(Some(overload), arguments, &site.deferred_arguments, true, context, locals)
+                })
+                .collect()
+        };
+        let selected = (!primary_overloads.is_empty()).then(|| {
+            select_overload(
+                self.environment,
+                &primary_overloads,
+                |index| overload_arguments.get(index).unwrap_or(arguments),
+                has_block,
+            )
+        });
         if self.options.steep_compatible
             && !self.is_silent()
-            && let Some(index) = primary_index
+            && let (Some(index), Some(selected)) = (primary_index, selected)
             && let Lookup::Found(found) = &mut lookups[index]
-            && !found.overloads.is_empty()
         {
-            let selected = select_overload(self.environment, &found.overloads, arguments, has_block);
             for overload in found.overloads.iter_mut().take(selected + 1) {
                 if !overload.type_parameters.is_empty() {
                     *overload = self.rename_type_parameters_freshly(overload);
                 }
             }
         }
+        let selected_overload = match (primary_index.map(|index| &lookups[index]), selected) {
+            (Some(Lookup::Found(found)), Some(selected)) => found.overloads.get(selected).cloned(),
+            _ => None,
+        };
+        let arguments = &self.hint_deferred_arguments(
+            selected_overload.as_ref(),
+            arguments,
+            &site.deferred_arguments,
+            false,
+            context,
+            locals,
+        );
+        if let Some(selected) = selected
+            && let Some(selected_arguments) = overload_arguments.get_mut(selected)
+        {
+            *selected_arguments = arguments.clone();
+        }
         let mut primary_prepared = primary_index.and_then(|index| match &lookups[index] {
-            Lookup::Found(found) => Some(PreparedCall::new(
-                self.environment,
-                found,
-                arguments,
-                has_block,
-            )),
+            Lookup::Found(_) => Some(PreparedCall::with_overload(self.environment, selected_overload.as_ref(), arguments)),
             _ => None,
         });
         let unsatisfiable_return_hint = match (&site.return_hint, primary_prepared.as_mut()) {
@@ -819,16 +835,17 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 message,
             );
         }
-        for (value_index, lambda_node) in &site.deferred_lambdas {
+        for (value_index, node) in &site.deferred_arguments {
+            let Some(block) = super::arguments::lambda_literal_block(node) else {
+                continue;
+            };
             let signature = primary_prepared
                 .as_ref()
                 .and_then(|prepared| {
                     prepared.parameter_proc_signature(self.environment, arguments, *value_index)
                 })
                 .unwrap_or_else(BlockSignature::untyped);
-            if let Some(block) = super::arguments::lambda_literal_block(lambda_node) {
-                self.infer_lambda_with(&block, &signature, context, locals);
-            }
+            self.infer_lambda_with(&block, &signature, context, locals);
         }
         let block_result = match &site.block {
             CallBlock::Literal(block_node) => {
@@ -1014,7 +1031,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                     found,
                     prepared,
                     site,
-                    arguments,
+                    |index| overload_arguments.get(index).unwrap_or(arguments),
                     displayed_receiver_type,
                 );
             }
@@ -1048,6 +1065,44 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             self.record_type_hover(site.name_span, &displayed_result);
         }
         result
+    }
+
+    /// Types the deferred arguments with the parameters of `overload` that take them as hints, without recording
+    /// anything when `silently`. A lambda literal is left as it stands, to be typed with its proc type once the
+    /// other arguments bind the type parameters
+    fn hint_deferred_arguments(
+        &mut self,
+        overload: Option<&MethodType>,
+        arguments: &CallArguments,
+        deferred_arguments: &[(usize, Node<'pr>)],
+        silently: bool,
+        context: &Context,
+        locals: &mut Locals,
+    ) -> CallArguments {
+        let pairs = overload
+            .and_then(|overload| match_arguments(&overload.function, arguments).ok())
+            .unwrap_or_default();
+        let mut hinted = arguments.clone();
+        for (index, node) in deferred_arguments {
+            if super::arguments::lambda_literal_block(node).is_some() {
+                continue;
+            }
+            let Some(value) = hinted.values.get_mut(*index) else {
+                continue;
+            };
+            let hint = pairs
+                .iter()
+                .find(|pair| pair.span == value.span)
+                .map(|pair| pair.parameter_type.clone());
+            value.argument_type = if silently {
+                let mut scratch_locals = locals.clone();
+                self.silently(|checker| checker.infer_with_hint(node, hint.as_ref(), context, &mut scratch_locals))
+                    .unwrap_or(Type::Untyped)
+            } else {
+                self.infer_with_hint(node, hint.as_ref(), context, locals)
+            };
+        }
+        hinted
     }
 
     /// Return type of the overload these arguments select, before binding its type parameters
@@ -1099,12 +1154,12 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         prepared.finish(self.environment, block_result)
     }
 
-    fn report_argument_errors(
+    fn report_argument_errors<'arguments>(
         &mut self,
         found: &FoundMethod,
         _prepared: &PreparedCall,
         site: &CallSite<'pr>,
-        arguments: &CallArguments,
+        arguments_for: impl Fn(usize) -> &'arguments CallArguments,
         receiver_type: &Type,
     ) {
         if !found.diagnostics_allowed || found.overloads.is_empty() {
@@ -1112,8 +1167,8 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         }
         let has_block = !matches!(site.block, CallBlock::Absent);
         let mut failures: Vec<Vec<OverloadError>> = Vec::new();
-        for overload in &found.overloads {
-            let errors = self.overload_errors(overload, arguments, has_block);
+        for (index, overload) in found.overloads.iter().enumerate() {
+            let errors = self.overload_errors(overload, arguments_for(index), has_block);
             if errors.is_empty() {
                 return;
             }
@@ -1165,12 +1220,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                     {
                         continue;
                     }
-                    let literal_fits = pair.literal_type.as_ref().is_some_and(|literal| {
-                        !self.is_certain_mismatch(literal, &pair.parameter_type)
-                    });
-                    if !literal_fits
-                        && self.is_certain_mismatch(&pair.argument_type, &pair.parameter_type)
-                    {
+                    if self.is_certain_mismatch(&pair.argument_type, &pair.parameter_type) {
                         errors.push(OverloadError::TypeMismatch(pair));
                     }
                 }
@@ -1343,7 +1393,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             block: CallBlock::Absent,
             is_self_call: false,
             reports_diagnostics: true,
-            deferred_lambdas: Vec::new(),
+            deferred_arguments: Vec::new(),
             expression_span: operator_span,
             send_span: operator_span,
             no_method_span: operator_span,
@@ -2093,7 +2143,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             block: CallBlock::Absent,
             is_self_call: receiver.is_none(),
             reports_diagnostics: true,
-            deferred_lambdas: Vec::new(),
+            deferred_arguments: Vec::new(),
             expression_span: name_span,
             send_span: name_span,
             no_method_span: name_span,
@@ -2121,13 +2171,19 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
     }
 
     pub(crate) fn infer_super(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
+        let mut deferred_arguments = Vec::new();
         let (arguments, block_node, keyword_span) = match node {
             Node::SuperNode { .. } => {
                 let Some(super_node) = node.as_super_node() else {
                     return Type::Untyped;
                 };
                 (
-                    self.infer_arguments(super_node.arguments(), context, locals),
+                    self.infer_arguments_deferring(
+                        super_node.arguments(),
+                        context,
+                        locals,
+                        Some(&mut deferred_arguments),
+                    ),
                     super_node.block(),
                     Span::of_location(&super_node.keyword_loc()),
                 )
@@ -2141,7 +2197,6 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                         argument_type: Type::Untyped,
                         span: Span::of_node(node),
                         kind: super::arguments::ArgumentKind::Forwarding,
-                        literal_type: None,
                     }],
                 };
                 (
@@ -2153,6 +2208,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         };
         let block = self.call_block(block_node, context, locals);
         let infer_untyped_block = |checker: &mut Self, locals: &mut Locals| {
+            checker.hint_deferred_arguments(None, &arguments, &deferred_arguments, false, context, locals);
             if let CallBlock::Literal(block_node) = &block {
                 checker.infer_block(block_node, &BlockSignature::untyped(), context, locals);
             }
@@ -2200,7 +2256,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             block,
             is_self_call: true,
             reports_diagnostics: self.options.steep_compatible,
-            deferred_lambdas: Vec::new(),
+            deferred_arguments,
             expression_span,
             send_span: expression_span,
             no_method_span: expression_span,
