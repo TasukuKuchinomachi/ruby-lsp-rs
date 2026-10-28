@@ -571,7 +571,7 @@ end
 }
 
 #[test]
-fn a_symbol_block_argument_is_checked_against_the_block_return_type() {
+fn a_symbol_block_argument_is_checked_against_the_block_type_as_steep_does() {
     let environment = environment_or_skip!();
     let source = r#"
 counter = TagCounter.new
@@ -580,20 +580,27 @@ counter.required_count(&:size)
 counter.optional_count(&:upcase)
 counter.required_count(&:upcase)
 "#;
-    let mismatch = "Cannot pass a value of type `^(::String) -> ::String` as a block-pass-argument of type `^(::String) -> ::Integer`\n  ^(::String) -> ::String <: ^(::String) -> ::Integer\n    ::String <: ::Integer\n      ::Object <: ::Integer\n        ::BasicObject <: ::Integer";
+    let optional_mismatch = "Cannot pass a value of type `^(::String) -> ::String` as a block-pass-argument of type `(^(::String) -> ::Integer | nil)`\n  ^(::String) -> ::String <: (^(::String) -> ::Integer | nil)\n    ^(::String) -> ::String <: ^(::String) -> ::Integer\n      ::String <: ::Integer\n        ::Object <: ::Integer\n          ::BasicObject <: ::Integer";
+    let required_mismatch = "Cannot pass a value of type `^(::String) -> ::String` as a block-pass-argument of type `^(::String) -> ::Integer`\n  ^(::String) -> ::String <: ^(::String) -> ::Integer\n    ::String <: ::Integer\n      ::Object <: ::Integer\n        ::BasicObject <: ::Integer";
     let checked = support::check(environment, source);
     assert_eq!(
         checked.messages_with_code("Ruby::BlockTypeMismatch"),
-        vec![mismatch, mismatch]
+        vec![optional_mismatch, required_mismatch]
     );
-    assert_eq!(checked.diagnostic_text("Ruby::BlockTypeMismatch"), Some("&:upcase"));
 
+    // Steep 2.0 hints a block-pass argument of an optional block with the block type and `nil`, which is not a
+    // proc type, so `&:name` stays a plain `Proc` there
     let options = AnalysisOptions {
+        steep_compatible: true,
         steep_version: SteepVersion::Version2_0,
         ..AnalysisOptions::default()
     };
     let checked = support::check_with_options(environment, source, options);
-    assert_eq!(checked.messages_with_code("Ruby::BlockTypeMismatch"), vec![mismatch]);
+    let plain_proc_mismatch = "Cannot pass a value of type `::Proc` as a block-pass-argument of type `(^(::String) -> ::Integer | nil)`\n  ::Proc <: (^(::String) -> ::Integer | nil)\n    ::Proc <: ^(::String) -> ::Integer";
+    assert_eq!(
+        checked.messages_with_code("Ruby::BlockTypeMismatch"),
+        vec![plain_proc_mismatch, plain_proc_mismatch, required_mismatch]
+    );
 }
 
 #[test]

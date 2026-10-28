@@ -537,6 +537,7 @@ impl<'pr> Checker<'_, 'pr> {
                 block: method.block.clone(),
                 has_method_type: method.has_method_type,
                 scope_start: method.scope_start,
+                block_parameter_name: method.block_parameter_name.clone(),
             })
         });
         self.method_return_frames.push(Vec::new());

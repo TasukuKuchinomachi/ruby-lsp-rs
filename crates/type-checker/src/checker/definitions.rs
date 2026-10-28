@@ -221,6 +221,11 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 block,
                 has_method_type: !overloads.is_empty(),
                 scope_start,
+                block_parameter_name: definition
+                    .parameters()
+                    .and_then(|parameters| parameters.block())
+                    .and_then(|block| block.name())
+                    .map(|name| constant_text(&name)),
             })),
             declared_locals: Rc::new(self.local_variable_annotations(scope_start, &nesting)),
         };

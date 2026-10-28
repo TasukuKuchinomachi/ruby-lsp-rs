@@ -424,6 +424,29 @@ impl<'pr> Checker<'_, 'pr> {
         }
     }
 
+    /// Steep narrows the `&block` parameter by `Kernel#block_given?`: to its proc type when a block is given, to
+    /// `nil` otherwise
+    fn narrow_block_parameter(&mut self, truthy: bool, context: &Context, locals: &mut Locals) {
+        let Some(name) = context.method.as_ref().and_then(|method| method.block_parameter_name.clone()) else {
+            return;
+        };
+        let self_type = context.self_type.clone();
+        let is_kernel_method = matches!(
+            self.lookup_member(&self_type, "block_given?", context, 0),
+            super::calls::Lookup::Found(found) if found.owner == "Kernel"
+        );
+        let Some(current) = locals.get(&name).cloned() else {
+            return;
+        };
+        if !is_kernel_method {
+            return;
+        }
+        let narrowed = if truthy { remove_nil(&current) } else { Type::Nil };
+        if !is_bottom(&narrowed) {
+            locals.insert(name, narrowed);
+        }
+    }
+
     fn narrow_call(
         &mut self,
         condition: &Node<'pr>,
@@ -440,6 +463,10 @@ impl<'pr> Checker<'_, 'pr> {
             .arguments()
             .map(|arguments| arguments.arguments().iter().collect())
             .unwrap_or_default();
+        if call.receiver().is_none() && method_name == "block_given?" && arguments.is_empty() {
+            self.narrow_block_parameter(truthy, context, locals);
+            return;
+        }
         let Some(receiver) = call.receiver() else {
             return;
         };

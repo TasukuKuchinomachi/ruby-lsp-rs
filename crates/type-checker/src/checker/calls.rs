@@ -51,9 +51,9 @@ pub(crate) enum Lookup {
 pub(crate) enum CallBlock<'pr> {
     Absent,
     Literal(Node<'pr>),
+    /// `&expression`, typed once the block type is known as its hint; `None` for an anonymous `&`
     Argument {
-        argument_type: Type,
-        symbol: Option<String>,
+        expression: Option<Node<'pr>>,
         span: Span,
     },
 }
@@ -271,15 +271,6 @@ impl PreparedCall {
             .is_some_and(|block| block.required)
     }
 
-    fn block_first_parameter_type(&self) -> Option<Type> {
-        let signature = self.block_signature();
-        let function = signature.function?;
-        function
-            .required_positionals
-            .first()
-            .map(|parameter| parameter.parameter_type.clone())
-    }
-
     fn finish(
         &mut self,
         environment: &rbs_environment::Environment,
@@ -305,6 +296,24 @@ fn implicit_receiver_display(self_type: &Type) -> Type {
     match self_type {
         Type::Top | Type::Void => Type::SelfType,
         _ => self_type.clone(),
+    }
+}
+
+/// Steep's `MethodType#accept_one_arg?`
+fn accepts_one_argument(overload: &MethodType) -> bool {
+    let function = &overload.function;
+    if overload.block.as_ref().is_some_and(|block| block.required)
+        || function.untyped_parameters
+        || !function.required_keywords.is_empty()
+    {
+        return false;
+    }
+    match function.required_positionals.len() {
+        0 => !function.optional_positionals.is_empty()
+            || function.rest_positionals.is_some()
+            || !function.trailing_positionals.is_empty(),
+        1 => function.trailing_positionals.is_empty(),
+        _ => false,
     }
 }
 
@@ -461,7 +470,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             locals,
             Some(&mut deferred_arguments),
         );
-        let block = self.call_block(block_node, context, locals);
+        let block = Self::call_block(block_node);
         let call_span = Span::of_location(&call.location());
         let name_span = call
             .message_loc()
@@ -674,32 +683,15 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         )
     }
 
-    fn call_block(
-        &mut self,
-        block_node: Option<Node<'pr>>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> CallBlock<'pr> {
+    fn call_block(block_node: Option<Node<'pr>>) -> CallBlock<'pr> {
         match block_node {
             Some(block) if matches!(block, Node::BlockNode { .. }) => CallBlock::Literal(block),
             Some(block) => {
                 let Some(block_argument) = block.as_block_argument_node() else {
                     return CallBlock::Absent;
                 };
-                let Some(expression) = block_argument.expression() else {
-                    return CallBlock::Argument {
-                        argument_type: Type::Untyped,
-                        symbol: None,
-                        span: Span::of_node(&block),
-                    };
-                };
-                let symbol = expression
-                    .as_symbol_node()
-                    .map(|symbol| String::from_utf8_lossy(symbol.unescaped()).into_owned());
-                let argument_type = self.infer(&expression, context, locals);
                 CallBlock::Argument {
-                    argument_type,
-                    symbol,
+                    expression: block_argument.expression(),
                     span: Span::of_node(&block),
                 }
             }
@@ -898,63 +890,47 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 }
                 Some(block_type)
             }
-            CallBlock::Argument {
-                argument_type,
-                symbol,
-                span,
-            } => {
-                let first_parameter = primary_prepared
-                    .as_ref()
-                    .and_then(PreparedCall::block_first_parameter_type);
-                let symbol_receiver_error = symbol
-                    .as_ref()
-                    .and(first_parameter.as_ref())
-                    .and_then(|first_parameter| self.definition_error_of(first_parameter));
-                let (block_type, symbol_is_missing) = if let Some(error) = symbol_receiver_error {
-                    self.record_unexpected_error(*span, error);
-                    (Type::Untyped, false)
+            CallBlock::Argument { expression, span } => {
+                // Steep checks a block-pass argument against the block type, `nil` included when the block is
+                // optional. Steep 2.0 also hints the argument with that type, which keeps `&:name` from being typed
+                // as the method's proc; Steep 2.1 hints it with the proc type alone
+                let proc_type = primary_prepared.as_ref().and_then(PreparedCall::block_proc_type);
+                let expected = proc_type.as_ref().map(|proc_type| {
+                    if primary_prepared.as_ref().is_some_and(PreparedCall::is_block_required) {
+                        proc_type.clone()
+                    } else {
+                        Type::optional(proc_type.clone())
+                    }
+                });
+                let hint = if self.options.steep_compatible && self.options.steep_version < SteepVersion::Version2_1 {
+                    expected.as_ref()
                 } else {
-                    self.block_argument_result(argument_type, symbol.as_deref(), first_parameter.clone(), context)
+                    proc_type.as_ref()
+                };
+                let given = match expression {
+                    Some(expression) => self.infer_block_pass(expression, hint, *span, context, locals),
+                    None => Type::Untyped,
                 };
                 if site.reports_diagnostics
-                    && let Some(expected) = primary_prepared
-                        .as_ref()
-                        .and_then(PreparedCall::block_proc_type)
+                    && let Some(expected) = &expected
+                    && self.is_certain_mismatch(&given, expected)
                 {
-                    let given = if symbol_is_missing {
-                        Some(Type::instance("Proc"))
-                    } else if symbol.is_none()
-                        && matches!(argument_type, Type::Proc(_))
-                        && self.is_certain_mismatch(argument_type, &expected)
-                    {
-                        Some(argument_type.clone())
-                    } else if let (Some(_), Some(first_parameter), Type::Proc(expected_proc)) =
-                        (symbol, first_parameter, &expected)
-                        && (self.options.steep_version >= SteepVersion::Version2_1
-                            || primary_prepared.as_ref().is_some_and(PreparedCall::is_block_required))
-                        && self.is_certain_mismatch(&block_type, &expected_proc.function.return_type)
-                    {
-                        let mut function = rbs_environment::Function::returning(block_type.clone());
-                        function.required_positionals = vec![rbs_environment::Parameter::new(first_parameter)];
-                        Some(Type::Proc(Box::new(rbs_environment::ProcType { function, block: None, self_type: None })))
-                    } else {
-                        None
-                    };
-                    if let Some(given) = given {
-                        let message = steep_relation::with_detail_lines(
-                            format!(
-                                "Cannot pass a value of type `{}` as a block-pass-argument of type `{}`",
-                                given.steep_display(),
-                                expected.steep_display()
-                            ),
-                            self.environment,
-                            &given,
-                            &expected,
-                        );
-                        self.record_diagnostic(*span, Severity::Warning, "Ruby::BlockTypeMismatch", message);
-                    }
+                    let message = steep_relation::with_detail_lines(
+                        format!(
+                            "Cannot pass a value of type `{}` as a block-pass-argument of type `{}`",
+                            given.steep_display(),
+                            expected.steep_display()
+                        ),
+                        self.environment,
+                        &given,
+                        expected,
+                    );
+                    self.record_diagnostic(*span, Severity::Warning, "Ruby::BlockTypeMismatch", message);
                 }
-                Some(block_type)
+                Some(match given {
+                    Type::Proc(proc_type) => proc_type.function.return_type,
+                    _ => Type::Untyped,
+                })
             }
             CallBlock::Absent => None,
         };
@@ -1323,60 +1299,143 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         );
     }
 
-    /// What `&:name` makes the block return, and whether `name` is missing on the yielded value, in which case
-    /// Steep sees a plain `Proc` that does not fit the block type (`BlockTypeMismatch`)
-    fn block_argument_result(
+    /// Steep's `:block_pass`: a proc hint types `&:name` and `&method(:name)` as the proc of the method, and any
+    /// other value is converted with `to_proc`
+    fn infer_block_pass(
         &mut self,
-        argument_type: &Type,
-        symbol: Option<&str>,
-        first_parameter: Option<Type>,
+        expression: &Node<'pr>,
+        hint: Option<&Type>,
+        span: Span,
         context: &Context,
-    ) -> (Type, bool) {
-        if let Type::Proc(proc_type) = argument_type {
-            return (proc_type.function.return_type.clone(), false);
-        }
-        let (Some(symbol), Some(first_parameter)) = (symbol, first_parameter) else {
-            return (Type::Untyped, false);
+        locals: &mut Locals,
+    ) -> Type {
+        let given = self.infer_with_hint(expression, hint, context, locals);
+        let method_proc = match hint {
+            Some(Type::Proc(proc_hint)) => match expression {
+                Node::SymbolNode { .. } => expression.as_symbol_node().and_then(|symbol| {
+                    let name = String::from_utf8_lossy(symbol.unescaped()).into_owned();
+                    self.symbol_proc_type(&name, proc_hint, span, context)
+                }),
+                Node::CallNode { .. } => self.method_object_proc_type(expression, &given, context, locals),
+                _ => None,
+            },
+            _ => None,
         };
-        let mut results = Vec::new();
-        for member in members_of(&first_parameter) {
-            match self.lookup_member(&member, symbol, context, 0) {
-                Lookup::Found(found) => {
-                    // Steep types `&:name` as a plain `Proc` when no overload of the method takes no arguments
-                    let callable_without_arguments = found.overloads.is_empty()
-                        || found
-                            .overloads
-                            .iter()
-                            .any(|overload| match_arguments(&overload.function, &CallArguments::default()).is_ok());
-                    if self.options.steep_compatible && !callable_without_arguments {
-                        return (Type::Untyped, true);
-                    }
-                    let mut prepared = PreparedCall::new(
-                        self.environment,
-                        &found,
-                        &CallArguments::default(),
-                        false,
-                    );
-                    results.push(self.found_method_result(
-                        &found,
-                        &mut prepared,
-                        &CallArguments::default(),
-                        None,
-                    ));
-                    if found.missing_from_signature {
-                        return (Type::Untyped, true);
-                    }
-                }
-                Lookup::Unreachable => {}
-                Lookup::Missing { reportable: true } => return (Type::Untyped, true),
-                _ => return (Type::Untyped, false),
+        let given = method_proc.unwrap_or(given);
+        match &given {
+            Type::Proc(_) => given,
+            Type::ClassInstance { name, .. } if name == "Proc" => given,
+            _ => self.converted_type(&given, "to_proc", context).unwrap_or(given),
+        }
+    }
+
+    /// `&:name` passed to a block of one parameter calls `name` on it: the proc returns what the first overload of
+    /// `name` callable without arguments returns
+    fn symbol_proc_type(
+        &mut self,
+        method_name: &str,
+        proc_hint: &rbs_environment::ProcType,
+        span: Span,
+        context: &Context,
+    ) -> Option<Type> {
+        let function = &proc_hint.function;
+        let takes_one_argument = function.untyped_parameters
+            || function.required_positionals.len() == 1
+                && function.optional_positionals.is_empty()
+                && function.rest_positionals.is_none()
+                && function.trailing_positionals.is_empty()
+                && function.required_keywords.is_empty()
+                && function.optional_keywords.is_empty()
+                && function.rest_keywords.is_none();
+        if !takes_one_argument || function.untyped_parameters {
+            return None;
+        }
+        let parameter_type = function.required_positionals[0].parameter_type.clone();
+        if parameter_type.is_untyped() {
+            return Some(Type::Untyped);
+        }
+        if let Some(error) = self.definition_error_of(&parameter_type) {
+            self.record_unexpected_error(span, error);
+            return Some(Type::Untyped);
+        }
+        let mut return_types = Vec::new();
+        for member in members_of(&parameter_type) {
+            let Lookup::Found(found) = self.lookup_member(&member, method_name, context, 0) else {
+                return None;
+            };
+            if found.missing_from_signature {
+                return None;
             }
+            let return_type = found
+                .overloads
+                .iter()
+                .find(|overload| match_arguments(&overload.function, &CallArguments::default()).is_ok())
+                .map(|overload| overload.function.return_type.clone())?;
+            return_types.push(return_type);
         }
-        if results.is_empty() {
-            (Type::Untyped, false)
-        } else {
-            (Type::union(results), false)
+        let mut proc_function = rbs_environment::Function::returning(Type::union(return_types));
+        proc_function.required_positionals = vec![rbs_environment::Parameter::new(parameter_type)];
+        Some(Type::Proc(Box::new(rbs_environment::ProcType {
+            function: proc_function,
+            block: None,
+            self_type: None,
+        })))
+    }
+
+    /// `&method(:name)` is the proc of the method when an overload of it without type parameters takes one argument
+    fn method_object_proc_type(
+        &mut self,
+        expression: &Node<'pr>,
+        given: &Type,
+        context: &Context,
+        locals: &mut Locals,
+    ) -> Option<Type> {
+        if !matches!(given, Type::ClassInstance { name, .. } if name == "Method") {
+            return None;
         }
+        let call = expression.as_call_node()?;
+        if call.name().as_slice() != b"method" {
+            return None;
+        }
+        let arguments: Vec<Node<'pr>> = call.arguments()?.arguments().iter().collect();
+        let [argument] = arguments.as_slice() else {
+            return None;
+        };
+        let method_name = String::from_utf8_lossy(argument.as_symbol_node()?.unescaped()).into_owned();
+        let receiver_type = match call.receiver() {
+            Some(receiver) => {
+                let mut scratch_locals = locals.clone();
+                self.silently(|checker| checker.infer(&receiver, context, &mut scratch_locals))?
+            }
+            None => context.self_type.clone(),
+        };
+        let Lookup::Found(found) = self.lookup_member(&receiver_type, &method_name, context, 0) else {
+            return None;
+        };
+        let overload = found.overloads.iter().find(|overload| accepts_one_argument(overload))?;
+        if !overload.type_parameters.is_empty() {
+            return None;
+        }
+        Some(Type::Proc(Box::new(rbs_environment::ProcType {
+            function: overload.function.clone(),
+            block: overload.block.clone(),
+            self_type: None,
+        })))
+    }
+
+    /// Steep's `try_convert`: what the conversion method returns when it can be called without arguments
+    fn converted_type(&mut self, target: &Type, method_name: &str, context: &Context) -> Option<Type> {
+        let Lookup::Found(found) = self.lookup_member(target, method_name, context, 0) else {
+            return None;
+        };
+        found
+            .overloads
+            .iter()
+            .find(|overload| match_arguments(&overload.function, &CallArguments::default()).is_ok())
+            .map(|overload| overload.function.return_type.substitute(&Substitution {
+                self_type: Some(target.clone()),
+                ..Substitution::default()
+            }))
     }
 
     pub(crate) fn operator_result_type(
@@ -2206,11 +2265,17 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 )
             }
         };
-        let block = self.call_block(block_node, context, locals);
+        let block = Self::call_block(block_node);
         let infer_untyped_block = |checker: &mut Self, locals: &mut Locals| {
             checker.hint_deferred_arguments(None, &arguments, &deferred_arguments, false, context, locals);
-            if let CallBlock::Literal(block_node) = &block {
-                checker.infer_block(block_node, &BlockSignature::untyped(), context, locals);
+            match &block {
+                CallBlock::Literal(block_node) => {
+                    checker.infer_block(block_node, &BlockSignature::untyped(), context, locals);
+                }
+                CallBlock::Argument { expression: Some(expression), .. } => {
+                    checker.infer(expression, context, locals);
+                }
+                _ => {}
             }
         };
         let declared = context.method.as_ref().is_some_and(|method| {

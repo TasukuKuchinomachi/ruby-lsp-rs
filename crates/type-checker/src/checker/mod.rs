@@ -49,6 +49,8 @@ pub(crate) struct MethodContext {
     pub(crate) has_method_type: bool,
     /// Where the `def` starts, the scope of the annotations written in it
     pub(crate) scope_start: usize,
+    /// The name of the `&block` parameter, which `block_given?` narrows
+    pub(crate) block_parameter_name: Option<String>,
 }
 
 #[derive(Clone)]
