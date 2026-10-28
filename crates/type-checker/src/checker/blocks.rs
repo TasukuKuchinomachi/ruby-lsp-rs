@@ -8,7 +8,7 @@ use super::{Checker, Context, Locals};
 use crate::annotations::AnnotationTarget;
 use crate::source::{Span, constant_text};
 use crate::type_utilities::{array_of, hash_of, is_bottom};
-use crate::{Severity, TypeHintKind};
+use crate::{Severity, SteepVersion, TypeHintKind};
 
 pub(crate) struct BlockSignature {
     pub(crate) function: Option<Function>,
@@ -233,8 +233,19 @@ impl<'pr> Checker<'_, 'pr> {
                         .as_ref()
                         .map(|function| function.return_type.clone()),
                 });
-                let body = body.as_ref().map(prism_child_nodes::copy_node);
-                let body_type = checker.infer_optional_node(body, &block_context, iteration_locals);
+                let body_node = body.as_ref().map(prism_child_nodes::copy_node);
+                let body_type = checker.infer_optional_node(body_node, &block_context, iteration_locals);
+                let body_type = match &signature.function {
+                    Some(function) if checker.options.steep_version >= SteepVersion::Version2_1 => checker
+                        .hinted_last_statement_type(
+                            body.as_ref().map(prism_child_nodes::copy_node),
+                            &function.return_type,
+                            &body_type,
+                            &block_context,
+                            iteration_locals,
+                        ),
+                    _ => body_type,
+                };
                 checker.jump_expectations.pop();
                 let next_types = checker.block_next_frames.pop().unwrap_or_default();
                 (body_type, next_types)

@@ -4,6 +4,7 @@ use type_checker::TypeHintKind::{
     AttributeType, BlockParameterType, KeywordParameterType, MethodParameterType,
     MethodReturnType, VariableType,
 };
+use type_checker::{AnalysisOptions, SteepVersion};
 
 #[test]
 fn literals_are_inferred_as_their_classes() {
@@ -173,6 +174,32 @@ with_it‸ = -> { it.to_s }
         Some("^(untyped, untyped) -> untyped")
     );
     assert_eq!(checked.hint(3, VariableType).as_deref(), Some("^(untyped) -> untyped"));
+}
+
+#[test]
+fn an_array_literal_returned_from_a_block_is_a_tuple_when_the_block_returns_a_pair_in_steep_2_1() {
+    let environment = environment_or_skip!();
+    let source = r#"
+maker = PairMaker.new
+from_interface‸ = maker.make { |string| [string, string.size] }
+from_tuple‸ = maker.make_from_tuple { |string| [string.to_sym, string] }
+converted‸ = maker.pair.to_ary
+"#;
+    let checked = support::check(environment, source);
+    assert_eq!(checked.hint(0, VariableType).as_deref(), Some("Hash[String, Integer]"));
+    assert_eq!(checked.hint(1, VariableType).as_deref(), Some("Hash[Symbol, String]"));
+    assert_eq!(checked.hint(2, VariableType).as_deref(), Some("[Symbol, Integer]"));
+
+    let options = AnalysisOptions {
+        steep_version: SteepVersion::Version2_0,
+        ..AnalysisOptions::default()
+    };
+    let checked = support::check_with_options(environment, source, options);
+    assert_eq!(checked.hint(0, VariableType).as_deref(), Some("Hash[untyped, untyped]"));
+    assert_eq!(
+        checked.hint(2, VariableType).as_deref(),
+        Some("Array[Symbol | Integer]")
+    );
 }
 
 #[test]

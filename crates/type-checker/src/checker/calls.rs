@@ -548,6 +548,13 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         {
             result = element;
         }
+        if self.options.steep_version >= SteepVersion::Version2_1
+            && let Type::Tuple(elements) = &structural_receiver
+            && method_name == "to_ary"
+            && arguments.values.is_empty()
+        {
+            result = Type::Tuple(elements.clone());
+        }
         if method_name == "class"
             && arguments.values.is_empty()
             && matches!(&result, Type::ClassInstance { name, .. } if name == "Class")
