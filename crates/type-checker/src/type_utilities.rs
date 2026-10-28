@@ -101,6 +101,12 @@ pub(crate) fn contains_uncertain_part(target: &Type) -> bool {
     found
 }
 
+pub(crate) fn contains_any_variable(target: &Type) -> bool {
+    let mut found = false;
+    target.walk(&mut |member| found |= matches!(member, Type::Variable(_)));
+    found
+}
+
 pub(crate) fn contains_variable_in(target: &Type, names: &[String]) -> bool {
     let mut found = false;
     target.walk(&mut |member| {

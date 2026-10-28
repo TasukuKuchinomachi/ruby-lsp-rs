@@ -140,8 +140,8 @@ impl<'pr> Checker<'_, 'pr> {
                 };
                 let name = constant_text(&write.name());
                 let current = locals.get(&name).cloned().unwrap_or(Type::Nil);
-                let declared = context.declared_locals.get(&name).cloned();
-                let value_type = self.infer_with_hint(&write.value(), declared.as_ref(), context, locals);
+                // Steep's `or_asgn` hints the value with the hint of the whole assignment, not with the variable
+                let value_type = self.infer_with_hint(&write.value(), hint, context, locals);
                 let combined = or_assignment_type(&current, value_type);
                 let is_obvious = is_obvious_value(&write.value());
                 if is_assignment {
@@ -237,8 +237,7 @@ impl<'pr> Checker<'_, 'pr> {
                 let name = constant_text(&write.name());
                 let current = self.instance_variable_read_type(&name, context, locals);
                 let value = write.value();
-                let declared = self.declared_instance_variable_type(&name, context);
-                let value_type = self.infer_with_hint(&value, declared.as_ref(), context, locals);
+                let value_type = self.infer_with_hint(&value, hint, context, locals);
                 let combined = or_assignment_type(&current, value_type.clone());
                 if is_assignment {
                     self.assignment_span = Some(Span::of_node(node));

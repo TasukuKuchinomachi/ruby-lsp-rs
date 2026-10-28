@@ -96,12 +96,26 @@ pub(crate) fn match_arguments(
         })
         .collect();
     if !accepts_keywords && !keyword_values.is_empty() {
-        let value_type = Type::union(
-            keyword_values
-                .iter()
-                .map(|value| value.argument_type.clone())
-                .collect(),
-        );
+        // Steep types the keywords passed to a positional parameter as a hash literal, a record unless a `**`
+        // splat is among them
+        let record_fields: Option<Vec<rbs_environment::RecordField>> = keyword_values
+            .iter()
+            .map(|value| match &value.kind {
+                ArgumentKind::Keyword { name, .. } => Some(rbs_environment::RecordField {
+                    name: name.clone(),
+                    field_type: value.argument_type.clone(),
+                    required: true,
+                }),
+                _ => None,
+            })
+            .collect();
+        let folded_type = match record_fields {
+            Some(fields) => Type::Record(fields),
+            None => hash_of(
+                Type::instance("Symbol"),
+                Type::union(keyword_values.iter().map(|value| value.argument_type.clone()).collect()),
+            ),
+        };
         let start = keyword_values
             .iter()
             .map(|value| value.span.start)
@@ -113,7 +127,7 @@ pub(crate) fn match_arguments(
             .max()
             .unwrap_or(0);
         positionals.push(PositionalArgument {
-            argument_type: hash_of(Type::instance("Symbol"), value_type),
+            argument_type: folded_type,
             span: Span { start, end },
         });
     }

@@ -121,7 +121,6 @@ fn check(environment: &Environment, subtype: &Type, supertype: &Type, depth: usi
         {
             Certainty::No
         }
-        (Type::Top | Type::Void, _) => Certainty::No,
         (
             Type::Variable(_)
             | Type::SelfType
@@ -134,6 +133,8 @@ fn check(environment: &Environment, subtype: &Type, supertype: &Type, depth: usi
         (_, Type::Variable(_) | Type::SelfType | Type::Instance | Type::Class) => {
             Certainty::Unknown
         }
+        // A type variable may still take `top` or `void`, which fit nothing else
+        (Type::Top | Type::Void, _) => Certainty::No,
         (_, Type::Interface { name, .. }) => interface_check(environment, subtype, name),
         (Type::Literal(left), Type::Literal(right)) => {
             if std::mem::discriminant(left) == std::mem::discriminant(right)

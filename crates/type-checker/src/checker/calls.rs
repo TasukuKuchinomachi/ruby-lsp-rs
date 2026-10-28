@@ -10,7 +10,7 @@ use crate::file_index::FileMethod;
 use crate::source::{Span, constant_text};
 use crate::steep_relation;
 use crate::type_utilities::{
-    can_be_nil, contains_uncertain_part, contains_variable_in, instance_type_of_class, is_bottom,
+    can_be_nil, contains_any_variable, contains_uncertain_part, contains_variable_in, instance_type_of_class, is_bottom,
     literal_class_name, members_of, remove_nil, self_instance_type,
 };
 use crate::unification::{Bindings, class_substitution};
@@ -174,6 +174,26 @@ impl PreparedCall {
             None
         } else {
             Some((argument_type, variable_name.clone(), hint.clone()))
+        }
+    }
+
+    /// Steep's `try_method_type` with a block checks the return type against the hint before typing the block, so
+    /// that the hint solves the type parameters the arguments leave unbound
+    fn bind_return_hint_for_block(&mut self, environment: &rbs_environment::Environment, hint: &Type) {
+        let Some(overload) = &self.overload else {
+            return;
+        };
+        if contains_any_variable(hint) {
+            return;
+        }
+        let mut hinted = Bindings::new(self.bindings.variable_names().to_vec());
+        hinted.unify(environment, &overload.function.return_type, hint);
+        for name in self.bindings.variable_names().to_vec() {
+            if self.bindings.bound_type(&name).is_none()
+                && let Some(bound) = hinted.bound_type(&name)
+            {
+                self.bindings.bind_exactly(&name, bound);
+            }
         }
     }
 
@@ -839,6 +859,14 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 .unwrap_or_else(BlockSignature::untyped);
             self.infer_lambda_with(&block, &signature, context, locals);
         }
+        if let (CallBlock::Literal(_), Some(hint), Some(prepared), None) = (
+            &site.block,
+            &site.return_hint,
+            primary_prepared.as_mut(),
+            &unsatisfiable_return_hint,
+        ) {
+            prepared.bind_return_hint_for_block(self.environment, hint);
+        }
         let block_result = match &site.block {
             CallBlock::Literal(block_node) => {
                 let mut signature = primary_prepared
@@ -1069,7 +1097,8 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             let hint = pairs
                 .iter()
                 .find(|pair| pair.span == value.span)
-                .map(|pair| pair.parameter_type.clone());
+                .map(|pair| pair.parameter_type.clone())
+                .or_else(|| self.folded_keyword_hint(value, &pairs));
             value.argument_type = if silently {
                 let mut scratch_locals = locals.clone();
                 self.silently(|checker| checker.infer_with_hint(node, hint.as_ref(), context, &mut scratch_locals))
@@ -1079,6 +1108,28 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             };
         }
         hinted
+    }
+
+    /// The hint of a keyword folded with the others into the hash a positional record parameter takes: the field of
+    /// the record named by the keyword
+    fn folded_keyword_hint(
+        &self,
+        value: &super::arguments::ArgumentValue,
+        pairs: &[super::arguments::ArgumentPair],
+    ) -> Option<Type> {
+        let super::arguments::ArgumentKind::Keyword { name, .. } = &value.kind else {
+            return None;
+        };
+        let pair = pairs
+            .iter()
+            .find(|pair| pair.span.start <= value.span.start && value.span.end <= pair.span.end)?;
+        match self.expand_alias_deeply(&pair.parameter_type, 0) {
+            Type::Record(fields) => fields
+                .into_iter()
+                .find(|field| field.name == *name)
+                .map(|field| field.field_type),
+            _ => None,
+        }
     }
 
     /// Return type of the overload these arguments select, before binding its type parameters
