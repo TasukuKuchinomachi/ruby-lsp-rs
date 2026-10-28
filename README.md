@@ -29,7 +29,7 @@ Steep のバージョンで変わるのは次の点です。
 - `it`: Steep 2.0 は Ruby 3.3 の文法で読むので、`--steep-compatible` では `it` を self へのメソッド呼び出しとして扱います。Steep 2.1 では `_1` と同じブロック引数です
 - `receiver == literal` の絞り込み: Steep 2.1 では、literal が receiver の型（`Symbol` など）の値になりうるとき、then 側で literal の型に絞り込みます。Steep 2.0 ではその then 側は到達しないものとして扱います
 - ブロックが返す array literal: Steep 2.1 では、ブロックの返り値の型をヒントに tuple として推論し、tuple を含まないヒントは `to_ary` で変換します（rbs 4.2 の `Array#to_h` などが `Hash::_Pair[K, V]` を返すブロックを取るため）
-- `&:sym` の返り値の検査（`Ruby::BlockTypeMismatch`）: Steep 2.0 は必須のブロックだけ、Steep 2.1 は省略できるブロックも検査します
+- 省略できるブロックへの block-pass（`&:sym` など）: Steep 2.0 は `--steep-compatible` で `&:sym` をメソッドの proc ではなく `::Proc` として扱い、ブロックの型と合わないので `Ruby::BlockTypeMismatch` を出します。Steep 2.1 と既定のモードでは、必須のブロックと同じくメソッドの proc として検査します
 
 core と stdlib の RBS は、対象プロジェクトに入っている rbs gem から読み込みます。RBS のパーサは [ruby-rbs](https://crates.io/crates/ruby-rbs) crate 0.3.0（RBS 4.0.2 相当）を使うため、RBS 4.1 で書けるようになった非 ASCII の名前は読めません。
 
@@ -68,7 +68,7 @@ ruby-type-check --ruby-command "mise exec -- ruby"
 | --- | --- |
 | `--ruby-command` | Bundler 環境の検出に使う Ruby の起動コマンド（既定は `ruby`） |
 | `--severity-level` | `error` / `warning` / `information` / `hint`（既定は `warning`） |
-| `--steep-compatible` | `steep check` と同じ診断を出す。既定では Steep より型を強く推論するため、Steep が見逃すエラーも報告します |
+| `--steep-compatible` | `steep check` と同じ診断を出す。既定でも型の関係は Steep と同じに判定しますが、Steep より型を強く推論するため、Steep が見逃すエラーも報告します |
 | `--steep-version` | 合わせる Steep のバージョン（`2.0` / `2.1`）。省略時は `Gemfile.lock` の steep のバージョン |
 | `--format` | `pretty`（既定。rustc のようにソースの該当箇所を示す）/ `line`（1 診断 1 行） |
 | パス | 検査するファイル・ディレクトリ（省略時は `Steepfile` の `check` 対象） |
