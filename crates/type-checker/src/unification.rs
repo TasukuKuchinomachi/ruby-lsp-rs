@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rbs_environment::{Environment, Function, MethodType, Substitution, Type};
 
-use crate::type_utilities::{array_of, literal_class_name, members_of, remove_nil};
+use crate::type_utilities::{array_of, literal_class_name, members_of};
 
 const MAXIMUM_DEPTH: usize = 16;
 
@@ -31,6 +31,17 @@ impl Bindings {
         if !candidates.contains(argument) {
             candidates.push(argument.clone());
         }
+    }
+
+    pub(crate) fn bound_type(&self, name: &str) -> Option<Type> {
+        self.bound
+            .get(name)
+            .filter(|candidates| !candidates.is_empty())
+            .map(|candidates| Type::union(candidates.clone()))
+    }
+
+    pub(crate) fn bind_exactly(&mut self, name: &str, bound: Type) {
+        self.bound.insert(name.to_string(), vec![bound]);
     }
 
     fn is_variable(&self, target: &Type) -> Option<String> {
@@ -64,13 +75,7 @@ impl Bindings {
         self.unify_at(environment, parameter, argument, 0);
     }
 
-    fn unify_at(
-        &mut self,
-        environment: &Environment,
-        parameter: &Type,
-        argument: &Type,
-        depth: usize,
-    ) {
+    fn unify_at(&mut self, environment: &Environment, parameter: &Type, argument: &Type, depth: usize) {
         if depth > MAXIMUM_DEPTH || argument.is_untyped() {
             return;
         }
@@ -80,7 +85,6 @@ impl Bindings {
             return;
         }
         match parameter {
-            Type::Optional(inner) => self.unify_at(environment, inner, &remove_nil(argument), next),
             Type::Union(parameter_members) => {
                 let variable_members: Vec<String> = parameter_members
                     .iter()
@@ -123,7 +127,7 @@ impl Bindings {
                     let as_array = array_of(Type::union(elements.clone()));
                     self.unify_at(environment, parameter, &as_array, next);
                 }
-                Type::Optional(_) | Type::Union(_) => {
+                Type::Union(_) => {
                     for argument_member in members_of(argument) {
                         if same_head(parameter, &argument_member) {
                             self.unify_at(environment, parameter, &argument_member, next);
@@ -135,6 +139,15 @@ impl Bindings {
             Type::Tuple(parameter_elements) => {
                 if let Type::Tuple(argument_elements) = argument {
                     self.unify_all(environment, parameter_elements, argument_elements, next);
+                }
+            }
+            Type::Record(parameter_fields) => {
+                if let Type::Record(argument_fields) = argument {
+                    for parameter_field in parameter_fields {
+                        if let Some(argument_field) = argument_fields.iter().find(|field| field.name == parameter_field.name) {
+                            self.unify_at(environment, &parameter_field.field_type, &argument_field.field_type, next);
+                        }
+                    }
                 }
             }
             Type::Proc(parameter_proc) => {

@@ -14,7 +14,7 @@ name.upcase
     );
     assert_eq!(
         checked.diagnostic_messages(),
-        vec!["Ruby::NoMethod: Type `String?` does not have method `upcase`"]
+        vec!["Ruby::NoMethod: Type `(::String | nil)` does not have method `upcase`"]
     );
     assert_eq!(checked.diagnostic_text("Ruby::NoMethod"), Some("upcase"));
 }
@@ -39,9 +39,9 @@ end
     assert_eq!(
         checked.messages_with_code("Ruby::NoMethod"),
         vec![
-            "Type `String` does not have method `no_such_method`",
-            "Type `Integer | String` does not have method `upcase`",
-            "Type `Greeter` does not have method `undefined_helper`",
+            "Type `::String` does not have method `no_such_method`",
+            "Type `(::Integer | ::String)` does not have method `upcase`",
+            "Type `::Greeter` does not have method `undefined_helper`",
         ]
     );
     assert_eq!(
@@ -104,10 +104,10 @@ end
     assert_eq!(
         checked.messages_with_code("Ruby::NoMethod"),
         vec![
-            "Type `Dynamic` does not have method `anything_goes`",
-            "Type `Shape` does not have method `method_from_including_class`",
-            "Type `Greeter` does not have method `helper_written_below`",
-            "Type `Greeter` does not have method `generated`",
+            "Type `::Dynamic` does not have method `anything_goes`",
+            "Type `::Shape` does not have method `method_from_including_class`",
+            "Type `::Greeter` does not have method `helper_written_below`",
+            "Type `::Greeter` does not have method `generated`",
         ]
     );
 }
@@ -178,8 +178,8 @@ end
     assert_eq!(
         checked.messages_with_code("Ruby::ArgumentTypeMismatch"),
         vec![
-            "Cannot pass a value of type `Integer` as an argument of type `String`",
-            "Cannot pass a value of type `String?` as an argument of type `String`",
+            "Cannot pass a value of type `::Integer` as an argument of type `::String`\n  ::Integer <: ::String\n    ::Numeric <: ::String\n      ::Object <: ::String\n        ::BasicObject <: ::String",
+            "Cannot pass a value of type `(::String | nil)` as an argument of type `::String`\n  (::String | nil) <: ::String\n    nil <: ::String",
         ]
     );
     assert_eq!(
@@ -214,11 +214,16 @@ class Greeter
 end
 "#,
     );
+    let messages: Vec<String> = checked
+        .diagnostic_messages()
+        .into_iter()
+        .filter(|message| !message.starts_with("Ruby::MethodDefinitionMissing"))
+        .collect();
     assert_eq!(
-        checked.diagnostic_messages(),
+        messages,
         vec![
-            "Ruby::MethodBodyTypeMismatch: Cannot allow method body have type `String` because declared as type `Integer`",
-            "Ruby::ReturnTypeMismatch: The method cannot return a value of type `String` because declared as type `Integer`",
+            "Ruby::MethodBodyTypeMismatch: Cannot allow method body have type `::String` because declared as type `::Integer`\n  ::String <: ::Integer\n    ::Object <: ::Integer\n      ::BasicObject <: ::Integer",
+            "Ruby::ReturnTypeMismatch: The method cannot return a value of type `::String` because declared as type `::Integer`\n  ::String <: ::Integer\n    ::Object <: ::Integer\n      ::BasicObject <: ::Integer",
         ]
     );
     assert_eq!(
@@ -247,6 +252,8 @@ Defined
             "Cannot find the declaration of constant: `MissingThing`",
             "Cannot find the declaration of constant: `String::Missing`",
             "Cannot find the declaration of constant: `LOCAL_VALUE`",
+            "Cannot find the declaration of constant: `LOCAL_VALUE`",
+            "Cannot find the declaration of class: `Defined`",
             "Cannot find the declaration of constant: `Defined`",
         ]
     );
@@ -304,7 +311,7 @@ self.puts("a")
     );
     assert_eq!(
         checked.diagnostic_messages(),
-        vec!["Ruby::NoMethod: Type `String` does not have method `puts`"]
+        vec!["Ruby::NoMethod: Type `::String` does not have method `puts`"]
     );
 }
 
@@ -351,7 +358,7 @@ fn unresolved_overloading_is_reported_when_every_overload_certainly_rejects_the_
     );
     let message = &checked.analysis.diagnostics[0].message;
     assert!(
-        message.starts_with("Cannot find compatible overloading of method `+` of type `Integer`\nMethod types:\n  def +: (Integer) -> Integer\n       | (Float) -> Float"),
+        message.starts_with("Cannot find compatible overloading of method `+` of type `::Integer`\nMethod types:\n  def +: (::Integer) -> ::Integer\n       | (::Float) -> ::Float"),
         "{message}"
     );
     assert_eq!(
@@ -425,8 +432,14 @@ class Greeter
 end
 "#,
     );
+    let diagnostics: Vec<&type_checker::TypeDiagnostic> = checked
+        .analysis
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code != "Ruby::MethodDefinitionMissing")
+        .collect();
     assert_eq!(
-        checked.diagnostic_codes(),
+        diagnostics.iter().map(|diagnostic| diagnostic.code).collect::<Vec<_>>(),
         vec![
             "Ruby::DifferentMethodParameterKind",
             "Ruby::DifferentMethodParameterKind",
@@ -436,12 +449,7 @@ end
         "{:?}",
         checked.diagnostic_messages()
     );
-    let severities: Vec<Severity> = checked
-        .analysis
-        .diagnostics
-        .iter()
-        .map(|diagnostic| diagnostic.severity)
-        .collect();
+    let severities: Vec<Severity> = diagnostics.iter().map(|diagnostic| diagnostic.severity).collect();
     assert_eq!(
         severities,
         vec![
@@ -472,9 +480,9 @@ end
     assert_eq!(
         checked.messages_with_code("Ruby::IncompatibleAssignment"),
         vec![
-            "Cannot assign a value of type `String` to a variable of type `Integer`",
-            "Cannot assign a value of type `String` to a constant of type `Integer`",
-            "Cannot assign a value of type `Array[untyped]` to a variable of type `Hash[Symbol, Integer]`",
+            "Cannot assign a value of type `::String` to a variable of type `::Integer`\n  ::String <: ::Integer\n    ::Object <: ::Integer\n      ::BasicObject <: ::Integer",
+            "Cannot assign a value of type `::String` to a constant of type `::Integer`\n  ::String <: ::Integer\n    ::Object <: ::Integer\n      ::BasicObject <: ::Integer",
+            "Cannot assign a value of type `::Array[untyped]` to a variable of type `::Hash[::Symbol, ::Integer]`\n  ::Array[untyped] <: ::Hash[::Symbol, ::Integer]\n    ::Object <: ::Hash[::Symbol, ::Integer]\n      ::BasicObject <: ::Hash[::Symbol, ::Integer]",
         ]
     );
     assert_eq!(
@@ -531,6 +539,35 @@ end
         checked.diagnostic_text("Ruby::UnreachableBranch"),
         Some("if")
     );
+}
+
+#[test]
+fn comparing_with_a_literal_narrows_to_the_equal_literal_types() {
+    let environment = environment_or_skip!();
+    let checked = support::check(
+        environment,
+        r#"
+# @type var result: Greeter | :missing
+result = :missing
+if result == :missing
+  result.no_such_method
+else
+  result.no_such_method
+end
+name = Greeter.new("a").name
+if name == "Alice"
+  name
+end
+"#,
+    );
+    assert_eq!(
+        checked.messages_with_code("Ruby::NoMethod"),
+        vec![
+            "Type `:missing` does not have method `no_such_method`",
+            "Type `::Greeter` does not have method `no_such_method`",
+        ]
+    );
+    assert_eq!(checked.diagnostic_text("Ruby::UnreachableBranch"), Some("if"));
 }
 
 #[test]

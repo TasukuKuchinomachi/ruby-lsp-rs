@@ -1,19 +1,27 @@
 use rbs_environment::Type;
 use ruby_prism::{Node, RescueNode};
 
-use super::narrowing::{merge_locals, narrow_to_class};
+use super::narrowing::{NarrowingTarget, merge_locals, narrow_to_class};
 use super::{Checker, Context, Locals};
 use crate::Severity;
 use crate::source::Span;
+use crate::steep_relation;
 use crate::subtyping::{Certainty, is_subtype};
 use crate::type_utilities::{
-    array_of, can_be_falsy, element_type, falsy_part, instance_type_of_class_value, is_bottom,
+    array_of, can_be_falsy, element_type, falsy_part, instance_type_of_class, instance_type_of_class_value, is_bottom,
     members_of, remove_nil, truthy_part,
 };
 
 struct Branch {
     locals: Locals,
     result_type: Type,
+}
+
+struct CaseSelection {
+    truthy: Type,
+    falsy: Type,
+    truthy_unreachable: bool,
+    falsy_unreachable: bool,
 }
 
 fn merge_branches(base: &Locals, branches: Vec<Branch>) -> (Locals, Type) {
@@ -35,12 +43,7 @@ fn merge_branches(base: &Locals, branches: Vec<Branch>) -> (Locals, Type) {
 }
 
 impl<'pr> Checker<'_, 'pr> {
-    pub(crate) fn infer_conditional(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_conditional(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let (predicate, statements, subsequent, negated) = match node {
             Node::IfNode { .. } => {
                 let Some(if_node) = node.as_if_node() else {
@@ -75,19 +78,31 @@ impl<'pr> Checker<'_, 'pr> {
         self.narrow(&predicate, !negated, context, &mut then_locals);
         let mut else_locals = locals.clone();
         self.narrow(&predicate, negated, context, &mut else_locals);
-        let then_type = self.infer_optional_statements(statements, context, &mut then_locals);
+        let then_context = match &statements {
+            Some(statements) => {
+                self.branch_context(Span::of_location(&statements.location()), context, &mut then_locals)
+            }
+            None => context.clone(),
+        };
+        let then_type = self.infer_optional_statements(statements, &then_context, &mut then_locals);
         let else_type = match subsequent {
             Some(Node::ElseNode { .. }) => {
-                let else_node = subsequent
+                let else_statements = subsequent
                     .as_ref()
-                    .and_then(|subsequent| subsequent.as_else_node());
-                self.infer_optional_statements(
-                    else_node.and_then(|else_node| else_node.statements()),
-                    context,
-                    &mut else_locals,
-                )
+                    .and_then(|subsequent| subsequent.as_else_node())
+                    .and_then(|else_node| else_node.statements());
+                let else_context = match &else_statements {
+                    Some(statements) => {
+                        self.branch_context(Span::of_location(&statements.location()), context, &mut else_locals)
+                    }
+                    None => context.clone(),
+                };
+                self.infer_optional_statements(else_statements, &else_context, &mut else_locals)
             }
-            Some(other) => self.infer(&other, context, &mut else_locals),
+            Some(other) => {
+                let else_context = self.branch_context(Span::of_node(&other), context, &mut else_locals);
+                self.infer(&other, &else_context, &mut else_locals)
+            }
             None => Type::Nil,
         };
         let (merged, result_type) = merge_branches(
@@ -200,9 +215,6 @@ impl<'pr> Checker<'_, 'pr> {
         }
     }
 
-    /// Steep replaces `==` of the core value classes with `ReceiverIsArg`, so comparing with a literal splits the
-    /// receiver by `literal_var_type_case_select`: only an equal literal type can be truthy, and a non-literal
-    /// type such as `String` can only be falsy
     fn equality_possibilities(
         &mut self,
         receiver: &Node<'pr>,
@@ -210,63 +222,11 @@ impl<'pr> Checker<'_, 'pr> {
         context: &Context,
         locals: &Locals,
     ) -> Option<(bool, bool)> {
-        use rbs_environment::Literal;
-        let literal = match argument {
-            Node::NilNode { .. } => None,
-            Node::TrueNode { .. } => Some(Literal::True),
-            Node::FalseNode { .. } => Some(Literal::False),
-            Node::IntegerNode { .. } | Node::StringNode { .. } | Node::SymbolNode { .. } => {
-                match super::arguments::literal_type_of(argument)? {
-                    Type::Literal(literal) => Some(literal),
-                    _ => return None,
-                }
-            }
-            _ => return None,
-        };
         let mut scratch_locals = locals.clone();
         let receiver_type =
             self.silently(|checker| checker.infer(receiver, context, &mut scratch_locals))?;
-        let receiver_type = self.expand_alias_deeply(&receiver_type, 0);
-        let mut truthy_possible = false;
-        let mut falsy_possible = false;
-        for member in members_of(&receiver_type) {
-            match &member {
-                Type::Untyped | Type::Top | Type::Bool => return None,
-                _ => {}
-            }
-            let owner_is_primitive = match self.lookup_member(&member, "==", context, 0) {
-                super::calls::Lookup::Found(found) => matches!(
-                    found.owner.as_str(),
-                    "BasicObject"
-                        | "Object"
-                        | "Kernel"
-                        | "String"
-                        | "Integer"
-                        | "Symbol"
-                        | "TrueClass"
-                        | "FalseClass"
-                        | "NilClass"
-                ),
-                _ => false,
-            };
-            if !owner_is_primitive {
-                return None;
-            }
-            let matches = match (&literal, &member) {
-                (None, Type::Nil) => true,
-                (None, Type::ClassInstance { name, .. }) => name == "NilClass",
-                (Some(Literal::True), Type::ClassInstance { name, .. }) => name == "TrueClass",
-                (Some(Literal::False), Type::ClassInstance { name, .. }) => name == "FalseClass",
-                (Some(expected), Type::Literal(actual)) => expected == actual,
-                _ => false,
-            };
-            if matches {
-                truthy_possible = true;
-            } else {
-                falsy_possible = true;
-            }
-        }
-        Some((truthy_possible, falsy_possible))
+        let (equal_types, unequal_types) = self.literal_equality_split(&receiver_type, argument, context)?;
+        Some((!equal_types.is_empty(), !unequal_types.is_empty()))
     }
 
     fn report_unreachable_branches(
@@ -430,16 +390,17 @@ impl<'pr> Checker<'_, 'pr> {
         Type::union(vec![truthy, right_type])
     }
 
-    pub(crate) fn infer_case(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_case(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let Some(case) = node.as_case_node() else {
             return Type::Untyped;
         };
         let predicate = case.predicate();
+        if let Some(predicate) = &predicate
+            && self.options.steep_compatible
+        {
+            let subject_type = self.infer(predicate, context, locals);
+            return self.infer_case_when(&case, predicate, subject_type, context, locals);
+        }
         if let Some(predicate) = &predicate {
             self.infer(predicate, context, locals);
         }
@@ -526,6 +487,258 @@ impl<'pr> Checker<'_, 'pr> {
         let (merged, result_type) = merge_branches(locals, branches);
         *locals = merged;
         result_type
+    }
+
+    /// Steep's `CaseWhen.type_check`: each pattern tests `pattern === subject` with the subject narrowed by the patterns
+    /// before it, a clause sees the subject as any of its patterns let it through, and a clause or `else` no value can
+    /// reach is `UnreachableValueBranch`
+    fn infer_case_when(
+        &mut self,
+        case: &ruby_prism::CaseNode<'pr>,
+        predicate: &Node<'pr>,
+        subject_type: Type,
+        context: &Context,
+        locals: &mut Locals,
+    ) -> Type {
+        let target = Checker::narrowing_target(predicate);
+        let mut current_locals = locals.clone();
+        let mut current_subject = subject_type;
+        let mut next_unreachable = false;
+        let mut branches = Vec::new();
+        for condition_node in case.conditions().iter() {
+            let Some(when) = condition_node.as_when_node() else {
+                continue;
+            };
+            let clause_start_locals = current_locals.clone();
+            let clause_unreachable = next_unreachable;
+            let mut truthy_subjects = Vec::new();
+            let mut all_patterns_unreachable = true;
+            for pattern in when.conditions().iter() {
+                let pattern_type = self.infer(&pattern, context, &mut current_locals);
+                let selection = self.case_pattern_selection(&pattern, &pattern_type, &current_subject);
+                all_patterns_unreachable &= selection.truthy_unreachable;
+                truthy_subjects.push(selection.truthy);
+                next_unreachable = clause_unreachable || selection.falsy_unreachable;
+                current_subject = selection.falsy;
+                if let Some(target) = &target {
+                    Checker::assign_case_subject(target, current_subject.clone(), &mut current_locals);
+                }
+            }
+            let mut body_locals = clause_start_locals;
+            if let Some(target) = &target {
+                Checker::assign_case_subject(target, Type::union(truthy_subjects), &mut body_locals);
+            }
+            let body_context = match when.statements() {
+                Some(statements) => {
+                    self.branch_context(Span::of_location(&statements.location()), context, &mut body_locals)
+                }
+                None => context.clone(),
+            };
+            let body_type = self.infer_optional_statements(when.statements(), &body_context, &mut body_locals);
+            if clause_unreachable || all_patterns_unreachable {
+                if !is_bottom(&body_type) {
+                    self.report_unreachable_value_branch(Span::of_location(&when.keyword_loc()), &body_type);
+                }
+                continue;
+            }
+            branches.push(Branch {
+                locals: body_locals,
+                result_type: body_type,
+            });
+        }
+        match case.else_clause() {
+            Some(else_clause) => {
+                let mut else_locals = current_locals;
+                let else_type = self.infer_optional_statements(else_clause.statements(), context, &mut else_locals);
+                if next_unreachable {
+                    if !is_bottom(&else_type) {
+                        self.report_unreachable_value_branch(
+                            Span::of_location(&else_clause.else_keyword_loc()),
+                            &else_type,
+                        );
+                    }
+                } else {
+                    branches.push(Branch {
+                        locals: else_locals,
+                        result_type: else_type,
+                    });
+                }
+            }
+            None if !next_unreachable => branches.push(Branch {
+                locals: current_locals,
+                result_type: Type::Nil,
+            }),
+            None => {}
+        }
+        if branches.is_empty() {
+            return Type::Bottom;
+        }
+        let (merged, result_type) = merge_branches(locals, branches);
+        *locals = merged;
+        result_type
+    }
+
+    fn report_unreachable_value_branch(&mut self, span: Span, branch_type: &Type) {
+        self.record_diagnostic(
+            span,
+            Severity::Hint,
+            "Ruby::UnreachableValueBranch",
+            format!(
+                "The branch may evaluate to a value of `{}` but unreachable",
+                branch_type.steep_display()
+            ),
+        );
+    }
+
+    /// Steep refines the subject to `bot` in a branch nothing reaches, which keeps the branch from reporting errors
+    fn assign_case_subject(target: &NarrowingTarget<'pr>, subject: Type, locals: &mut Locals) {
+        if is_bottom(&subject) {
+            match target {
+                NarrowingTarget::Local(name) => {
+                    locals.insert(name.clone(), Type::Bottom);
+                }
+                NarrowingTarget::InstanceVariable(name) => {
+                    locals.insert(super::variables::instance_variable_local_key(name), Type::Bottom);
+                }
+                NarrowingTarget::PureCall { key, .. } => {
+                    locals.insert(key.clone(), Type::Bottom);
+                }
+            }
+        } else {
+            Checker::set_target_type(target, subject, locals);
+        }
+    }
+
+    /// What `pattern === subject` tells about the subject: a class pattern is Steep's `ArgIsReceiver` with
+    /// `type_case_select`, a literal pattern its `ArgEqualsReceiver` with `literal_var_type_case_select`, and any other
+    /// pattern tells nothing
+    fn case_pattern_selection(&mut self, pattern: &Node<'pr>, pattern_type: &Type, subject: &Type) -> CaseSelection {
+        let unchanged = CaseSelection {
+            truthy: subject.clone(),
+            falsy: subject.clone(),
+            truthy_unreachable: false,
+            falsy_unreachable: false,
+        };
+        let pattern_type = self.expand_alias_deeply(pattern_type, 0);
+        if let Type::ClassSingleton { name } = &pattern_type {
+            let instance = instance_type_of_class(self.environment, name);
+            let (truthy, falsy) = self.type_case_select(subject, &instance);
+            return CaseSelection {
+                truthy_unreachable: truthy.is_empty(),
+                falsy_unreachable: falsy.is_empty(),
+                truthy: if truthy.is_empty() {
+                    instance
+                } else {
+                    Type::union(truthy)
+                },
+                falsy: if falsy.is_empty() {
+                    Type::Untyped
+                } else {
+                    Type::union(falsy)
+                },
+            };
+        }
+        match self.literal_case_select(pattern, subject) {
+            Some((truthy, falsy)) => CaseSelection {
+                truthy_unreachable: truthy.is_empty(),
+                falsy_unreachable: falsy.is_empty(),
+                truthy: Type::union(truthy),
+                falsy: Type::union(falsy),
+            },
+            None => unchanged,
+        }
+    }
+
+    /// Steep's `type_case_select0`
+    fn type_case_select(&mut self, subject: &Type, instance: &Type) -> (Vec<Type>, Vec<Type>) {
+        match subject {
+            Type::Union(members) => {
+                let mut truthy = Vec::new();
+                let mut falsy = Vec::new();
+                for member in members {
+                    let (member_truthy, member_falsy) = self.type_case_select(member, instance);
+                    if member_truthy.is_empty() {
+                        falsy.push(member.clone());
+                    } else {
+                        truthy.extend(member_truthy);
+                        falsy.extend(member_falsy);
+                    }
+                }
+                (truthy, falsy)
+            }
+            Type::Alias { name, arguments } => match self.environment.expand_alias(name, arguments) {
+                Some(expanded) => self.type_case_select(&expanded, instance),
+                None => (vec![subject.clone()], vec![subject.clone()]),
+            },
+            Type::Untyped | Type::Top | Type::Variable(_) | Type::Interface { .. } => {
+                (vec![instance.clone()], vec![subject.clone()])
+            }
+            _ => {
+                if steep_relation::is_subtype(self.environment, subject, instance) {
+                    (vec![subject.clone()], Vec::new())
+                } else if steep_relation::is_subtype(self.environment, instance, subject) {
+                    (vec![instance.clone()], vec![subject.clone()])
+                } else {
+                    (Vec::new(), vec![subject.clone()])
+                }
+            }
+        }
+    }
+
+    /// Steep's `literal_var_type_case_select` for `literal === subject`. `None` when the pattern is not a literal or
+    /// a member of the subject type is not decided
+    fn literal_case_select(&self, pattern: &Node<'pr>, subject: &Type) -> Option<(Vec<Type>, Vec<Type>)> {
+        use rbs_environment::Literal;
+        match subject {
+            Type::Union(members) => {
+                let mut truthy = Vec::new();
+                let mut falsy = Vec::new();
+                for member in members {
+                    let (member_truthy, member_falsy) = self.literal_case_select(pattern, member)?;
+                    truthy.extend(member_truthy);
+                    falsy.extend(member_falsy);
+                }
+                return Some((truthy, falsy));
+            }
+            Type::Alias { name, arguments } => {
+                if let Some(expanded) = self.environment.expand_alias(name, arguments) {
+                    return self.literal_case_select(pattern, &expanded);
+                }
+            }
+            Type::Bool | Type::Top | Type::Untyped => return Some((vec![subject.clone()], vec![subject.clone()])),
+            _ => {}
+        }
+        let is_instance_of =
+            |class_name: &str| matches!(subject, Type::ClassInstance { name, .. } if name == class_name);
+        let partition = |matches: bool| {
+            if matches {
+                (vec![subject.clone()], Vec::new())
+            } else {
+                (Vec::new(), vec![subject.clone()])
+            }
+        };
+        match pattern {
+            Node::NilNode { .. } => Some(partition(matches!(subject, Type::Nil) || is_instance_of("NilClass"))),
+            Node::TrueNode { .. } => Some(partition(
+                is_instance_of("TrueClass") || matches!(subject, Type::Literal(Literal::True)),
+            )),
+            Node::FalseNode { .. } => Some(partition(
+                is_instance_of("FalseClass") || matches!(subject, Type::Literal(Literal::False)),
+            )),
+            Node::IntegerNode { .. } | Node::StringNode { .. } | Node::SymbolNode { .. } => {
+                let Type::Literal(literal) = super::arguments::literal_type_of(pattern)? else {
+                    return None;
+                };
+                Some(match subject {
+                    Type::Literal(subject_literal) if *subject_literal == literal => {
+                        (vec![subject.clone()], Vec::new())
+                    }
+                    Type::Literal(_) => (Vec::new(), vec![subject.clone()]),
+                    _ => (vec![Type::Literal(literal)], vec![subject.clone()]),
+                })
+            }
+            _ => None,
+        }
     }
 
     pub(crate) fn infer_case_match(
@@ -695,12 +908,7 @@ impl<'pr> Checker<'_, 'pr> {
         }
     }
 
-    pub(crate) fn infer_loop(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_loop(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let (predicate, statements, is_until) = match node {
             Node::WhileNode { .. } => {
                 let Some(while_node) = node.as_while_node() else {
@@ -722,7 +930,7 @@ impl<'pr> Checker<'_, 'pr> {
             self.infer_repeatedly(&body_locals, &[], &[], |checker, iteration_locals| {
                 checker.block_next_frames.push(Vec::new());
                 checker.jump_expectations.push(super::JumpExpectation {
-                    break_type: None,
+                    break_type: Some(Type::Nil),
                     next_type: None,
                 });
                 let statements = statements
@@ -739,12 +947,7 @@ impl<'pr> Checker<'_, 'pr> {
         Type::Nil
     }
 
-    pub(crate) fn infer_for(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_for(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let Some(for_node) = node.as_for_node() else {
             return Type::Untyped;
         };
@@ -761,7 +964,7 @@ impl<'pr> Checker<'_, 'pr> {
             self.infer_repeatedly(&body_locals, &[], &[], |checker, iteration_locals| {
                 checker.block_next_frames.push(Vec::new());
                 checker.jump_expectations.push(super::JumpExpectation {
-                    break_type: None,
+                    break_type: Some(Type::Nil),
                     next_type: None,
                 });
                 checker.infer_optional_statements(for_node.statements(), context, iteration_locals);
@@ -871,12 +1074,7 @@ impl<'pr> Checker<'_, 'pr> {
         self.infer_optional_statements(rescue.statements(), context, locals)
     }
 
-    pub(crate) fn infer_return(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_return(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let Some(return_node) = node.as_return_node() else {
             return Type::Bottom;
         };
@@ -890,12 +1088,17 @@ impl<'pr> Checker<'_, 'pr> {
             && self.is_certain_mismatch(&returned_type, declared)
             && self.return_value_mismatches(&return_node, declared, &returned_type, context, locals)
         {
-            self.record_diagnostic(
-                Span::of_node(node),
-                Severity::Error,
-                "Ruby::ReturnTypeMismatch",
-                format!("The method cannot return a value of type `{returned_type}` because declared as type `{declared}`"),
+            let message = steep_relation::with_detail_lines(
+                format!(
+                    "The method cannot return a value of type `{}` because declared as type `{}`",
+                    returned_type.steep_display(),
+                    declared.steep_display()
+                ),
+                self.environment,
+                &returned_type,
+                declared,
             );
+            self.record_diagnostic(Span::of_node(node), Severity::Error, "Ruby::ReturnTypeMismatch", message);
         }
         Type::Bottom
     }
@@ -931,28 +1134,22 @@ impl<'pr> Checker<'_, 'pr> {
         }
     }
 
-    pub(crate) fn infer_next(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_next(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let Some(next_node) = node.as_next_node() else {
             return Type::Bottom;
         };
         let next_type = self.infer_jump_value(next_node.arguments(), context, locals);
+        if self.jump_expectations.is_empty() {
+            self.report_unexpected_jump(node);
+        }
         if let Some(expected) = self
             .jump_expectations
             .last()
             .and_then(|expectation| expectation.next_type.clone())
             && self.is_certain_mismatch(&next_type, &expected)
         {
-            self.record_diagnostic(
-                Span::of_node(node),
-                Severity::Hint,
-                "Ruby::BreakTypeMismatch",
-                format!("Cannot break with a value of type `{next_type}` because type `{expected}` is assumed"),
-            );
+            let message = self.break_type_mismatch_message(&next_type, &expected);
+            self.record_diagnostic(Span::of_node(node), Severity::Hint, "Ruby::BreakTypeMismatch", message);
         }
         if let Some(frame) = self.block_next_frames.last_mut() {
             frame.push(next_type);
@@ -960,17 +1157,15 @@ impl<'pr> Checker<'_, 'pr> {
         Type::Bottom
     }
 
-    pub(crate) fn infer_break(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_break(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let Some(break_node) = node.as_break_node() else {
             return Type::Bottom;
         };
         let has_value = break_node.arguments().is_some();
         let break_type = self.infer_jump_value(break_node.arguments(), context, locals);
+        if self.jump_expectations.is_empty() {
+            self.report_unexpected_jump(node);
+        }
         let Some(expected) = self
             .jump_expectations
             .last()
@@ -982,21 +1177,43 @@ impl<'pr> Checker<'_, 'pr> {
             return Type::Bottom;
         }
         if has_value {
-            self.record_diagnostic(
-                Span::of_node(node),
-                Severity::Hint,
-                "Ruby::BreakTypeMismatch",
-                format!("Cannot break with a value of type `{break_type}` because type `{expected}` is assumed"),
-            );
+            let message = self.break_type_mismatch_message(&break_type, &expected);
+            self.record_diagnostic(Span::of_node(node), Severity::Hint, "Ruby::BreakTypeMismatch", message);
         } else {
-            self.record_diagnostic(
-                Span::of_node(node),
-                Severity::Hint,
-                "Ruby::ImplicitBreakValueMismatch",
-                format!("Breaking without a value may result an error because a value of type `{expected}` is expected"),
+            let message = steep_relation::with_detail_lines(
+                format!(
+                    "Breaking without a value may result an error because a value of type `{}` is expected",
+                    expected.steep_display()
+                ),
+                self.environment,
+                &Type::Nil,
+                &expected,
             );
+            self.record_diagnostic(Span::of_node(node), Severity::Hint, "Ruby::ImplicitBreakValueMismatch", message);
         }
         Type::Bottom
+    }
+
+    fn report_unexpected_jump(&mut self, node: &Node<'pr>) {
+        self.record_diagnostic(
+            Span::of_node(node),
+            Severity::Error,
+            "Ruby::UnexpectedJump",
+            "Cannot jump from here".to_string(),
+        );
+    }
+
+    fn break_type_mismatch_message(&self, actual: &Type, expected: &Type) -> String {
+        steep_relation::with_detail_lines(
+            format!(
+                "Cannot break with a value of type `{}` because type `{}` is assumed",
+                actual.steep_display(),
+                expected.steep_display()
+            ),
+            self.environment,
+            actual,
+            expected,
+        )
     }
 
     fn infer_jump_value(

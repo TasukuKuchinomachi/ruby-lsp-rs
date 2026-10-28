@@ -59,6 +59,9 @@ pub struct MethodDefinition {
     pub annotations: Vec<String>,
     /// Defined by `attr_reader` or `attr_accessor`
     pub is_attribute_reader: bool,
+    /// `def foo: (A) -> B | ...` extending a method of an ancestor, so the last overload comes from the ancestor as
+    /// RBS orders them, which makes Steep take the whole method as the super method
+    pub ends_with_inherited_overloads: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -80,6 +83,8 @@ pub struct ClassDeclaration {
     pub class_variables: HashMap<String, Type>,
     pub locations: Vec<Location>,
     pub comment: Option<String>,
+    /// How many of the declarations have members, which Steep's `validate_method_definitions` needs to be one
+    pub member_declaration_count: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -146,6 +151,9 @@ pub struct Environment {
     /// Methods defined twice without `...`, in every loaded file in load order
     pub duplicated_method_definitions: Vec<crate::steep_compatibility::DuplicatedMethodDefinition>,
     pub(crate) signature_validation_scopes: Vec<crate::signature_validation::ValidationScope>,
+    /// The `signature_diagnostics` RBS raises while it loads the ancestors of the classes, modules and interfaces
+    pub(crate) ancestor_phase_diagnostics:
+        HashMap<crate::signature_validation::DiagnosticKey, crate::signature_validation::AncestorStep>,
     pub(crate) definition_errors: std::sync::OnceLock<crate::steep_compatibility::DefinitionErrors>,
     pub(crate) ancestor_cache: crate::lookup::AncestorCache,
 }

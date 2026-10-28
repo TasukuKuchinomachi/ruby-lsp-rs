@@ -297,7 +297,7 @@ fn a_numbered_reference_is_optional() {
     let (default, compatible) = both_modes(environment, source);
     assert_eq!(
         compatible.messages_with_code("Ruby::NoMethod"),
-        vec!["Type `String?` does not have method `upcase`"]
+        vec!["Type `(::String | nil)` does not have method `upcase`"]
     );
     assert_eq!(
         diagnostics_with_code(&default, "Ruby::NoMethod"),
@@ -338,7 +338,7 @@ end
     let (default, compatible) = both_modes(environment, source);
     assert_eq!(
         compatible.messages_with_code("Ruby::IncompatibleAssignment"),
-        vec!["Cannot assign a value of type `void` to a variable of type `String`"]
+        vec!["Cannot assign a value of type `void` to a variable of type `::String`\n  void <: ::String"]
     );
     assert_eq!(
         diagnostics_with_code(&default, "Ruby::IncompatibleAssignment"),

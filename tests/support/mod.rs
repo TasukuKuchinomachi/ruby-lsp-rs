@@ -11,7 +11,7 @@ use ruby_environment::RubyEnvironment;
 use ruby_lsp_rs::indexer::Index;
 use ruby_lsp_rs::indexer::indexing::{index_single, index_single_with_require_path};
 use ruby_lsp_rs::server::{Server, ServerOptions};
-use ruby_type_check::project::LoadedEnvironment;
+use ruby_type_check::project::{LoadedEnvironment, LoadedTarget};
 use serde_json::{Value, json};
 
 pub const DEFAULT_URI: &str = "file:///fake.rb";
@@ -57,7 +57,7 @@ pub fn with_server(source: Option<&str>, uri: &str, options: TestOptions) -> Tes
     }
     if let Some(environment) = &options.type_checking_environment {
         global_state.type_checking.set_environment(LoadedEnvironment {
-            environment: environment.clone(),
+            targets: vec![LoadedTarget { name: None, environment: environment.clone() }],
             steepfile: None,
             duration: Duration::ZERO,
         });

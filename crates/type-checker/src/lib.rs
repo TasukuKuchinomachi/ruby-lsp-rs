@@ -2,6 +2,7 @@ mod annotations;
 mod checker;
 mod file_index;
 mod source;
+mod steep_relation;
 mod subtyping;
 mod type_utilities;
 mod unification;
@@ -164,16 +165,25 @@ pub fn analyze_with_options(
 
 const ANALYSIS_STACK_SIZE: usize = 128 * 1024 * 1024;
 
-fn analyze_on_current_thread(
-    environment: &Environment,
-    source: &[u8],
-    options: AnalysisOptions,
-) -> Analysis {
+fn analyze_on_current_thread(environment: &Environment, source: &[u8], options: AnalysisOptions) -> Analysis {
     let parse_result = ruby_prism::parse(source);
     let root = parse_result.node();
-    let file_index = file_index::FileIndex::build(environment, &root);
     let line_index = source::LineIndex::new(source);
+    let file_index = file_index::FileIndex::build(environment, &root, &line_index);
     let annotations = annotations::Annotations::collect(&parse_result, &line_index);
+    // Steep's `TypeCheckService` gives up on a file whose annotation does not parse and reports nothing else
+    if let Some(error) = &annotations.syntax_error {
+        return Analysis {
+            diagnostics: vec![TypeDiagnostic {
+                start: error.start,
+                end: error.end,
+                severity: Severity::Error,
+                code: "Ruby::AnnotationSyntaxError",
+                message: error.message.clone(),
+            }],
+            ..Analysis::default()
+        };
+    }
     let mut checker =
         checker::Checker::new(environment, file_index, line_index, annotations, options);
     checker.check_program(&root);

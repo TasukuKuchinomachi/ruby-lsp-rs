@@ -35,7 +35,6 @@ pub fn receiver_members(environment: &Environment, receiver_type: &Type) -> Vec<
 pub fn without_nil(receiver_type: &Type) -> Option<Type> {
     match receiver_type {
         Type::Nil => None,
-        Type::Optional(inner) => without_nil(inner),
         Type::Union(members) => {
             let members: Vec<Type> = members.iter().filter_map(without_nil).collect();
             (!members.is_empty()).then(|| Type::union(members))
@@ -87,7 +86,6 @@ fn collect_members(environment: &Environment, collected_type: &Type, depth: usiz
             ],
         )),
         Type::Proc(_) => push(class("Proc")),
-        Type::Optional(inner) => collect_members(environment, inner, depth, members),
         Type::Union(union_members) | Type::Intersection(union_members) => {
             for member in union_members {
                 collect_members(environment, member, depth, members);

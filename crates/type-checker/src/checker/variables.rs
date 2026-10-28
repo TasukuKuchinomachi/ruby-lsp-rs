@@ -2,8 +2,10 @@ use rbs_environment::Type;
 use ruby_prism::{Location, Node};
 
 use super::{CacheState, Checker, Context, Locals};
+use crate::annotations::AnnotationTarget;
 use crate::file_index::InstanceVariableKey;
 use crate::source::{Span, constant_text};
+use crate::steep_relation;
 use crate::type_utilities::{array_of, can_be_falsy, element_type, falsy_part, truthy_part};
 use crate::{Severity, TypeHintKind};
 
@@ -92,8 +94,24 @@ impl<'pr> Checker<'_, 'pr> {
                     return Type::Untyped;
                 };
                 let value = write.value();
-                let value_type = self.infer_assigned_value(&value, context, locals);
                 let name = constant_text(&write.name());
+                // Steep types `_ = value` and `__any__ = value` as `untyped` without keeping the variable, which is the
+                // usual way to cast, and does not even look at the value of `__skip__ = value`
+                match name.as_str() {
+                    "_" | "__any__" => {
+                        self.infer(&value, context, locals);
+                        return Type::Untyped;
+                    }
+                    "__skip__" => return Type::Untyped,
+                    _ => {}
+                }
+                if self.options.steep_compatible
+                    && let Some(declared) = context.declared_locals.get(&name)
+                {
+                    self.call_hint = Some((Span::of_node(&value), declared.clone()));
+                }
+                let value_type = self.infer_assigned_value(&value, context, locals);
+                self.call_hint = None;
                 let is_obvious = is_obvious_value(&value);
                 if is_assignment {
                     self.assignment_span = Some(Span::of_node(node));
@@ -102,6 +120,7 @@ impl<'pr> Checker<'_, 'pr> {
                     &name,
                     &write.name_loc(),
                     value_type.clone(),
+                    Some(&value),
                     is_obvious,
                     context,
                     locals,
@@ -124,6 +143,7 @@ impl<'pr> Checker<'_, 'pr> {
                     &name,
                     &write.name_loc(),
                     combined.clone(),
+                    None,
                     is_obvious,
                     context,
                     locals,
@@ -346,11 +366,13 @@ impl<'pr> Checker<'_, 'pr> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn assign_local(
         &mut self,
         name: &str,
         name_location: &Location<'pr>,
         value_type: Type,
+        value_node: Option<&Node<'pr>>,
         is_obvious: bool,
         context: &Context,
         locals: &mut Locals,
@@ -364,7 +386,7 @@ impl<'pr> Checker<'_, 'pr> {
                 span,
                 &declared,
                 &value_type,
-                None,
+                value_node,
                 "a variable",
                 context,
                 &snapshot,
@@ -472,8 +494,10 @@ impl<'pr> Checker<'_, 'pr> {
         context: &Context,
         locals: &Locals,
     ) {
+        let is_hash_for_record = value_node.is_some_and(|value_node| matches!(value_node, Node::HashNode { .. }))
+            && matches!(self.expand_alias_deeply(declared, 0), Type::Record(_));
         if self.is_silent()
-            || !self.is_certain_assignment_mismatch(value_type, declared, value_node)
+            || !is_hash_for_record && !self.is_certain_assignment_mismatch(value_type, declared, value_node)
         {
             return;
         }
@@ -484,13 +508,21 @@ impl<'pr> Checker<'_, 'pr> {
             None => value_type.clone(),
         };
         if self.is_certain_assignment_mismatch(&value_type, declared, value_node) {
+            let message = steep_relation::with_detail_lines(
+                format!(
+                    "Cannot assign a value of type `{}` to {element} of type `{}`",
+                    value_type.steep_display(),
+                    declared.steep_display()
+                ),
+                self.environment,
+                &value_type,
+                declared,
+            );
             self.record_diagnostic(
                 self.assignment_span.unwrap_or(span),
                 Severity::Hint,
                 "Ruby::IncompatibleAssignment",
-                format!(
-                    "Cannot assign a value of type `{value_type}` to {element} of type `{declared}`"
-                ),
+                message,
             );
         }
     }
@@ -701,6 +733,50 @@ impl<'pr> Checker<'_, 'pr> {
                     };
                     entries.push((association.key(), association.value()));
                 }
+                // Steep's `type_hash_record` for a record hint: a key the record does not have is reported and kept
+                // as an optional key, so that the assignment fails
+                if let Type::Record(fields) = &hint
+                    && entries.iter().all(|(key, _)| matches!(key, Node::SymbolNode { .. }))
+                {
+                    let mut record_fields = Vec::new();
+                    for (key, value) in &entries {
+                        let Some(symbol) = key.as_symbol_node() else {
+                            return fallback.clone();
+                        };
+                        let key_name = crate::source::bytes_text(symbol.unescaped());
+                        let value_fallback = silent_type(self, value);
+                        let field = fields.iter().find(|field| field.name == key_name);
+                        let value_type = match field {
+                            Some(field) => {
+                                let hinted =
+                                    self.hinted_value_type(value, &field.field_type, &value_fallback, context, locals, depth + 1);
+                                if hinted.is_untyped() { field.field_type.clone() } else { hinted }
+                            }
+                            None => {
+                                let key_span = symbol
+                                    .value_loc()
+                                    .map(|location| Span::of_location(&location))
+                                    .unwrap_or_else(|| Span::of_node(key));
+                                self.record_diagnostic(
+                                    key_span,
+                                    Severity::Error,
+                                    "Ruby::UnknownRecordKey",
+                                    format!(
+                                        "Unknown key `{}` is given to a record type",
+                                        Type::Literal(rbs_environment::Literal::Symbol(key_name.clone())).steep_display()
+                                    ),
+                                );
+                                value_fallback
+                            }
+                        };
+                        record_fields.push(rbs_environment::RecordField {
+                            name: key_name,
+                            field_type: value_type,
+                            required: field.is_some_and(|field| field.required),
+                        });
+                    }
+                    return Type::Record(record_fields);
+                }
                 for member in &hint_members {
                     match member {
                         Type::Record(fields) => {
@@ -824,11 +900,22 @@ impl<'pr> Checker<'_, 'pr> {
         self.instance_variable_type(&owner, singleton, name)
     }
 
-    pub(crate) fn declared_instance_variable_type(
-        &self,
-        name: &str,
-        context: &Context,
-    ) -> Option<Type> {
+    pub(crate) fn declared_instance_variable_type(&self, name: &str, context: &Context) -> Option<Type> {
+        // Steep imports the `@type ivar` annotations of a `def` into the method body whatever the class is
+        if let Some(method) = &context.method {
+            let annotated = self
+                .type_annotations_in(method.scope_start)
+                .find_map(|(target, annotated_type)| match target {
+                    AnnotationTarget::InstanceVariable(annotated_name) if annotated_name == name => {
+                        Some(annotated_type.clone())
+                    }
+                    _ => None,
+                });
+            if let Some(mut annotated) = annotated {
+                self.environment.resolve_type_names(&mut annotated, &context.nesting);
+                return Some(annotated);
+            }
+        }
         let (owner, singleton) = context.instance_variable_owner()?;
         self.declared_instance_variable_type_of(&owner, singleton, name)
     }
@@ -1047,6 +1134,7 @@ impl<'pr> Checker<'_, 'pr> {
                     &constant_text(&local.name()),
                     &target.location(),
                     assigned_type,
+                    None,
                     false,
                     context,
                     locals,

@@ -78,13 +78,7 @@ pub(crate) fn is_fully_known_class(environment: &Environment, name: &str) -> boo
     })
 }
 
-fn check(
-    environment: &Environment,
-    rules: Rules,
-    subtype: &Type,
-    supertype: &Type,
-    depth: usize,
-) -> Certainty {
+fn check(environment: &Environment, rules: Rules, subtype: &Type, supertype: &Type, depth: usize) -> Certainty {
     if depth > MAXIMUM_DEPTH {
         return Certainty::Unknown;
     }
@@ -108,22 +102,11 @@ fn check(
                 .iter()
                 .map(|member| check(environment, rules, member, supertype, next)),
         ),
-        (Type::Optional(inner), _) => Certainty::all([
-            check(environment, rules, &Type::Nil, supertype, next),
-            check(environment, rules, inner, supertype, next),
-        ]),
         (_, Type::Union(members)) => Certainty::any(
             members
                 .iter()
                 .map(|member| check(environment, rules, subtype, member, next)),
         ),
-        (_, Type::Optional(inner)) => {
-            if matches!(subtype, Type::Nil) {
-                Certainty::Yes
-            } else {
-                check(environment, rules, subtype, inner, next)
-            }
-        }
         (_, Type::Intersection(members)) => Certainty::all(
             members
                 .iter()
@@ -138,6 +121,27 @@ fn check(
             } else {
                 Certainty::Unknown
             }
+        }
+        (Type::Interface { name, .. }, Type::Interface { name: supertype_name, .. })
+            if environment.interfaces.contains_key(name) && name != supertype_name =>
+        {
+            let mut method_names = Vec::new();
+            collect_interface_method_names(environment, name, &mut method_names, 0);
+            let mut required_names = Vec::new();
+            collect_interface_method_names(environment, supertype_name, &mut required_names, 0);
+            if required_names.is_empty() {
+                Certainty::Unknown
+            } else if required_names.iter().all(|required| method_names.contains(required)) {
+                Certainty::Yes
+            } else {
+                Certainty::No
+            }
+        }
+        // Steep finds no super type of an interface but other interfaces, not even `Object`
+        (Type::Interface { name, .. }, Type::ClassInstance { .. } | Type::ClassSingleton { .. })
+            if environment.interfaces.contains_key(name) =>
+        {
+            Certainty::No
         }
         (
             Type::Void
@@ -256,6 +260,20 @@ fn check(
             supertype,
             next,
         ),
+        (Type::Record(fields), Type::Record(supertype_fields)) => {
+            let has_unchecked_keys =
+                fields.iter().any(|field| !supertype_fields.iter().any(|supertype_field| supertype_field.name == field.name));
+            if has_unchecked_keys {
+                return Certainty::No;
+            }
+            Certainty::all(supertype_fields.iter().filter_map(|supertype_field| {
+                match (fields.iter().find(|field| field.name == supertype_field.name), supertype_field.required) {
+                    (Some(field), _) => Some(check(environment, rules, &field.field_type, &supertype_field.field_type, next)),
+                    (None, true) => Some(check(environment, rules, &Type::Nil, &supertype_field.field_type, next)),
+                    (None, false) => None,
+                }
+            }))
+        }
         (Type::Record(fields), _) => {
             let value_type = Type::union(
                 fields

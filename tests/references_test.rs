@@ -42,7 +42,10 @@ fn finds_method_references_across_documents() {
         .as_array()
         .unwrap()
         .iter()
-        .filter(|location| !location["uri"].as_str().unwrap().contains("/tests/"))
+        .filter(|location| {
+            let uri = location["uri"].as_str().unwrap();
+            !uri.contains("/tests/") && !uri.contains("/target/")
+        })
         .map(|location| (location["uri"].as_str().unwrap().to_string(), location["range"]["start"]["line"].as_u64().unwrap()))
         .collect();
     assert_eq!(

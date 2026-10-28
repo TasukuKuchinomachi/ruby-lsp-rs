@@ -529,10 +529,11 @@ impl Server {
         if let Some(warning) = project::missing_core_warning(&sources) {
             self.outgoing.log_message(&warning, message_type::WARNING);
         }
+        let ruby_command = self.global_state.ruby_command.clone();
         let environment_sender = self.environment_sender.clone();
         self.begin_progress(TYPE_CHECKER_PROGRESS_TOKEN, "Ruby LSP: loading RBS signatures");
         std::thread::spawn(move || {
-            let _ = environment_sender.send(type_checking::load_environment(&workspace_path, &sources));
+            let _ = environment_sender.send(type_checking::load_environment(&workspace_path, &sources, &ruby_command));
         });
     }
 
@@ -542,7 +543,7 @@ impl Server {
         match outcome {
             Ok(loaded) => {
                 self.outgoing.log(&project::load_summary(&loaded));
-                if let Some(report) = project::load_error_report(&loaded.environment) {
+                if let Some(report) = project::load_error_report(&loaded) {
                     self.outgoing.log_message(&report, message_type::WARNING);
                 }
                 self.global_state.type_checking.set_environment(loaded);

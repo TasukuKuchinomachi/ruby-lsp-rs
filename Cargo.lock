@@ -371,6 +371,7 @@ dependencies = [
 name = "rbs-environment"
 version = "2.0.0-r1"
 dependencies = [
+ "ruby-file-glob",
  "ruby-prism",
  "ruby-rbs",
  "ruby-rbs-sys",
@@ -497,6 +498,7 @@ dependencies = [
  "rbs-environment",
  "ruby-environment",
  "ruby-file-glob",
+ "serde_yaml",
  "type-checker",
  "walkdir",
 ]

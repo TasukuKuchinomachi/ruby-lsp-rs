@@ -1,16 +1,16 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ruby_rbs_sys::bindings::{
-    rbs_encoding_t, rbs_encoding_type_t, rbs_encodings, rbs_parse_signature, rbs_parser_free,
-    rbs_parser_new, rbs_string_new,
+    RBSTokenType, rbs_encoding_t, rbs_encoding_type_t, rbs_encodings, rbs_parse_signature, rbs_parser_free,
+    rbs_parser_new, rbs_parser_t, rbs_string_new,
 };
 
 use crate::environment::{ClassKind, Environment, Location, MethodKind, SourcePosition};
 use crate::loader::{UseClause, is_interface_name, parallel_map};
 use crate::navigation::SignatureTarget;
-use crate::types::{NameKind, TypeName, TypeParameter};
+use crate::types::{MethodType, NameKind, TypeName, TypeParameter};
 
 pub const SYNTAX_ERROR: &str = "RBS::SyntaxError";
 pub const DUPLICATED_DECLARATION: &str = "RBS::DuplicatedDeclaration";
@@ -81,6 +81,65 @@ pub(crate) fn syntax_error_diagnostic(
         end: source_position(source, end_offset),
         code: SYNTAX_ERROR,
         message: format!("Syntax error: {message}, token=`{token}`"),
+    }
+}
+
+unsafe extern "C" {
+    fn rbs_parse_method_type(
+        parser: *mut rbs_parser_t,
+        method_type: *mut *mut std::os::raw::c_void,
+        require_eof: bool,
+        classish_allowed: bool,
+    ) -> bool;
+    fn rbs_parse_type(
+        parser: *mut rbs_parser_t,
+        parsed_type: *mut *mut std::os::raw::c_void,
+        void_allowed: bool,
+        self_allowed: bool,
+        classish_allowed: bool,
+    ) -> bool;
+    fn rbs_token_type_str(token_type: RBSTokenType) -> *const std::os::raw::c_char;
+}
+
+#[derive(Clone, Copy)]
+pub enum AnnotationSyntax {
+    Type,
+    MethodType,
+}
+
+/// The message Steep's `Diagnostic::Signature::SyntaxError.parser_syntax_error_message` gives when `source` is not a
+/// type (or a method type), naming the token RBS's parser stopped at. `None` when it parses
+pub fn annotation_syntax_error_message(source: &str, syntax: AnnotationSyntax) -> Option<String> {
+    let length = i32::try_from(source.len()).ok()?;
+    unsafe {
+        let start_pointer = source.as_ptr().cast::<std::os::raw::c_char>();
+        let string = rbs_string_new(start_pointer, start_pointer.add(source.len()));
+        let encoding = &rbs_encodings[rbs_encoding_type_t::RBS_ENCODING_UTF_8 as usize] as *const rbs_encoding_t;
+        let parser = rbs_parser_new(string, encoding, 0, length);
+        let mut parsed = std::ptr::null_mut();
+        let succeeded = match syntax {
+            AnnotationSyntax::Type => rbs_parse_type(parser, &mut parsed, true, true, true),
+            AnnotationSyntax::MethodType => rbs_parse_method_type(parser, &mut parsed, false, true),
+        };
+        let message = if succeeded {
+            None
+        } else {
+            (*parser).error.as_ref().map(|error| {
+                let token_name = std::ffi::CStr::from_ptr(rbs_token_type_str(error.token.type_))
+                    .to_string_lossy()
+                    .into_owned();
+                let start = (error.token.range.start.byte_pos.max(0) as usize).min(source.len());
+                let end = (error.token.range.end.byte_pos.max(0) as usize).clamp(start, source.len());
+                let token_source = source.get(start..end).unwrap_or_default();
+                if token_source.is_empty() {
+                    format!("Syntax error caused by token `{token_name}`")
+                } else {
+                    format!("Syntax error caused by token `{token_name}` ({token_source})")
+                }
+            })
+        };
+        rbs_parser_free(parser);
+        message
     }
 }
 
@@ -159,6 +218,33 @@ pub(crate) enum ReferenceKind {
     ClassAliasTarget,
 }
 
+/// Where `RBS::DefinitionBuilder::AncestorBuilder#one_instance_ancestors`, `#one_singleton_ancestors` or
+/// `#one_interface_ancestors` reads a reference. Each of them stops at its first error
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum AncestorStep {
+    SuperClass,
+    SelfType,
+    InstanceMixin,
+    Extend,
+    InterfaceInclude,
+}
+
+impl ReferenceKind {
+    fn ancestor_step(&self) -> Option<AncestorStep> {
+        match self {
+            ReferenceKind::SuperClass { .. } => Some(AncestorStep::SuperClass),
+            ReferenceKind::ModuleSelfType => Some(AncestorStep::SelfType),
+            ReferenceKind::Mixin {
+                kind: MixinKind::Extend,
+                ..
+            } => Some(AncestorStep::Extend),
+            ReferenceKind::Mixin { .. } => Some(AncestorStep::InstanceMixin),
+            ReferenceKind::InterfaceInclude => Some(AncestorStep::InterfaceInclude),
+            _ => None,
+        }
+    }
+}
+
 /// A type name written in a signature file, before name resolution
 pub(crate) struct TypeReference {
     /// Fully qualified names of the enclosing declarations, innermost last
@@ -182,7 +268,34 @@ pub(crate) enum AliasOwner {
 pub(crate) struct MethodAliasRecord {
     pub(crate) owner_name: TypeName,
     pub(crate) owner: AliasOwner,
+    pub(crate) new_name: String,
     pub(crate) old_name: String,
+    pub(crate) location: Location,
+}
+
+/// A method type whose use of the owner's type parameters `RBS::DefinitionBuilder#validate_type_params` checks against
+/// their variance: an instance method other than `initialize` or an instance attribute of a class, or a method of an
+/// interface
+pub(crate) struct MethodTypeRecord {
+    pub(crate) owner_name: TypeName,
+    pub(crate) method_type: MethodType,
+    pub(crate) location: Location,
+}
+
+/// `@name: T` or `self.@name: T` in a class body
+pub(crate) struct VariableRecord {
+    pub(crate) owner_name: TypeName,
+    pub(crate) name: String,
+    pub(crate) kind: MethodKind,
+    pub(crate) location: Location,
+}
+
+/// A `def` member in a class body, which `RBS::DefinitionBuilder#define_method` rejects when an included interface
+/// already defines the method
+pub(crate) struct MethodMemberRecord {
+    pub(crate) owner_name: TypeName,
+    pub(crate) name: String,
+    pub(crate) overloading: bool,
     pub(crate) location: Location,
 }
 
@@ -230,6 +343,9 @@ pub(crate) struct FileValidation {
     pub(crate) declarations: Vec<DeclarationRecord>,
     pub(crate) method_aliases: Vec<MethodAliasRecord>,
     pub(crate) defined_names: Vec<DefinedNameRecord>,
+    pub(crate) method_types: Vec<MethodTypeRecord>,
+    pub(crate) variables: Vec<VariableRecord>,
+    pub(crate) method_members: Vec<MethodMemberRecord>,
     pub(crate) diagnostics: Vec<SignatureDiagnostic>,
 }
 
@@ -312,20 +428,33 @@ pub(crate) fn generic_parameter_mismatch(location: &Location, name: &str) -> Sig
     )
 }
 
+/// The problems of the signature files, and which of them `RBS::DefinitionBuilder::AncestorBuilder` raises while Steep
+/// preloads the ancestors of every class, before the validator runs
 pub(crate) fn validate_files(
     environment: &Environment,
     validations: &[FileValidation],
-) -> Vec<SignatureDiagnostic> {
-    parallel_map(validations, |validation| {
+) -> (Vec<SignatureDiagnostic>, HashMap<DiagnosticKey, AncestorStep>) {
+    let mut diagnostics = Vec::new();
+    let mut ancestor_keys = HashMap::new();
+    let results = parallel_map(validations, |validation| {
         FileValidator {
             environment,
             uses: &validation.uses,
         }
         .validate(validation)
-    })
-    .into_iter()
-    .flatten()
-    .collect()
+    });
+    for (file_diagnostics, file_ancestor_keys) in results {
+        diagnostics.extend(file_diagnostics);
+        ancestor_keys.extend(file_ancestor_keys);
+    }
+    (diagnostics, ancestor_keys)
+}
+
+/// Where a diagnostic starts and its code, which tells it apart from the others
+pub(crate) type DiagnosticKey = (PathBuf, SourcePosition, &'static str);
+
+pub(crate) fn diagnostic_key(diagnostic: &SignatureDiagnostic) -> DiagnosticKey {
+    (diagnostic.path.clone(), diagnostic.start, diagnostic.code)
 }
 
 /// Sorted by file and position, without the same problem reported twice at one place
@@ -368,10 +497,19 @@ pub(crate) struct FileValidator<'a> {
 }
 
 impl FileValidator<'_> {
-    fn validate(&self, validation: &FileValidation) -> Vec<SignatureDiagnostic> {
+    fn validate(&self, validation: &FileValidation) -> (Vec<SignatureDiagnostic>, Vec<(DiagnosticKey, AncestorStep)>) {
         let mut diagnostics = validation.diagnostics.clone();
+        let mut ancestor_keys = Vec::new();
         for reference in &validation.references {
+            let first_new_diagnostic = diagnostics.len();
             self.validate_reference(reference, &mut diagnostics);
+            if let Some(step) = reference.kind.ancestor_step() {
+                ancestor_keys.extend(
+                    diagnostics[first_new_diagnostic..]
+                        .iter()
+                        .map(|diagnostic| (diagnostic_key(diagnostic), step)),
+                );
+            }
         }
         for declaration in &validation.declarations {
             self.validate_namespace(declaration, &mut diagnostics);
@@ -379,7 +517,11 @@ impl FileValidator<'_> {
         for method_alias in &validation.method_aliases {
             self.validate_method_alias(method_alias, &mut diagnostics);
         }
-        diagnostics
+        diagnostics.extend(crate::definition_validation::validate_definitions(
+            self.environment,
+            validation,
+        ));
+        (diagnostics, ancestor_keys)
     }
 
     fn validate_reference(

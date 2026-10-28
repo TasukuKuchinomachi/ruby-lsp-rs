@@ -143,8 +143,8 @@ fn merge_boolean(target: &mut bool, value: Option<&Value>) {
 
 pub type EnvironmentLoadOutcome = Result<LoadedEnvironment, String>;
 
-pub fn load_environment(workspace_path: &Path, sources: &WorkspaceSources) -> EnvironmentLoadOutcome {
-    catch_unwind(AssertUnwindSafe(|| project::load_environment(workspace_path, sources)))
+pub fn load_environment(workspace_path: &Path, sources: &WorkspaceSources, ruby_command: &[String]) -> EnvironmentLoadOutcome {
+    catch_unwind(AssertUnwindSafe(|| project::load_environment(workspace_path, sources, ruby_command)))
         .map_err(|payload| crate::server::panic_message(&payload))
 }
 
@@ -192,7 +192,9 @@ impl TypeCheckingState {
     }
 
     pub fn set_environment(&mut self, loaded: LoadedEnvironment) {
-        self.environment = Some(loaded.environment);
+        // Every target shares one environment unless `unreferenced!` or `implicitly_returns_nil!` differs among them,
+        // and the language server does not pick the environment of the target of each file yet
+        self.environment = loaded.targets.into_iter().next().map(|target| target.environment);
         self.steepfile = loaded.steepfile;
         self.analyses.clear();
     }
@@ -457,9 +459,9 @@ fn collect_named_types(collected_type: &Type, named_types: &mut Vec<NamedType>) 
         Type::Tuple(_) => push(class("Array")),
         Type::Record(_) => push(class("Hash")),
         Type::Proc(_) => push(class("Proc")),
-        Type::Optional(inner) => collect_named_types(inner, named_types),
+        // `Foo?` is a union with `nil`, which would list `NilClass` beside `Foo`
         Type::Union(members) | Type::Intersection(members) => {
-            for member in members {
+            for member in members.iter().filter(|member| !matches!(member, Type::Nil)) {
                 collect_named_types(member, named_types);
             }
         }
@@ -484,9 +486,8 @@ pub fn referenced_named_types(shown_type: &Type) -> Vec<NamedType> {
 
 fn collect_referenced_named_types(referenced_type: &Type, referenced: &mut Vec<NamedType>) {
     match referenced_type {
-        Type::Optional(inner) => collect_referenced_named_types(inner, referenced),
         Type::Union(members) | Type::Intersection(members) => {
-            for member in members {
+            for member in members.iter().filter(|member| !matches!(member, Type::Nil)) {
                 collect_referenced_named_types(member, referenced);
             }
         }
@@ -733,7 +734,7 @@ mod tests {
     #[test]
     fn collects_named_types_of_unions_and_literals() {
         let union = Type::Union(vec![
-            Type::Optional(Box::new(Type::instance("Foo"))),
+            Type::optional(Type::instance("Foo")),
             Type::ClassSingleton { name: "::Bar".to_string() },
             Type::Literal(Literal::Symbol("name".to_string())),
             Type::instance("Foo"),
@@ -753,7 +754,7 @@ mod tests {
         let shown_type = Type::Union(vec![
             Type::ClassInstance {
                 name: "::Array".to_string(),
-                arguments: vec![Type::Optional(Box::new(Type::instance("Foo")))],
+                arguments: vec![Type::optional(Type::instance("Foo"))],
             },
             Type::Tuple(vec![Type::instance("Bar")]),
         ]);

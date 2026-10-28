@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
 
 use crate::environment::{Ancestor, ClassKind, Environment, MethodDefinition, ResolvedMethod};
+use crate::loader::is_interface_name;
 use crate::types::{MethodType, NameKind, Substitution, Type, TypeName, TypeParameter};
 
 #[derive(Debug, Default)]
@@ -166,9 +167,93 @@ impl Environment {
             .collect()
     }
 
+    /// The direct super types of an instance of `name` with `arguments`, in the order Steep's `Subtyping::Check#each_ancestor`
+    /// visits RBS's `one_instance_ancestors`: the superclass, included modules, included interfaces, then prepended modules
+    pub fn one_instance_super_types(&self, name: &str, arguments: &[Type]) -> Vec<Type> {
+        let Some(declared_name) = self.resolve_class_name(name) else {
+            return Vec::new();
+        };
+        let Some(declaration) = self.classes.get(declared_name) else {
+            return Vec::new();
+        };
+        let substitution = self.substitution_for(declared_name, arguments);
+        let instantiate = |reference: &Ancestor| -> Type {
+            let arguments = reference
+                .arguments
+                .iter()
+                .map(|argument| argument.substitute(&substitution))
+                .collect();
+            let name = reference.name.strip_prefix("::").unwrap_or(&reference.name).to_string();
+            if is_interface_name(&name) {
+                Type::Interface { name, arguments }
+            } else {
+                Type::ClassInstance { name, arguments }
+            }
+        };
+        let (included_interfaces, included_modules): (Vec<&Ancestor>, Vec<&Ancestor>) = declaration
+            .includes
+            .iter()
+            .partition(|reference| is_interface_name(&reference.name));
+        declaration
+            .super_class
+            .iter()
+            .chain(included_modules)
+            .chain(included_interfaces)
+            .chain(declaration.prepends.iter())
+            .map(instantiate)
+            .collect()
+    }
+
+    /// The direct super types of `singleton(name)` as RBS's `one_singleton_ancestors` gives them: the singleton of the
+    /// superclass (`Class` for `BasicObject`, `Module` for a module), then extended modules and interfaces
+    pub fn one_singleton_super_types(&self, name: &str) -> Vec<Type> {
+        let Some(declared_name) = self.resolve_class_name(name) else {
+            return Vec::new();
+        };
+        let Some(declaration) = self.classes.get(declared_name) else {
+            return Vec::new();
+        };
+        let super_type = match (&declaration.kind, &declaration.super_class) {
+            (ClassKind::Module, _) => Type::instance("Module"),
+            (ClassKind::Class, Some(super_class)) => Type::ClassSingleton {
+                name: super_class
+                    .name
+                    .strip_prefix("::")
+                    .unwrap_or(&super_class.name)
+                    .to_string(),
+            },
+            (ClassKind::Class, None) => Type::instance("Class"),
+        };
+        let (extended_interfaces, extended_modules): (Vec<&Ancestor>, Vec<&Ancestor>) = declaration
+            .extends
+            .iter()
+            .partition(|reference| is_interface_name(&reference.name));
+        std::iter::once(super_type)
+            .chain(
+                extended_modules
+                    .into_iter()
+                    .chain(extended_interfaces)
+                    .map(|reference| {
+                        let name = reference.name.strip_prefix("::").unwrap_or(&reference.name).to_string();
+                        if is_interface_name(&name) {
+                            Type::Interface {
+                                name,
+                                arguments: reference.arguments.clone(),
+                            }
+                        } else {
+                            Type::ClassInstance {
+                                name,
+                                arguments: reference.arguments.clone(),
+                            }
+                        }
+                    }),
+            )
+            .collect()
+    }
+
     /// Instance ancestors followed, for modules, by the ancestors of the module self types and of `Object`, since a
     /// module's instance is always some object
-    pub(crate) fn instance_lookup_chain(&self, name: &str) -> Vec<Ancestor> {
+    pub fn instance_lookup_chain(&self, name: &str) -> Vec<Ancestor> {
         let mut chain = self.ancestors(name);
         let module = self
             .resolve_class_name(name)
@@ -467,6 +552,10 @@ impl Environment {
     /// Resolves names inside a type parsed with `parse_type`, using the same rules as `resolve_constant_name`
     pub fn resolve_type_names(&self, parsed_type: &mut Type, nesting: &[String]) {
         parsed_type.map_names(&mut |kind, name| self.resolve_type_name(kind, nesting, name));
+    }
+
+    pub fn resolve_method_type_names(&self, method_type: &mut MethodType, nesting: &[String]) {
+        method_type.map_names(&mut |kind, name| self.resolve_type_name(kind, nesting, name));
     }
 }
 

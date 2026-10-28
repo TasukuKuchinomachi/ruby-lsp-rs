@@ -3,16 +3,15 @@ use std::collections::{HashSet, VecDeque};
 use rbs_environment::{ClassKind, Location, MethodType, ResolvedMethod, Substitution, Type};
 use ruby_prism::{CallNode, Node};
 
-use super::arguments::{
-    ArgumentPair, ArityMismatch, CallArguments, match_arguments, select_overload,
-};
+use super::arguments::{ArgumentPair, ArityMismatch, CallArguments, match_arguments, select_overload};
 use super::blocks::BlockSignature;
 use super::{Checker, Context, Locals};
 use crate::file_index::FileMethod;
 use crate::source::{Span, constant_text};
+use crate::steep_relation;
 use crate::type_utilities::{
-    can_be_nil, contains_uncertain_part, contains_variable_in, hash_of, instance_type_of_class,
-    is_bottom, literal_class_name, members_of, remove_nil, self_instance_type,
+    can_be_nil, contains_uncertain_part, contains_variable_in, hash_of, instance_type_of_class, is_bottom,
+    literal_class_name, members_of, remove_nil, self_instance_type,
 };
 use crate::unification::{Bindings, class_substitution};
 use crate::{HoverKind, Severity, TypeHintKind};
@@ -96,6 +95,8 @@ pub(crate) struct CallSite<'pr> {
     pub(crate) expression_span: Span,
     pub(crate) send_span: Span,
     pub(crate) no_method_span: Span,
+    /// The declared type of the variable the call is assigned to, which Steep gives the call as its type hint
+    pub(crate) return_hint: Option<Type>,
 }
 
 struct PreparedCall {
@@ -127,12 +128,55 @@ impl PreparedCall {
         );
         if let Ok(pairs) = match_arguments(&overload.function, arguments) {
             for pair in &pairs {
-                bindings.unify(environment, &pair.parameter_type, &pair.argument_type);
+                // Steep types a hash literal passed to a record parameter as a record, whose values bind the type
+                // variables of the fields
+                let argument_type = match (&pair.parameter_type, &pair.literal_type) {
+                    (Type::Record(_), Some(Type::Record(fields))) => Type::Record(
+                        fields
+                            .iter()
+                            .map(|field| rbs_environment::RecordField {
+                                field_type: widen_literal(&field.field_type),
+                                ..field.clone()
+                            })
+                            .collect(),
+                    ),
+                    _ => pair.argument_type.clone(),
+                };
+                bindings.unify(environment, &pair.parameter_type, &argument_type);
             }
         }
         PreparedCall {
             overload: Some(overload),
             bindings,
+        }
+    }
+
+    /// Steep checks the arguments of a call whose return type is a type parameter after constraining the parameter
+    /// by the type hint. An argument for that parameter compatible with the hint binds it to the hint; an
+    /// incompatible one makes the constraint unsatisfiable, returned as the lower bound, the parameter and the hint
+    fn apply_return_hint(
+        &mut self,
+        environment: &rbs_environment::Environment,
+        hint: &Type,
+        arguments: &CallArguments,
+    ) -> Option<(Type, String, Type)> {
+        let overload = self.overload.as_ref()?;
+        let Type::Variable(variable_name) = &overload.function.return_type else {
+            return None;
+        };
+        if !self.bindings.variable_names().contains(variable_name) {
+            return None;
+        }
+        let pairs = match_arguments(&overload.function, arguments).ok()?;
+        let argument_type = pairs
+            .iter()
+            .find(|pair| matches!(&pair.parameter_type, Type::Variable(name) if name == variable_name))
+            .map(|pair| pair.argument_type.clone())?;
+        if steep_relation::is_subtype(environment, &argument_type, hint) {
+            self.bindings.bind_exactly(variable_name, hint.clone());
+            None
+        } else {
+            Some((argument_type, variable_name.clone(), hint.clone()))
         }
     }
 
@@ -257,6 +301,19 @@ fn close_variables(names: &[String]) -> Substitution {
     substitution
 }
 
+/// The class of a literal type, as Steep types a literal without a literal hint
+fn widen_literal(target: &Type) -> Type {
+    match target {
+        Type::Literal(literal) => Type::instance(literal_class_name(literal)),
+        Type::ClassInstance { name, arguments } => Type::ClassInstance {
+            name: name.clone(),
+            arguments: arguments.iter().map(widen_literal).collect(),
+        },
+        Type::Union(members) => Type::union(members.iter().map(widen_literal).collect()),
+        other => other.clone(),
+    }
+}
+
 fn substitute_overload(overload: &MethodType, substitution: &Substitution) -> MethodType {
     let shadows = overload
         .type_parameters
@@ -273,12 +330,78 @@ fn substitute_overload(overload: &MethodType, substitution: &Substitution) -> Me
 }
 
 impl<'environment, 'pr> Checker<'environment, 'pr> {
-    pub(crate) fn infer_call(
-        &mut self,
-        call: &CallNode<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    /// Steep's `TypeParam.rename` names the type parameters of every generic method type it tries with a number
+    /// counted through the file, which its messages show
+    fn rename_type_parameters_freshly(&mut self, overload: &MethodType) -> MethodType {
+        let mut substitution = Substitution::default();
+        let mut renamed = overload.clone();
+        for type_parameter in &mut renamed.type_parameters {
+            self.fresh_variable_count += 1;
+            let fresh_name = format!("{}({})", type_parameter.name, self.fresh_variable_count);
+            substitution
+                .variables
+                .insert(type_parameter.name.clone(), Type::Variable(fresh_name.clone()));
+            type_parameter.name = fresh_name;
+        }
+        let mut renamed = renamed.substitute(&substitution);
+        for type_parameter in &mut renamed.type_parameters {
+            type_parameter.upper_bound = type_parameter
+                .upper_bound
+                .as_ref()
+                .map(|bound| bound.substitute(&substitution));
+            type_parameter.default_type = type_parameter
+                .default_type
+                .as_ref()
+                .map(|default| default.substitute(&substitution));
+        }
+        renamed
+    }
+
+    /// Steep constrains a type parameter given to a block parameter by the type annotated on the parameter, which is
+    /// unsatisfiable when the arguments bound the type parameter to something else
+    fn unsatisfiable_block_parameter_annotation(
+        &self,
+        block_node: &Node<'pr>,
+        prepared: &PreparedCall,
+        nesting: &[String],
+    ) -> Option<(Type, String, Type)> {
+        let block = prepared.overload.as_ref()?.block.as_ref()?;
+        let parameters = block_node.as_block_node()?.parameters()?;
+        let parameter_list = parameters.as_block_parameters_node()?.parameters()?;
+        let annotations: Vec<(&crate::annotations::AnnotationTarget, &Type)> =
+            self.type_annotations_in(block_node.location().start_offset()).collect();
+        for (required, declared) in parameter_list
+            .requireds()
+            .iter()
+            .zip(&block.function.required_positionals)
+        {
+            let Some(required) = required.as_required_parameter_node() else {
+                continue;
+            };
+            let Type::Variable(variable_name) = &declared.parameter_type else {
+                continue;
+            };
+            let parameter_name = constant_text(&required.name());
+            let Some(annotated) = annotations.iter().find_map(|(target, annotated)| match target {
+                crate::annotations::AnnotationTarget::LocalVariable(name) if *name == parameter_name => {
+                    Some(*annotated)
+                }
+                _ => None,
+            }) else {
+                continue;
+            };
+            let Some(lower_bound) = prepared.bindings.bound_type(variable_name) else {
+                continue;
+            };
+            let annotated = self.resolve_annotation_type(annotated, nesting);
+            if !steep_relation::is_subtype(self.environment, &lower_bound, &annotated) {
+                return Some((lower_bound, variable_name.clone(), annotated));
+            }
+        }
+        None
+    }
+
+    pub(crate) fn infer_call(&mut self, call: &CallNode<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let method_name = constant_text(&call.name());
         let receiver = call.receiver();
         let block_node = call.block();
@@ -292,6 +415,18 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         {
             self.infer_arguments(call.arguments(), context, locals);
             return self.infer_lambda(block, context, locals);
+        }
+        // The parser gem Steep uses reads `/regexp/ =~ value` as `match_with_lvasgn`, which Steep types as `untyped`
+        // without looking the method up
+        if self.options.steep_compatible
+            && method_name == "=~"
+            && let Some(receiver) = receiver
+                .as_ref()
+                .filter(|receiver| matches!(receiver, Node::RegularExpressionNode { .. }))
+        {
+            self.infer(receiver, context, locals);
+            self.infer_arguments(call.arguments(), context, locals);
+            return Type::Untyped;
         }
         let receiver_type = match &receiver {
             Some(receiver) => {
@@ -340,6 +475,10 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             _ => name_span,
         };
         let is_safe_navigation = call.is_safe_navigation();
+        let return_hint = self
+            .call_hint
+            .take_if(|(hinted_span, _)| *hinted_span == call_span)
+            .map(|(_, hint)| hint);
         let dispatch_receiver = if is_safe_navigation {
             remove_nil(&receiver_type)
         } else {
@@ -357,6 +496,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             expression_span: call_span,
             send_span,
             no_method_span,
+            return_hint,
         };
         if receiver_type.is_untyped()
             && let Some(arguments_node) = call.arguments()
@@ -398,7 +538,9 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         {
             result = field_type;
         }
-        if let Some(compacted) = compact_result(&method_name, &arguments, call, &result) {
+        if is_collection_compact(self.environment, &structural_receiver, &method_name)
+            && let Some(compacted) = compact_result(&method_name, &arguments, call, &result)
+        {
             result = compacted;
         }
         if let Type::Tuple(elements) = &structural_receiver
@@ -464,12 +606,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
     }
 
     /// `it` is a method call to Steep, whose parser follows Ruby 3.3
-    pub(crate) fn infer_it_as_method_call(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_it_as_method_call(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let span = Span::of_node(node);
         if let Some(error) = self.definition_error_of(&context.self_type) {
             self.record_unexpected_error(span, error);
@@ -485,6 +622,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             expression_span: span,
             send_span: span,
             no_method_span: span,
+            return_hint: None,
         };
         let self_type = context.self_type.clone();
         self.dispatch_call(
@@ -553,10 +691,29 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             };
             lookups.push(lookup);
         }
+        if self.options.steep_compatible
+            && lookups.len() > 1
+            && let Some(merged) = union_found_method(&lookups)
+        {
+            lookups = vec![Lookup::Found(Box::new(merged))];
+        }
         let has_block = !matches!(site.block, CallBlock::Absent);
         let primary_index = lookups
             .iter()
             .position(|lookup| matches!(lookup, Lookup::Found(_)));
+        if self.options.steep_compatible
+            && !self.is_silent()
+            && let Some(index) = primary_index
+            && let Lookup::Found(found) = &mut lookups[index]
+            && !found.overloads.is_empty()
+        {
+            let selected = select_overload(self.environment, &found.overloads, arguments, has_block);
+            for overload in found.overloads.iter_mut().take(selected + 1) {
+                if !overload.type_parameters.is_empty() {
+                    *overload = self.rename_type_parameters_freshly(overload);
+                }
+            }
+        }
         let mut primary_prepared = primary_index.and_then(|index| match &lookups[index] {
             Lookup::Found(found) => Some(PreparedCall::new(
                 self.environment,
@@ -566,6 +723,47 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             )),
             _ => None,
         });
+        let unsatisfiable_return_hint = match (&site.return_hint, primary_prepared.as_mut()) {
+            (Some(hint), Some(prepared)) if self.options.steep_compatible => {
+                prepared.apply_return_hint(self.environment, hint, arguments)
+            }
+            _ => None,
+        };
+        let unsatisfiable_return_hint = match (&site.block, &primary_prepared) {
+            (CallBlock::Literal(block_node), Some(prepared))
+                if unsatisfiable_return_hint.is_none() && self.options.steep_compatible =>
+            {
+                self.unsatisfiable_block_parameter_annotation(block_node, prepared, &context.nesting)
+            }
+            _ => unsatisfiable_return_hint,
+        };
+        if let Some((lower_bound, variable_name, upper_bound)) = &unsatisfiable_return_hint
+            && site.reports_diagnostics
+            && let Some(overload) = primary_prepared
+                .as_ref()
+                .and_then(|prepared| prepared.overload.as_ref())
+        {
+            let mut displayed_overload = overload.clone();
+            displayed_overload.type_parameters.clear();
+            let message = steep_relation::with_detail_lines(
+                format!(
+                    "Unsatisfiable constraint `{} <: {} <: {}` is generated through {}",
+                    lower_bound.steep_display(),
+                    variable_name,
+                    upper_bound.steep_display(),
+                    displayed_overload.steep_display()
+                ),
+                self.environment,
+                lower_bound,
+                upper_bound,
+            );
+            self.record_diagnostic(
+                site.expression_span,
+                Severity::Error,
+                "Ruby::UnsatisfiableConstraint",
+                message,
+            );
+        }
         for (value_index, lambda_node) in &site.deferred_lambdas {
             let signature = primary_prepared
                 .as_ref()
@@ -579,11 +777,54 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         }
         let block_result = match &site.block {
             CallBlock::Literal(block_node) => {
-                let signature = primary_prepared
+                let mut signature = primary_prepared
                     .as_ref()
                     .map(PreparedCall::block_signature)
                     .unwrap_or_else(BlockSignature::untyped);
-                Some(self.infer_block(block_node, &signature, context, locals))
+                // Steep's shape of a union joins the block self types of the members' method types
+                if self.options.steep_compatible && signature.self_type.is_some() && lookups.len() > 1 {
+                    let self_types: Vec<Type> = lookups
+                        .iter()
+                        .filter_map(|lookup| match lookup {
+                            Lookup::Found(found) => {
+                                PreparedCall::new(self.environment, found, arguments, has_block)
+                                    .block_signature()
+                                    .self_type
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                    signature.self_type = Some(Type::union(self_types));
+                }
+                let block_type = self.infer_block(block_node, &signature, context, locals);
+                let declared_block_return = primary_prepared
+                    .as_ref()
+                    .and_then(|prepared| prepared.overload.as_ref())
+                    .filter(|_| site.reports_diagnostics)
+                    .and_then(|overload| {
+                        let type_parameter_names: Vec<String> =
+                            overload.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
+                        let return_type = overload.block.as_ref()?.function.return_type.clone();
+                        (!contains_variable_in(&return_type, &type_parameter_names) && !contains_uncertain_part(&return_type))
+                            .then_some(return_type)
+                    });
+                if let Some(expected) = declared_block_return
+                    && !matches!(expected, Type::Void)
+                    && self.is_certain_mismatch(&block_type, &expected)
+                {
+                    let message = steep_relation::with_detail_lines(
+                        format!(
+                            "Cannot allow block body have type `{}` because declared as type `{}`",
+                            block_type.steep_display(),
+                            expected.steep_display()
+                        ),
+                        self.environment,
+                        &block_type,
+                        &expected,
+                    );
+                    self.record_diagnostic(Span::of_node(block_node), Severity::Error, "Ruby::BlockBodyTypeMismatch", message);
+                }
+                Some(block_type)
             }
             CallBlock::Argument {
                 argument_type,
@@ -608,18 +849,34 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                         context,
                     )
                 };
-                if symbol_is_missing
-                    && site.reports_diagnostics
+                if site.reports_diagnostics
                     && let Some(expected) = primary_prepared
                         .as_ref()
                         .and_then(PreparedCall::block_proc_type)
                 {
-                    self.record_diagnostic(
-                        *span,
-                        Severity::Warning,
-                        "Ruby::BlockTypeMismatch",
-                        format!("Cannot pass a value of type `Proc` as a block-pass-argument of type `{expected}`"),
-                    );
+                    let given = if symbol_is_missing {
+                        Some(Type::instance("Proc"))
+                    } else if symbol.is_none()
+                        && matches!(argument_type, Type::Proc(_))
+                        && self.is_certain_mismatch(argument_type, &expected)
+                    {
+                        Some(argument_type.clone())
+                    } else {
+                        None
+                    };
+                    if let Some(given) = given {
+                        let message = steep_relation::with_detail_lines(
+                            format!(
+                                "Cannot pass a value of type `{}` as a block-pass-argument of type `{}`",
+                                given.steep_display(),
+                                expected.steep_display()
+                            ),
+                            self.environment,
+                            &given,
+                            &expected,
+                        );
+                        self.record_diagnostic(*span, Severity::Warning, "Ruby::BlockTypeMismatch", message);
+                    }
                 }
                 Some(block_type)
             }
@@ -662,11 +919,20 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         if has_unknown || has_unreportable_missing {
             results.push(Type::Untyped);
         }
-        let result = if results.is_empty() {
+        let mut result = if results.is_empty() {
             Type::Untyped
         } else {
             Type::union(results)
         };
+        if unsatisfiable_return_hint.is_some() {
+            result = Type::Untyped;
+        }
+        if let CallBlock::Literal(block_node) = &site.block
+            && let Some(annotated_break) =
+                self.annotated_break_type(block_node.location().start_offset(), &context.nesting)
+        {
+            result = Type::union(vec![annotated_break, result]);
+        }
         // Steep's hover on `receiver&.name` shows what the method returns, without the `nil` that `&.` adds
         let displayed_result = result.clone();
         if site.reports_diagnostics {
@@ -676,7 +942,8 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                     Severity::Error,
                     "Ruby::NoMethod",
                     format!(
-                        "Type `{displayed_receiver_type}` does not have method `{}`",
+                        "Type `{}` does not have method `{}`",
+                        displayed_receiver_type.steep_display(),
                         site.method_name
                     ),
                 );
@@ -871,18 +1138,18 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 site.send_span,
                 Severity::Error,
                 "Ruby::InsufficientPositionalArguments",
-                format!(
-                    "More positional arguments are required: `{}`",
-                    site.method_name
-                ),
+                "More positional arguments are required".to_string(),
             ),
-            OverloadError::Arity(ArityMismatch::UnexpectedPositional(span)) => self
-                .record_diagnostic(
-                    *span,
-                    Severity::Error,
-                    "Ruby::UnexpectedPositionalArgument",
-                    "Unexpected positional argument".to_string(),
-                ),
+            OverloadError::Arity(ArityMismatch::UnexpectedPositional(spans)) => {
+                for span in spans {
+                    self.record_diagnostic(
+                        *span,
+                        Severity::Error,
+                        "Ruby::UnexpectedPositionalArgument",
+                        "Unexpected positional argument".to_string(),
+                    );
+                }
+            }
             OverloadError::Arity(ArityMismatch::InsufficientKeywords(names)) => self
                 .record_diagnostic(
                     site.send_span,
@@ -896,24 +1163,25 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 "Ruby::UnexpectedKeywordArgument",
                 "Unexpected keyword argument".to_string(),
             ),
-            OverloadError::TypeMismatch(pair) => self.record_diagnostic(
-                pair.span,
-                Severity::Error,
-                "Ruby::ArgumentTypeMismatch",
-                format!(
-                    "Cannot pass a value of type `{}` as an argument of type `{}`",
-                    pair.argument_type, pair.parameter_type
-                ),
-            ),
+            OverloadError::TypeMismatch(pair) => self.report_argument_type_mismatch(pair),
         }
     }
 
-    fn report_unresolved_overloading(
-        &mut self,
-        found: &FoundMethod,
-        site: &CallSite<'pr>,
-        receiver_type: &Type,
-    ) {
+    fn report_argument_type_mismatch(&mut self, pair: &ArgumentPair) {
+        let message = steep_relation::with_detail_lines(
+            format!(
+                "Cannot pass a value of type `{}` as an argument of type `{}`",
+                pair.argument_type.steep_display(),
+                pair.parameter_type.steep_display()
+            ),
+            self.environment,
+            &pair.argument_type,
+            &pair.parameter_type,
+        );
+        self.record_diagnostic(pair.span, Severity::Error, "Ruby::ArgumentTypeMismatch", message)
+    }
+
+    fn report_unresolved_overloading(&mut self, found: &FoundMethod, site: &CallSite<'pr>, receiver_type: &Type) {
         let alignment = " ".repeat("  def ".len() + site.method_name.len());
         let method_types: Vec<String> = found
             .overloads
@@ -921,19 +1189,26 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             .enumerate()
             .map(|(index, overload)| {
                 if index == 0 {
-                    format!("  def {}: {overload}", site.method_name)
+                    format!("  def {}: {}", site.method_name, overload.steep_display())
                 } else {
-                    format!("{alignment}| {overload}")
+                    format!("{alignment}| {}", overload.steep_display())
                 }
             })
             .collect();
+        // Steep reports the receiver type after `deep_expand_alias`
+        let receiver_type = if self.options.steep_compatible {
+            expand_aliases(self.environment, receiver_type, 0)
+        } else {
+            receiver_type.clone()
+        };
         self.record_diagnostic(
             site.expression_span,
             Severity::Error,
             "Ruby::UnresolvedOverloading",
             format!(
-                "Cannot find compatible overloading of method `{}` of type `{receiver_type}`\nMethod types:\n{}",
+                "Cannot find compatible overloading of method `{}` of type `{}`\nMethod types:\n{}",
                 site.method_name,
+                receiver_type.steep_display(),
                 method_types.join("\n")
             ),
         );
@@ -958,6 +1233,15 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         for member in members_of(&first_parameter) {
             match self.lookup_member(&member, symbol, context, 0) {
                 Lookup::Found(found) => {
+                    // Steep types `&:name` as a plain `Proc` when no overload of the method takes no arguments
+                    let callable_without_arguments = found.overloads.is_empty()
+                        || found
+                            .overloads
+                            .iter()
+                            .any(|overload| match_arguments(&overload.function, &CallArguments::default()).is_ok());
+                    if self.options.steep_compatible && !callable_without_arguments {
+                        return (Type::Untyped, true);
+                    }
                     let mut prepared = PreparedCall::new(
                         self.environment,
                         &found,
@@ -1004,6 +1288,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             expression_span: operator_span,
             send_span: operator_span,
             no_method_span: operator_span,
+            return_hint: None,
         };
         let arguments = CallArguments::single(value_type, operator_span);
         let mut no_locals = Locals::new();
@@ -1115,17 +1400,34 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 }
                 self.lookup_instance("Proc", &[], member, method_name, context, depth)
             }
+            // Steep merges the shapes of the members in order, so a later member's method wins unless it turns a
+            // public method private
             Type::Intersection(members) => {
+                let mut found_method: Option<Box<FoundMethod>> = None;
+                let mut all_missing = true;
+                let mut reportable_missing = true;
                 for intersection_member in members {
-                    if let Lookup::Found(found) =
-                        self.lookup_member(intersection_member, method_name, context, depth + 1)
-                    {
-                        return Lookup::Found(found);
+                    match self.lookup_member(intersection_member, method_name, context, depth + 1) {
+                        Lookup::Found(found) => {
+                            all_missing = false;
+                            let keeps_public = found_method
+                                .as_ref()
+                                .is_some_and(|previous| !previous.is_private && found.is_private);
+                            if !keeps_public {
+                                found_method = Some(found);
+                            }
+                        }
+                        Lookup::Missing { reportable } => reportable_missing &= reportable,
+                        _ => all_missing = false,
                     }
                 }
-                Lookup::Unknown
+                match found_method {
+                    Some(found) => Lookup::Found(found),
+                    None if all_missing => Lookup::Missing { reportable: reportable_missing },
+                    None => Lookup::Unknown,
+                }
             }
-            Type::Union(_) | Type::Optional(_) => Lookup::Unknown,
+            Type::Union(_) => Lookup::Unknown,
         }
     }
 
@@ -1465,15 +1767,13 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             })
     }
 
-    fn lookup_interface(
-        &mut self,
-        name: &str,
-        arguments: &[Type],
-        receiver: &Type,
-        method_name: &str,
-    ) -> Lookup {
+    fn lookup_interface(&mut self, name: &str, arguments: &[Type], receiver: &Type, method_name: &str) -> Lookup {
         let Some(resolved) = self.environment.find_interface_method(name, method_name) else {
-            return Lookup::Unknown;
+            return if self.environment.interfaces.contains_key(name) {
+                Lookup::Missing { reportable: true }
+            } else {
+                Lookup::Unknown
+            };
         };
         let mut substitution = Substitution {
             self_type: Some(receiver.clone()),
@@ -1629,12 +1929,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         true
     }
 
-    pub(crate) fn infer_call_write(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_call_write(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let (receiver, read_name, message_location, index_arguments, value, operator) = match node {
             Node::CallOrWriteNode { .. } => {
                 let Some(write) = node.as_call_or_write_node() else {
@@ -1745,6 +2040,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             expression_span: name_span,
             send_span: name_span,
             no_method_span: name_span,
+            return_hint: None,
         };
         let current = self.dispatch_call(
             &remove_nil(&receiver_type),
@@ -1767,12 +2063,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         }
     }
 
-    pub(crate) fn infer_super(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_super(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let (arguments, block_node, keyword_span) = match node {
             Node::SuperNode { .. } => {
                 let Some(super_node) = node.as_super_node() else {
@@ -1804,125 +2095,167 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             }
         };
         let block = self.call_block(block_node, context, locals);
-        let Some(method) = context.method.clone() else {
+        let infer_untyped_block = |checker: &mut Self, locals: &mut Locals| {
             if let CallBlock::Literal(block_node) = &block {
-                self.infer_block(block_node, &BlockSignature::untyped(), context, locals);
+                checker.infer_block(block_node, &BlockSignature::untyped(), context, locals);
             }
+        };
+        let declared = context.method.as_ref().is_some_and(|method| {
+            if method.singleton {
+                self.environment
+                    .find_singleton_method(&method.owner, &method.name)
+                    .is_some()
+            } else {
+                self.environment
+                    .find_instance_method(&method.owner, &method.name)
+                    .is_some()
+            }
+        });
+        // Steep falls back to `untyped` without a method definition in RBS to find the super method from
+        let Some(method) = context.method.clone().filter(|_| declared) else {
+            self.record_diagnostic(
+                Span::of_node(node),
+                Severity::Hint,
+                "Ruby::FallbackAny",
+                "Cannot detect the type of the expression".to_string(),
+            );
+            infer_untyped_block(self, locals);
             return Type::Untyped;
         };
-        if !self.super_method_exists(&method.owner, method.singleton, &method.name) {
+        let Some(receiver) = self.super_method_receiver(&method.owner, method.singleton, &method.name) else {
             self.record_diagnostic(
                 Span::of_node(node),
                 Severity::Information,
                 "Ruby::UnexpectedSuper",
                 format!("No superclass method `{}` defined", method.name),
             );
-        }
-        let superclass = self
-            .environment
-            .classes
-            .get(&method.owner)
-            .and_then(|declaration| {
-                declaration
-                    .super_class
-                    .as_ref()
-                    .map(|ancestor| ancestor.name.clone())
-            })
-            .or_else(|| {
-                self.file_index
-                    .classes
-                    .get(&method.owner)
-                    .and_then(|class| class.superclass.clone())
-            });
-        let receiver = match (superclass, method.singleton) {
-            (Some(superclass), true) => Type::ClassSingleton { name: superclass },
-            (Some(superclass), false) => instance_type_of_class(self.environment, &superclass),
-            (None, _) => Type::Untyped,
+            infer_untyped_block(self, locals);
+            return Type::Untyped;
+        };
+        let (expression_span, displayed_receiver) = if self.options.steep_compatible {
+            (Span::of_node(node), context.self_type.clone())
+        } else {
+            (keyword_span, receiver.clone())
         };
         let site = CallSite {
             method_name: method.name.clone(),
             name_span: keyword_span,
             block,
             is_self_call: true,
-            reports_diagnostics: false,
+            reports_diagnostics: self.options.steep_compatible,
             deferred_lambdas: Vec::new(),
-            expression_span: keyword_span,
-            send_span: keyword_span,
-            no_method_span: keyword_span,
+            expression_span,
+            send_span: expression_span,
+            no_method_span: expression_span,
+            return_hint: None,
         };
-        self.dispatch_call(&receiver, &receiver, &site, &arguments, context, locals)
+        self.dispatch_call(&receiver, &displayed_receiver, &site, &arguments, context, locals)
     }
 
-    /// Steep's `super_method`: the method the class's own declaration overrides, or the inherited one when the
-    /// class does not declare it
-    fn super_method_exists(&self, owner: &str, singleton: bool, method_name: &str) -> bool {
-        let Some(declaration) = self.environment.classes.get(owner) else {
-            return false;
-        };
+    /// A receiver whose lookup finds Steep's `super_method`: the method the class's own declaration overrides, which
+    /// the next ancestor declaring it has (an included module comes before the superclass, and a module's self types
+    /// come after its ancestors), or the whole method when the class does not declare it or extends it with `...`.
+    /// `None` when there is no such method
+    fn super_method_receiver(&self, owner: &str, singleton: bool, method_name: &str) -> Option<Type> {
+        let declaration = self.environment.classes.get(owner)?;
         let declared_here = if singleton {
             declaration.singleton_methods.contains_key(method_name)
         } else {
             declaration.instance_methods.contains_key(method_name)
         };
-        if !declared_here {
-            return if singleton {
-                self.environment
-                    .find_singleton_method(owner, method_name)
-                    .is_some()
-            } else {
-                self.environment
-                    .find_instance_method(owner, method_name)
-                    .is_some()
-            };
-        }
         if singleton {
-            return declaration.super_class.as_ref().is_some_and(|superclass| {
-                self.environment
-                    .find_singleton_method(&superclass.name, method_name)
-                    .is_some()
-            });
+            if !declared_here {
+                return Some(Type::ClassSingleton { name: owner.to_string() });
+            }
+            let superclass = &declaration.super_class.as_ref()?.name;
+            return self
+                .environment
+                .find_singleton_method(superclass, method_name)
+                .map(|_| Type::ClassSingleton { name: superclass.clone() });
+        }
+        let extends_inherited_overloads = declaration
+            .instance_methods
+            .get(method_name)
+            .is_some_and(|method| method.ends_with_inherited_overloads);
+        if !declared_here || extends_inherited_overloads {
+            return Some(instance_type_of_class(self.environment, owner));
         }
         self.environment
-            .ancestors(owner)
-            .iter()
+            .instance_lookup_chain(owner)
+            .into_iter()
             .skip_while(|ancestor| ancestor.name != owner)
             .skip(1)
-            .any(|ancestor| {
-                self.environment
-                    .classes
-                    .get(&ancestor.name)
-                    .is_some_and(|ancestor_declaration| {
-                        ancestor_declaration
-                            .instance_methods
-                            .contains_key(method_name)
-                    })
+            .find_map(|ancestor| {
+                if let Some(ancestor_declaration) = self.environment.classes.get(&ancestor.name) {
+                    return ancestor_declaration
+                        .instance_methods
+                        .contains_key(method_name)
+                        .then(|| instance_type_of_class(self.environment, &ancestor.name));
+                }
+                let interface = self.environment.interfaces.get(&ancestor.name)?;
+                interface.methods.contains_key(method_name).then(|| Type::Interface {
+                    name: ancestor.name.clone(),
+                    arguments: ancestor.arguments.clone(),
+                })
             })
     }
 
-    pub(crate) fn infer_yield(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_yield(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let Some(yield_node) = node.as_yield_node() else {
             return Type::Untyped;
         };
-        self.infer_arguments(yield_node.arguments(), context, locals);
-        match context
-            .method
-            .as_ref()
-            .and_then(|method| method.block.as_ref())
-        {
-            Some(block) => {
-                let return_type = block.function.return_type.clone();
-                if contains_uncertain_part(&return_type) {
-                    Type::Untyped
-                } else {
-                    return_type
+        let arguments = self.infer_arguments(yield_node.arguments(), context, locals);
+        let span = Span::of_node(node);
+        let fallback_any = "Cannot detect the type of the expression".to_string();
+        let Some(method) = context.method.as_ref().filter(|method| method.has_method_type) else {
+            self.record_diagnostic(span, Severity::Hint, "Ruby::FallbackAny", fallback_any);
+            return Type::Untyped;
+        };
+        let Some(block) = &method.block else {
+            self.record_diagnostic(
+                span,
+                Severity::Error,
+                "Ruby::UnexpectedYield",
+                "No block given for `yield`".to_string(),
+            );
+            self.record_diagnostic(span, Severity::Hint, "Ruby::FallbackAny", fallback_any);
+            return Type::Untyped;
+        };
+        let block_function = block.function.clone();
+        // Steep's `type_check_args` for `yield`, which checks the arguments against the block type like a method call
+        match match_arguments(&block_function, &arguments) {
+            Err(ArityMismatch::InsufficientPositional) => self.record_diagnostic(
+                span,
+                Severity::Error,
+                "Ruby::InsufficientPositionalArguments",
+                "More positional arguments are required".to_string(),
+            ),
+            Err(ArityMismatch::UnexpectedPositional(argument_spans)) => {
+                for argument_span in argument_spans {
+                    self.record_diagnostic(
+                        argument_span,
+                        Severity::Error,
+                        "Ruby::UnexpectedPositionalArgument",
+                        "Unexpected positional argument".to_string(),
+                    );
                 }
             }
-            None => Type::Untyped,
+            Err(_) => {}
+            Ok(pairs) => {
+                for pair in pairs {
+                    if !contains_uncertain_part(&pair.parameter_type)
+                        && self.is_certain_mismatch(&pair.argument_type, &pair.parameter_type)
+                    {
+                        self.report_argument_type_mismatch(&pair);
+                    }
+                }
+            }
+        }
+        let return_type = block_function.return_type;
+        if contains_uncertain_part(&return_type) {
+            Type::Untyped
+        } else {
+            return_type
         }
     }
 
@@ -2072,6 +2405,105 @@ fn record_field(
     })
 }
 
+/// Steep's `union_shape`: the method of a union joins the method types of its members, accepting what every member
+/// accepts and returning what any of them returns. `None` when a member lacks the method or has a method type this
+/// does not join, which leaves the members checked one by one
+fn union_found_method(lookups: &[Lookup]) -> Option<FoundMethod> {
+    let mut found_methods = lookups.iter().map(|lookup| match lookup {
+        Lookup::Found(found) => Some(found.as_ref()),
+        _ => None,
+    });
+    let first = found_methods.next()??;
+    let mut merged = first.clone();
+    for found in found_methods {
+        let found = found?;
+        merged.overloads = union_overloads(&merged.overloads, &found.overloads)?;
+        merged.is_private |= found.is_private;
+    }
+    Some(merged)
+}
+
+fn union_overloads(overloads: &[MethodType], other_overloads: &[MethodType]) -> Option<Vec<MethodType>> {
+    if overloads == other_overloads {
+        return Some(overloads.to_vec());
+    }
+    let mut merged: Vec<MethodType> = Vec::new();
+    for overload in overloads {
+        for other_overload in other_overloads {
+            let joined = if overload == other_overload {
+                overload.clone()
+            } else {
+                union_method_type(overload, other_overload)?
+            };
+            if !merged.contains(&joined) {
+                merged.push(joined);
+            }
+        }
+    }
+    (!merged.is_empty()).then_some(merged)
+}
+
+/// Steep's `MethodType#|` for method types without type parameters, blocks and parameters but required positionals
+fn union_method_type(overload: &MethodType, other_overload: &MethodType) -> Option<MethodType> {
+    let takes_only_required_positionals = |method_type: &MethodType| {
+        let function = &method_type.function;
+        method_type.type_parameters.is_empty()
+            && method_type.block.is_none()
+            && !function.untyped_parameters
+            && function.optional_positionals.is_empty()
+            && function.rest_positionals.is_none()
+            && function.trailing_positionals.is_empty()
+            && function.required_keywords.is_empty()
+            && function.optional_keywords.is_empty()
+            && function.rest_keywords.is_none()
+    };
+    if !takes_only_required_positionals(overload)
+        || !takes_only_required_positionals(other_overload)
+        || overload.function.required_positionals.len() != other_overload.function.required_positionals.len()
+    {
+        return None;
+    }
+    let mut joined = overload.clone();
+    for (parameter, other_parameter) in joined
+        .function
+        .required_positionals
+        .iter_mut()
+        .zip(&other_overload.function.required_positionals)
+    {
+        let mut members = match &parameter.parameter_type {
+            Type::Intersection(members) => members.clone(),
+            single => vec![single.clone()],
+        };
+        if !members.contains(&other_parameter.parameter_type) {
+            members.push(other_parameter.parameter_type.clone());
+        }
+        if members.len() > 1 {
+            parameter.parameter_type = Type::Intersection(members);
+        }
+    }
+    joined.function.return_type = Type::union(vec![
+        overload.function.return_type.clone(),
+        other_overload.function.return_type.clone(),
+    ]);
+    Some(joined)
+}
+
+/// Steep's special case applies to the `compact` of `Array`, `Enumerable` and `Hash`, not to a `compact` that a class
+/// declares itself
+fn is_collection_compact(environment: &rbs_environment::Environment, receiver: &Type, method_name: &str) -> bool {
+    members_of(receiver).iter().any(|member| {
+        let class_name = match member {
+            Type::ClassInstance { name, .. } => name.as_str(),
+            Type::Tuple(_) => "Array",
+            Type::Record(_) => "Hash",
+            _ => return false,
+        };
+        environment
+            .find_instance_method(class_name, method_name)
+            .is_some_and(|resolved| matches!(resolved.definition.owner.as_str(), "Array" | "Enumerable" | "Hash"))
+    })
+}
+
 /// Steep's special case for `Array#compact` and `Hash#compact`, which drop `nil` from the element type
 fn compact_result(
     method_name: &str,
@@ -2116,7 +2548,6 @@ pub(crate) fn expand_aliases(
                 .map(|member| expand_aliases(environment, member, depth + 1))
                 .collect(),
         ),
-        Type::Optional(inner) => Type::optional(expand_aliases(environment, inner, depth + 1)),
         other => other.clone(),
     }
 }

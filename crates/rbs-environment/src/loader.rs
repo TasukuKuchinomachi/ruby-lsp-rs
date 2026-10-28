@@ -6,29 +6,27 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use ruby_rbs::node::{
-    AliasKind, AttrIvarName, AttributeKind, AttributeVisibility, BlockTypeNode, CommentNode,
-    MethodDefinitionKind, MethodDefinitionNode, MethodDefinitionVisibility, NamespaceNode, Node,
-    NodeList, RBSHash, RBSLocationRange, TypeNameNode,
+    AliasKind, AttrIvarName, AttributeKind, AttributeVisibility, BlockTypeNode, CommentNode, MethodDefinitionKind,
+    MethodDefinitionNode, MethodDefinitionVisibility, NamespaceNode, Node, NodeList, RBSHash, RBSLocationRange,
+    TypeNameNode, TypeParamVariance,
 };
 
 use crate::environment::{
-    Ancestor, ClassDeclaration, ClassKind, ConstantDeclaration, Environment, GlobalDeclaration,
-    InterfaceDeclaration, LoadError, Location, MethodDefinition, MethodKind, SourcePosition,
-    TypeAliasDeclaration, Visibility,
+    Ancestor, ClassDeclaration, ClassKind, ConstantDeclaration, Environment, GlobalDeclaration, InterfaceDeclaration,
+    LoadError, Location, MethodDefinition, MethodKind, SourcePosition, TypeAliasDeclaration, Visibility,
 };
 use crate::lookup::SingletonAncestor;
 use crate::navigation::SignatureTarget;
 use crate::signature_validation::{
-    AliasOwner, DeclarationRecord, DefinedNameRecord, FileValidation, MethodAliasRecord, MixinKind,
-    ReferenceKind, SignatureDiagnostic, TypeReference, ValidationMember, ValidationOwner,
-    ValidationScope, duplicated_declaration, duplicated_method_definitions, finish_diagnostics,
-    generic_parameter_mismatch, invalid_method_overload, superclass_mismatch,
-    syntax_error_diagnostic, validate_files,
+    AliasOwner, DeclarationRecord, DefinedNameRecord, FileValidation, MethodAliasRecord, MethodMemberRecord,
+    MethodTypeRecord, MixinKind, ReferenceKind, SignatureDiagnostic, TypeReference, ValidationMember, ValidationOwner,
+    ValidationScope, VariableRecord, duplicated_declaration, duplicated_method_definitions, finish_diagnostics,
+    generic_parameter_mismatch, invalid_method_overload, superclass_mismatch, syntax_error_diagnostic, validate_files,
 };
 use crate::steep_compatibility::DuplicatedMethodDefinition;
 use crate::types::{
-    Block, Function, Literal, MethodType, NameKind, Parameter, ProcType, RecordField, Type,
-    TypeName, TypeParameter,
+    Block, Function, Literal, MethodType, NameKind, Parameter, ProcType, RecordField, Substitution, Type, TypeName,
+    TypeParameter, Variance,
 };
 
 enum PendingSource {
@@ -53,11 +51,18 @@ pub struct Loader {
     added_files: HashSet<PathBuf>,
     signature_files: HashSet<PathBuf>,
     errors: Vec<LoadError>,
+    implicitly_returns_nil: bool,
 }
 
 impl Loader {
     pub fn new() -> Loader {
         Loader::default()
+    }
+
+    /// `implicitly_returns_nil!` in the `Steepfile`: a method type annotated with `%a{implicitly-returns-nil}`, such as
+    /// `Array#[]`, returns `nil` as well, as Steep's `Interface::Builder#add_implicitly_returns_nil` makes it
+    pub fn set_implicitly_returns_nil(&mut self, implicitly_returns_nil: bool) {
+        self.implicitly_returns_nil = implicitly_returns_nil;
     }
 
     pub fn add_source(&mut self, path: &Path, source: &str) {
@@ -128,12 +133,13 @@ impl Loader {
             sources,
             signature_files,
             errors: mut load_errors,
+            implicitly_returns_nil,
             ..
         } = self;
         let mut files = Vec::with_capacity(sources.len());
         let mut signature_diagnostics = Vec::new();
         let parse_results = parallel_map(&sources, |pending| {
-            parse_pending_source(pending, signature_files.contains(pending.path()))
+            parse_pending_source(pending, signature_files.contains(pending.path()), implicitly_returns_nil)
         });
         for result in parse_results {
             match result {
@@ -182,7 +188,9 @@ impl Loader {
             pending_overloadings,
             &signature_files,
         ));
-        signature_diagnostics.extend(validate_files(&environment, &validations));
+        let (validation_diagnostics, ancestor_phase_diagnostics) = validate_files(&environment, &validations);
+        signature_diagnostics.extend(validation_diagnostics);
+        environment.ancestor_phase_diagnostics = ancestor_phase_diagnostics;
         finish_diagnostics(&mut signature_diagnostics);
         environment.errors = load_errors;
         environment.signature_diagnostics = signature_diagnostics;
@@ -327,6 +335,8 @@ struct ClassFragment {
     class_variables: Vec<(String, Type)>,
     location: Location,
     comment: Option<String>,
+    /// Members other than nested declarations, which RBS's `each_member` yields
+    has_members: bool,
 }
 
 struct MethodFragment {
@@ -340,7 +350,7 @@ pub(crate) fn parse_signature_validation(path: &Path, source: &str) -> Option<Fi
         path: path.to_path_buf(),
         source: source.to_string(),
     };
-    let file = parse_pending_source(&pending, true).ok()?;
+    let file = parse_pending_source(&pending, true, false).ok()?;
     let mut validation = file.validation?;
     validation.uses = file.uses;
     Some(validation)
@@ -349,6 +359,7 @@ pub(crate) fn parse_signature_validation(path: &Path, source: &str) -> Option<Fi
 fn parse_pending_source(
     pending: &PendingSource,
     validated: bool,
+    implicitly_returns_nil: bool,
 ) -> Result<ParsedFile, ParseFailure> {
     let path = pending.path().to_path_buf();
     let read_source;
@@ -373,6 +384,7 @@ fn parse_pending_source(
         },
     })?;
     let mut converter = Converter::new(source, Arc::new(path));
+    converter.implicitly_returns_nil = implicitly_returns_nil;
     if validated {
         converter.validation = Some(ValidationCollector::default());
     }
@@ -472,6 +484,8 @@ fn inner_context(outer_context: &[String], name: &TypeName) -> Arc<[String]> {
         .collect()
 }
 
+const IMPLICITLY_RETURNS_NIL: &str = "implicitly-returns-nil";
+
 const ALWAYS_PRIVATE_INSTANCE_METHODS: [&str; 5] = [
     "initialize",
     "initialize_copy",
@@ -495,6 +509,7 @@ struct Converter<'source> {
     path: Arc<PathBuf>,
     line_starts: Vec<usize>,
     validation: Option<ValidationCollector>,
+    implicitly_returns_nil: bool,
 }
 
 impl<'source> Converter<'source> {
@@ -506,6 +521,7 @@ impl<'source> Converter<'source> {
             path,
             line_starts,
             validation: None,
+            implicitly_returns_nil: false,
         }
     }
 
@@ -624,6 +640,7 @@ impl<'source> Converter<'source> {
         &self,
         owner_name: &TypeName,
         owner: AliasOwner,
+        new_name: &str,
         old_name: &str,
         range: RBSLocationRange,
     ) {
@@ -635,9 +652,62 @@ impl<'source> Converter<'source> {
                 .push(MethodAliasRecord {
                     owner_name: owner_name.clone(),
                     owner,
+                    new_name: new_name.to_string(),
                     old_name: old_name.to_string(),
                     location: self.location(range),
                 });
+        }
+    }
+
+    fn record_method_types(&self, owner_name: &TypeName, method: &MethodDefinitionNode) {
+        let Some(collector) = &self.validation else {
+            return;
+        };
+        for overload in method.overloads().iter() {
+            let Node::MethodDefinitionOverload(overload) = overload else {
+                continue;
+            };
+            let method_type_node = overload.method_type();
+            let location = self.location(method_type_node.location());
+            if let Some(method_type) = self.convert_method_type(method_type_node) {
+                collector.file.borrow_mut().method_types.push(MethodTypeRecord {
+                    owner_name: owner_name.clone(),
+                    method_type,
+                    location,
+                });
+            }
+        }
+    }
+
+    fn record_attribute_method_type(&self, owner_name: &TypeName, method_type: MethodType, location: &Location) {
+        if let Some(collector) = &self.validation {
+            collector.file.borrow_mut().method_types.push(MethodTypeRecord {
+                owner_name: owner_name.clone(),
+                method_type,
+                location: location.clone(),
+            });
+        }
+    }
+
+    fn record_variable(&self, owner_name: &TypeName, name: &str, kind: MethodKind, range: RBSLocationRange) {
+        if let Some(collector) = &self.validation {
+            collector.file.borrow_mut().variables.push(VariableRecord {
+                owner_name: owner_name.clone(),
+                name: name.to_string(),
+                kind,
+                location: self.location(range),
+            });
+        }
+    }
+
+    fn record_method_member(&self, owner_name: &TypeName, name: &str, overloading: bool, range: RBSLocationRange) {
+        if let Some(collector) = &self.validation {
+            collector.file.borrow_mut().method_members.push(MethodMemberRecord {
+                owner_name: owner_name.clone(),
+                name: name.to_string(),
+                overloading,
+                location: self.location(range),
+            });
         }
     }
 
@@ -826,7 +896,8 @@ impl<'source> Converter<'source> {
                         }
                         Node::MethodDefinition(method) => {
                             let method_name = method.name().as_str().to_string();
-                            let mut overloads = self.convert_overloads(method.overloads());
+                            self.record_method_types(&name, &method);
+                            let mut overloads = self.convert_method_overloads(&method);
                             if method.overloading()
                                 && let Some(previous) = declaration.methods.remove(&method_name)
                             {
@@ -843,6 +914,7 @@ impl<'source> Converter<'source> {
                                 comment: comment_text(method.comment()),
                                 annotations: method_annotations(&method),
                                 is_attribute_reader: false,
+                                ends_with_inherited_overloads: false,
                             };
                             self.insert_interface_method(&mut declaration, definition);
                         }
@@ -851,6 +923,7 @@ impl<'source> Converter<'source> {
                             self.record_method_alias(
                                 &name,
                                 AliasOwner::Interface,
+                                alias.new_name().as_str(),
                                 alias.old_name().as_str(),
                                 alias.location(),
                             );
@@ -865,6 +938,7 @@ impl<'source> Converter<'source> {
                                 comment: comment_text(alias.comment()),
                                 annotations: annotation_texts(alias.annotations()),
                                 is_attribute_reader: false,
+                                ends_with_inherited_overloads: false,
                             };
                             self.insert_interface_method(&mut declaration, definition);
                         }
@@ -1047,6 +1121,7 @@ impl<'source> Converter<'source> {
             class_variables: Vec::new(),
             location: self.location(location),
             comment: comment_text(comment),
+            has_members: false,
         }
     }
 
@@ -1076,6 +1151,24 @@ impl<'source> Converter<'source> {
         nested_fragments: &mut Vec<Fragment>,
     ) -> ClassFragment {
         let mut default_visibility = Visibility::Public;
+        fragment.has_members = members.iter().any(|member| {
+            matches!(
+                member,
+                Node::MethodDefinition(_)
+                    | Node::Alias(_)
+                    | Node::AttrAccessor(_)
+                    | Node::AttrReader(_)
+                    | Node::AttrWriter(_)
+                    | Node::InstanceVariable(_)
+                    | Node::ClassInstanceVariable(_)
+                    | Node::ClassVariable(_)
+                    | Node::Include(_)
+                    | Node::Extend(_)
+                    | Node::Prepend(_)
+                    | Node::Private(_)
+                    | Node::Public(_)
+            )
+        });
         for member in members.iter() {
             match member {
                 Node::MethodDefinition(method) => {
@@ -1090,7 +1183,13 @@ impl<'source> Converter<'source> {
                         member,
                         method.location(),
                     );
-                    let overloads = self.convert_overloads(method.overloads());
+                    if member == ValidationMember::InstanceMethod {
+                        self.record_method_types(&fragment.name, &method);
+                    }
+                    if method.kind() == MethodDefinitionKind::Instance {
+                        self.record_method_member(&fragment.name, &method_name, method.overloading(), method.location());
+                    }
+                    let overloads = self.convert_method_overloads(&method);
                     let explicit_visibility = match method.visibility() {
                         MethodDefinitionVisibility::Public => Some(Visibility::Public),
                         MethodDefinitionVisibility::Private => Some(Visibility::Private),
@@ -1139,6 +1238,7 @@ impl<'source> Converter<'source> {
                                 comment: comment_text(method.comment()),
                                 annotations: method_annotations(&method),
                                 is_attribute_reader: false,
+                                ends_with_inherited_overloads: false,
                             },
                             overloading: method.overloading(),
                         });
@@ -1165,6 +1265,7 @@ impl<'source> Converter<'source> {
                     self.record_method_alias(
                         &fragment.name,
                         AliasOwner::Class(kind),
+                        alias.new_name().as_str(),
                         alias.old_name().as_str(),
                         alias.location(),
                     );
@@ -1192,6 +1293,7 @@ impl<'source> Converter<'source> {
                             comment: comment_text(alias.comment()),
                             annotations: annotation_texts(alias.annotations()),
                             is_attribute_reader: false,
+                            ends_with_inherited_overloads: false,
                         },
                         overloading: false,
                     });
@@ -1206,6 +1308,13 @@ impl<'source> Converter<'source> {
                     self.record_scope(
                         || ValidationOwner::Class(fragment.name.clone()),
                         attribute_validation_member(attribute.kind()),
+                        attribute.location(),
+                    );
+                    self.record_attribute_method_types(
+                        &fragment.name,
+                        attribute.kind(),
+                        &self.convert_type(attribute.type_()),
+                        AttributeAccess::Reader,
                         attribute.location(),
                     );
                     Attribute {
@@ -1240,6 +1349,13 @@ impl<'source> Converter<'source> {
                         attribute_validation_member(attribute.kind()),
                         attribute.location(),
                     );
+                    self.record_attribute_method_types(
+                        &fragment.name,
+                        attribute.kind(),
+                        &self.convert_type(attribute.type_()),
+                        AttributeAccess::Writer,
+                        attribute.location(),
+                    );
                     Attribute {
                         name: attribute.name().as_str().to_string(),
                         attribute_type: self.convert_type(attribute.type_()),
@@ -1272,6 +1388,13 @@ impl<'source> Converter<'source> {
                         attribute_validation_member(attribute.kind()),
                         attribute.location(),
                     );
+                    self.record_attribute_method_types(
+                        &fragment.name,
+                        attribute.kind(),
+                        &self.convert_type(attribute.type_()),
+                        AttributeAccess::Accessor,
+                        attribute.location(),
+                    );
                     Attribute {
                         name: attribute.name().as_str().to_string(),
                         attribute_type: self.convert_type(attribute.type_()),
@@ -1298,6 +1421,7 @@ impl<'source> Converter<'source> {
                         ValidationMember::InstanceVariable,
                         variable.location(),
                     );
+                    self.record_variable(&fragment.name, variable.name().as_str(), MethodKind::Instance, variable.location());
                     fragment.instance_variables.push((
                         variable.name().as_str().to_string(),
                         self.convert_type(variable.type_()),
@@ -1309,6 +1433,7 @@ impl<'source> Converter<'source> {
                         ValidationMember::SingletonMember,
                         variable.location(),
                     );
+                    self.record_variable(&fragment.name, variable.name().as_str(), MethodKind::Singleton, variable.location());
                     fragment.class_instance_variables.push((
                         variable.name().as_str().to_string(),
                         self.convert_type(variable.type_()),
@@ -1369,6 +1494,42 @@ impl<'source> Converter<'source> {
         fragment
     }
 
+    /// The method types `RBS::DefinitionBuilder#validate_type_params` makes of an instance attribute: `() -> T` for
+    /// the reader and `(T) -> T` for the writer
+    fn record_attribute_method_types(
+        &self,
+        owner_name: &TypeName,
+        kind: AttributeKind,
+        attribute_type: &Type,
+        access: AttributeAccess,
+        range: RBSLocationRange,
+    ) {
+        if self.validation.is_none() || !matches!(kind, AttributeKind::Instance) {
+            return;
+        }
+        let location = self.location(range);
+        if matches!(access, AttributeAccess::Reader | AttributeAccess::Accessor) {
+            let method_type = MethodType {
+                type_parameters: Vec::new(),
+                function: Function::returning(attribute_type.clone()),
+                block: None,
+            };
+            self.record_attribute_method_type(owner_name, method_type, &location);
+        }
+        if matches!(access, AttributeAccess::Writer | AttributeAccess::Accessor) {
+            let mut function = Function::returning(attribute_type.clone());
+            function
+                .required_positionals
+                .push(Parameter::new(attribute_type.clone()));
+            let method_type = MethodType {
+                type_parameters: Vec::new(),
+                function,
+                block: None,
+            };
+            self.record_attribute_method_type(owner_name, method_type, &location);
+        }
+    }
+
     fn attribute_instance_variable(
         &self,
         attribute_name: &str,
@@ -1423,6 +1584,12 @@ impl<'source> Converter<'source> {
                     default_type: type_parameter
                         .default_type()
                         .map(|default_type| self.convert_type(default_type)),
+                    variance: match type_parameter.variance() {
+                        TypeParamVariance::Invariant => Variance::Invariant,
+                        TypeParamVariance::Covariant => Variance::Covariant,
+                        TypeParamVariance::Contravariant => Variance::Contravariant,
+                    },
+                    unchecked: type_parameter.unchecked(),
                 }),
                 _ => None,
             })
@@ -1435,6 +1602,33 @@ impl<'source> Converter<'source> {
             .filter_map(|overload| match overload {
                 Node::MethodDefinitionOverload(overload) => {
                     self.convert_method_type(overload.method_type())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The overloads of a method member, each returning `nil` as well when the member or the overload is annotated
+    /// with `%a{implicitly-returns-nil}` and `implicitly_returns_nil` is set
+    fn convert_method_overloads(&self, method: &MethodDefinitionNode) -> Vec<MethodType> {
+        let member_annotated = annotation_texts(method.annotations())
+            .iter()
+            .any(|text| text == IMPLICITLY_RETURNS_NIL);
+        method
+            .overloads()
+            .iter()
+            .filter_map(|overload| match overload {
+                Node::MethodDefinitionOverload(overload) => {
+                    let mut method_type = self.convert_method_type(overload.method_type())?;
+                    let annotated = member_annotated
+                        || annotation_texts(overload.annotations())
+                            .iter()
+                            .any(|text| text == IMPLICITLY_RETURNS_NIL);
+                    if self.implicitly_returns_nil && annotated {
+                        let return_type = std::mem::replace(&mut method_type.function.return_type, Type::Nil);
+                        method_type.function.return_type = Type::optional(return_type);
+                    }
+                    Some(method_type)
                 }
                 _ => None,
             })
@@ -1585,9 +1779,9 @@ impl<'source> Converter<'source> {
             Node::IntersectionType(intersection) => {
                 Type::Intersection(self.convert_types(intersection.types()))
             }
-            Node::UnionType(union) => Type::Union(self.convert_types(union.types())),
+            Node::UnionType(union) => Type::union(self.convert_types(union.types())),
             Node::OptionalType(optional) => {
-                Type::Optional(Box::new(self.convert_type(optional.type_())))
+                Type::optional(self.convert_type(optional.type_()))
             }
             Node::TupleType(tuple) => Type::Tuple(self.convert_types(tuple.types())),
             Node::RecordType(record) => Type::Record(
@@ -1664,12 +1858,7 @@ struct Attribute {
 }
 
 impl Attribute {
-    fn register(
-        self,
-        fragment: &mut ClassFragment,
-        default_visibility: Visibility,
-        access: AttributeAccess,
-    ) {
+    fn register(self, fragment: &mut ClassFragment, default_visibility: Visibility, access: AttributeAccess) {
         let kind = attribute_method_kind(self.kind);
         let visibility = match (self.visibility, kind) {
             (AttributeVisibility::Public, _) => Visibility::Public,
@@ -1695,6 +1884,7 @@ impl Attribute {
                     comment: self.comment.clone(),
                     annotations: self.annotations.clone(),
                     is_attribute_reader,
+                    ends_with_inherited_overloads: false,
                 },
                 overloading: false,
             })
@@ -2115,6 +2305,56 @@ fn validate_class_fragment(
     }
 }
 
+/// A class reopened as `class Array[X]` after `class Array[Elem]` refers to `Elem` by `X`, which RBS's definition
+/// builder maps back to the type parameters of the first declaration
+fn rename_type_parameters(class: &mut ClassFragment, declared_parameters: &[TypeParameter]) {
+    if class.type_parameters.len() != declared_parameters.len() {
+        return;
+    }
+    let variables: HashMap<String, Type> = class
+        .type_parameters
+        .iter()
+        .zip(declared_parameters)
+        .filter(|(written, declared)| written.name != declared.name)
+        .map(|(written, declared)| (written.name.clone(), Type::Variable(declared.name.clone())))
+        .collect();
+    if variables.is_empty() {
+        return;
+    }
+    let substitution = Substitution {
+        variables,
+        ..Substitution::default()
+    };
+    let rename_ancestor = |ancestor: &mut Ancestor| {
+        ancestor.arguments = ancestor
+            .arguments
+            .iter()
+            .map(|argument| argument.substitute(&substitution))
+            .collect();
+    };
+    class.super_class.iter_mut().for_each(rename_ancestor);
+    class
+        .includes
+        .iter_mut()
+        .chain(class.prepends.iter_mut())
+        .chain(class.extends.iter_mut())
+        .chain(class.module_self_types.iter_mut())
+        .for_each(rename_ancestor);
+    for (_, variable_type) in &mut class.instance_variables {
+        *variable_type = variable_type.substitute(&substitution);
+    }
+    for method in &mut class.methods {
+        for overload in &mut method.definition.overloads {
+            let mut narrowed = substitution.clone();
+            for type_parameter in &overload.type_parameters {
+                narrowed.variables.remove(&type_parameter.name);
+            }
+            *overload = overload.substitute(&narrowed);
+        }
+    }
+    class.type_parameters = declared_parameters.to_vec();
+}
+
 fn merge_class(environment: &mut Environment, class: ClassFragment, state: &mut MergeState) {
     validate_class_fragment(environment, &class, state);
     let declaration = environment
@@ -2136,10 +2376,16 @@ fn merge_class(environment: &mut Environment, class: ClassFragment, state: &mut 
             class_variables: HashMap::new(),
             locations: Vec::new(),
             comment: None,
+            member_declaration_count: 0,
         });
-    if declaration.type_parameters.is_empty() {
-        declaration.type_parameters = class.type_parameters;
+    if class.has_members {
+        declaration.member_declaration_count += 1;
     }
+    if declaration.type_parameters.is_empty() {
+        declaration.type_parameters = class.type_parameters.clone();
+    }
+    let mut class = class;
+    rename_type_parameters(&mut class, &declaration.type_parameters);
     if declaration.super_class.is_none() {
         declaration.super_class = class.super_class;
     }
@@ -2291,6 +2537,7 @@ fn synthesize_new_methods(environment: &mut Environment) {
             comment: initialize.comment.clone(),
             annotations: initialize.annotations.clone(),
             is_attribute_reader: false,
+            ends_with_inherited_overloads: false,
         };
         declaration
             .singleton_methods
@@ -2356,6 +2603,7 @@ fn apply_inherited_overloadings(
         };
         if let Some(method) = methods.get_mut(&pending.method_name) {
             method.overloads.extend(overloads);
+            method.ends_with_inherited_overloads = true;
         }
     }
     diagnostics
@@ -2381,6 +2629,26 @@ pub fn parse_type(source: &str) -> Result<Type, String> {
         return Err(format!("not a type: {source}"));
     }
     Ok(overloads.remove(0).function.return_type)
+}
+
+/// Parses a single RBS method type such as `[T] (T) { (T) -> void } -> T`. Names are left as written; resolve them
+/// with `Environment::resolve_type_names`
+pub fn parse_method_type(source: &str) -> Result<MethodType, String> {
+    let wrapped_source = format!("class TypeWrapper\n  def type_wrapper: {source}\nend\n");
+    let signature = ruby_rbs::node::parse(&wrapped_source)?;
+    let converter = Converter::new(&wrapped_source, Arc::new(PathBuf::new()));
+    let declarations: Vec<Node> = signature.declarations().iter().collect();
+    let [Node::Class(class)] = declarations.as_slice() else {
+        return Err(format!("not a method type: {source}"));
+    };
+    let Some(Node::MethodDefinition(method)) = class.members().iter().next() else {
+        return Err(format!("not a method type: {source}"));
+    };
+    let mut overloads = converter.convert_overloads(method.overloads());
+    if overloads.len() != 1 || class.members().iter().count() != 1 {
+        return Err(format!("not a method type: {source}"));
+    }
+    Ok(overloads.remove(0))
 }
 
 fn annotation_texts(annotations: NodeList) -> Vec<String> {

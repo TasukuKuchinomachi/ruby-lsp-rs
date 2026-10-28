@@ -1,20 +1,15 @@
-use rbs_environment::{Environment, Literal, Type};
+use rbs_environment::{ClassKind, Environment, Literal, Type};
 
 pub(crate) fn members_of(target: &Type) -> Vec<Type> {
     match target {
         Type::Union(members) => members.iter().flat_map(members_of).collect(),
-        Type::Optional(inner) => {
-            let mut members = members_of(inner);
-            members.push(Type::Nil);
-            members
-        }
         other => vec![other.clone()],
     }
 }
 
 pub(crate) fn can_be_nil(target: &Type) -> bool {
     match target {
-        Type::Nil | Type::Optional(_) => true,
+        Type::Nil => true,
         Type::Union(members) => members.iter().any(can_be_nil),
         _ => false,
     }
@@ -22,7 +17,6 @@ pub(crate) fn can_be_nil(target: &Type) -> bool {
 
 pub(crate) fn remove_nil(target: &Type) -> Type {
     match target {
-        Type::Optional(inner) => remove_nil(inner),
         Type::Union(members) => Type::union(
             members
                 .iter()
@@ -154,6 +148,36 @@ pub(crate) fn self_instance_type(environment: &Environment, name: &str) -> Type 
         name: name.to_string(),
         arguments,
     }
+}
+
+/// Steep's `instance_type` of a module body: `Object`, the module's self types and the module itself
+pub(crate) fn module_instance_self_type(environment: &Environment, name: &str) -> Option<Type> {
+    let declaration = environment.classes.get(name)?;
+    if declaration.kind != ClassKind::Module {
+        return None;
+    }
+    let mut members = vec![Type::instance("Object")];
+    for self_type in &declaration.module_self_types {
+        let member = if environment.interfaces.contains_key(&self_type.name) {
+            Type::Interface {
+                name: self_type.name.clone(),
+                arguments: self_type.arguments.clone(),
+            }
+        } else {
+            Type::ClassInstance {
+                name: self_type.name.clone(),
+                arguments: self_type.arguments.clone(),
+            }
+        };
+        if !members.contains(&member) {
+            members.push(member);
+        }
+    }
+    let module_instance = self_instance_type(environment, name);
+    if !members.contains(&module_instance) {
+        members.push(module_instance);
+    }
+    Some(Type::Intersection(members))
 }
 
 pub(crate) fn instance_type_of_class_value(

@@ -4,7 +4,9 @@ use rbs_environment::{Location, Type};
 use ruby_prism::Node;
 
 use super::{CacheState, Checker, Context, Locals};
-use crate::source::{Span, constant_text, qualify};
+use crate::annotations::AnnotationTarget;
+use crate::file_index::{ScopeKind, ScopeRange};
+use crate::source::{ConstantPath, Span, constant_text, qualify};
 use crate::{HoverKind, Severity};
 
 enum ConstantKind {
@@ -193,6 +195,17 @@ impl<'pr> Checker<'_, 'pr> {
         context: &Context,
         locals: &mut Locals,
     ) -> Type {
+        if let Some(path) = ConstantPath::of_node(node) {
+            let written = if path.absolute {
+                format!("::{}", path.joined())
+            } else {
+                path.joined()
+            };
+            if let Some(annotated) = self.annotated_constant_type(Span::of_node(node), &written, &context.nesting) {
+                self.record_type_hover(Span::of_node(node), &annotated);
+                return annotated;
+            }
+        }
         match node {
             Node::ConstantReadNode { .. } => {
                 let Some(read) = node.as_constant_read_node() else {
@@ -267,6 +280,34 @@ impl<'pr> Checker<'_, 'pr> {
         }
     }
 
+    /// `@type const Name: T` of the class, module or program around the node. Steep imports these annotations into the
+    /// type environment of a class or module body, which its methods and blocks inherit, and matches the name as
+    /// written
+    fn annotated_constant_type(&self, node_span: Span, written: &str, nesting: &[String]) -> Option<Type> {
+        let mut enclosing: Vec<ScopeRange> = self
+            .file_index
+            .scopes
+            .iter()
+            .filter(|scope| scope.span.start <= node_span.start && node_span.start < scope.span.end)
+            .copied()
+            .collect();
+        enclosing.sort_by_key(|scope| scope.span.end - scope.span.start);
+        let scope = enclosing
+            .iter()
+            .find(|scope| matches!(scope.kind, ScopeKind::Class | ScopeKind::Program))?;
+        self.type_annotations_in(scope.span.start)
+            .filter_map(|(target, annotated_type)| match target {
+                AnnotationTarget::Constant(name) if name == written => Some(annotated_type),
+                _ => None,
+            })
+            .last()
+            .map(|annotated_type| {
+                let mut resolved = annotated_type.clone();
+                self.environment.resolve_type_names(&mut resolved, nesting);
+                resolved
+            })
+    }
+
     /// `Parent::NAME` also finds a constant declared in an ancestor of `Parent`, as Ruby and Steep do
     fn constant_in_ancestors(&self, parent_name: &str, name: &str) -> Option<String> {
         if parent_name.is_empty() {
@@ -284,18 +325,29 @@ impl<'pr> Checker<'_, 'pr> {
             .find(|candidate| self.classify_constant(candidate).is_some())
     }
 
-    pub(crate) fn infer_constant_write(
-        &mut self,
-        node: &Node<'pr>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> Type {
+    pub(crate) fn infer_constant_write(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         match node {
             Node::ConstantWriteNode { .. } => {
                 let Some(write) = node.as_constant_write_node() else {
                     return Type::Untyped;
                 };
                 let value_type = self.infer(&write.value(), context, locals);
+                let written = constant_text(&write.name());
+                if let Some(annotated) = self.annotated_constant_type(Span::of_node(node), &written, &context.nesting) {
+                    let snapshot = locals.clone();
+                    self.assignment_span = Some(Span::of_node(node));
+                    self.report_incompatible_assignment(
+                        Span::of_location(&write.name_loc()),
+                        &annotated,
+                        &value_type,
+                        Some(&write.value()),
+                        "a constant",
+                        context,
+                        &snapshot,
+                    );
+                    self.assignment_span = None;
+                    return value_type;
+                }
                 let name = qualify(context.namespace(), &constant_text(&write.name()));
                 if !self.constant_cache.contains_key(&name) {
                     self.constant_cache
@@ -305,6 +357,13 @@ impl<'pr> Checker<'_, 'pr> {
                     name,
                     kind: ConstantKind::FileConstant,
                 });
+                if !resolved.is_declared_in_signature() {
+                    self.report_unknown_constant(
+                        Span::of_location(&write.name_loc()),
+                        &constant_text(&write.name()),
+                        &context.nesting,
+                    );
+                }
                 if matches!(resolved.kind, ConstantKind::RbsConstant)
                     && let Some(declared) = self
                         .environment
@@ -331,6 +390,29 @@ impl<'pr> Checker<'_, 'pr> {
                     &value_type,
                 );
                 value_type
+            }
+            Node::ConstantPathWriteNode { .. } => {
+                let Some(write) = node.as_constant_path_write_node() else {
+                    return Type::Untyped;
+                };
+                let target = write.target();
+                let name_span = Span::of_location(&target.name_loc());
+                let name = target.name().map(|name| constant_text(&name)).unwrap_or_default();
+                let parent_name = match target.parent() {
+                    Some(parent) => match self.infer(&parent, context, locals) {
+                        Type::ClassSingleton { name } => Some(name),
+                        _ => None,
+                    },
+                    None => Some(String::new()),
+                };
+                if let Some(parent_name) = parent_name {
+                    let full_name = qualify(&parent_name, &name);
+                    let declared = self.classify_constant(&full_name).is_some_and(|resolved| resolved.is_declared_in_signature());
+                    if !declared {
+                        self.report_unknown_constant(name_span, &name, &[]);
+                    }
+                }
+                self.infer(&write.value(), context, locals)
             }
             _ => {
                 let mut value_type = Type::Untyped;

@@ -5,9 +5,11 @@ use ruby_prism::{DefNode, Node, ParametersNode};
 
 use super::variables::is_obvious_value;
 use super::{CacheState, Checker, Context, Locals, MethodContext};
-use crate::file_index::InstanceVariableKey;
+use crate::annotations::{AnnotationTarget, DynamicKind};
+use crate::file_index::{InstanceVariableKey, ScopeKind};
 use crate::source::{ConstantPath, Span, constant_text};
-use crate::type_utilities::{array_of, hash_of, self_instance_type};
+use crate::steep_relation;
+use crate::type_utilities::{array_of, hash_of, module_instance_self_type, self_instance_type};
 use crate::{HoverKind, Severity, TypeHintKind};
 
 struct DefinitionOwner {
@@ -115,18 +117,48 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         let method_name = constant_text(&definition.name());
         let scope_start = definition.location().start_offset();
         let nesting = Rc::new(owner.nesting.clone());
+        let implemented = self
+            .annotation_scopes(Span::of_location(&definition.location()))
+            .iter()
+            .filter(|scope| matches!(scope.kind, ScopeKind::Class | ScopeKind::Block))
+            .find_map(|scope| self.implemented_module(scope.span.start, &owner.nesting));
+        let declared_owner = DefinitionOwner {
+            owner: implemented.unwrap_or_else(|| owner.owner.clone()),
+            singleton: owner.singleton,
+            nesting: owner.nesting.clone(),
+        };
+        let undeclared = !self.environment.classes.contains_key(&declared_owner.owner);
+        let self_owner = if undeclared && self.options.steep_compatible {
+            "Object"
+        } else {
+            declared_owner.owner.as_str()
+        };
         let mut self_type = if owner.singleton {
             Type::ClassSingleton {
-                name: owner.owner.clone(),
+                name: self_owner.to_string(),
             }
+        } else if self.options.steep_compatible
+            && let Some(module_self_type) = module_instance_self_type(self.environment, self_owner)
+        {
+            module_self_type
         } else {
-            self_instance_type(self.environment, &owner.owner)
+            self_instance_type(self.environment, self_owner)
         };
         if let Some(annotated_self) = self.annotated_self_type(scope_start, &nesting) {
             self_type = annotated_self;
         }
         let overloads =
-            self.declared_overloads(&owner.owner, owner.singleton, &method_name, &self_type);
+            match self.annotated_method_type(Span::of_location(&definition.location()), &method_name, &nesting) {
+                Some(annotated) => vec![annotated.substitute(&Substitution {
+                    self_type: Some(self_type.clone()),
+                    instance_type: Some(self_instance_type(self.environment, self_owner)),
+                    class_type: Some(Type::ClassSingleton {
+                        name: self_owner.to_string(),
+                    }),
+                    ..Substitution::default()
+                })],
+                None => self.declared_overloads(&declared_owner.owner, owner.singleton, &method_name, &self_type),
+            };
         // Steep checks a `def` against all overloads joined into one method type, whose return type is the union
         let single_return_type = if overloads.is_empty() {
             None
@@ -138,7 +170,38 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                     .collect(),
             ))
         };
-        self.report_definition_declaration(definition, owner, &method_name, &overloads);
+        self.report_definition_declaration(definition, &declared_owner, &method_name, &overloads);
+        let annotated_return_type = self
+            .type_annotations_in(scope_start)
+            .filter_map(|(target, annotated_type)| {
+                (*target == AnnotationTarget::Return).then(|| annotated_type.clone())
+            })
+            .last()
+            .map(|mut annotated_type| {
+                self.environment.resolve_type_names(&mut annotated_type, &nesting);
+                annotated_type
+            });
+        if let (Some(annotated), Some(declared)) = (&annotated_return_type, &single_return_type)
+            && !steep_relation::is_subtype(self.environment, annotated, declared)
+        {
+            let message = steep_relation::with_detail_lines(
+                format!(
+                    "Annotation `@type return` specifies type `{}` where declared as type `{}`",
+                    annotated.steep_display(),
+                    declared.steep_display()
+                ),
+                self.environment,
+                annotated,
+                declared,
+            );
+            self.record_diagnostic(
+                Span::of_location(&definition.location()),
+                Severity::Error,
+                "Ruby::MethodReturnTypeAnnotationMismatch",
+                message,
+            );
+        }
+        let single_return_type = annotated_return_type.or(single_return_type);
         let block = match overloads.as_slice() {
             [overload] => overload.block.clone(),
             _ => overloads.iter().find_map(|overload| overload.block.clone()),
@@ -152,6 +215,8 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 singleton: owner.singleton,
                 declared_return_type: single_return_type.clone(),
                 block,
+                has_method_type: !overloads.is_empty(),
+                scope_start,
             })),
             declared_locals: Rc::new(self.local_variable_annotations(scope_start, &nesting)),
         };
@@ -169,7 +234,9 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         }
         self.instance_variable_write_frames.push(Vec::new());
         self.method_return_frames.push(Vec::new());
+        let outer_jump_expectations = std::mem::take(&mut self.jump_expectations);
         let body_type = self.infer_optional_node(definition.body(), &context, &mut locals);
+        self.jump_expectations = outer_jump_expectations;
         let returned_types = self.method_return_frames.pop().unwrap_or_default();
         let writes = self
             .instance_variable_write_frames
@@ -207,19 +274,32 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         {
             let is_setter = method_name.ends_with('=')
                 && !matches!(method_name.as_str(), "==" | "!=" | "<=" | ">=" | "===");
+            let (body, declared_type) = (body_type.steep_display(), declared.steep_display());
             if is_setter {
+                let message = steep_relation::with_detail_lines(
+                    format!("Setter method `{method_name}` cannot have type `{body}` because declared as type `{declared_type}`"),
+                    self.environment,
+                    &body_type,
+                    declared,
+                );
                 self.record_diagnostic(
                     Span::of_location(&definition.name_loc()),
                     Severity::Information,
                     "Ruby::SetterBodyTypeMismatch",
-                    format!("Setter method `{method_name}` cannot have type `{body_type}` because declared as type `{declared}`"),
+                    message,
                 );
             } else {
+                let message = steep_relation::with_detail_lines(
+                    format!("Cannot allow method body have type `{body}` because declared as type `{declared_type}`"),
+                    self.environment,
+                    &body_type,
+                    declared,
+                );
                 self.record_diagnostic(
                     Span::of_location(&definition.name_loc()),
                     Severity::Error,
                     "Ruby::MethodBodyTypeMismatch",
-                    format!("Cannot allow method body have type `{body_type}` because declared as type `{declared}`"),
+                    message,
                 );
             }
         }
@@ -290,11 +370,20 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         let [overload] = overloads else {
             return;
         };
-        let parameter_span = definition
-            .parameters()
-            .map(|parameters| Span::of_location(&parameters.location()))
-            .unwrap_or(name_span);
-        for (kind, span) in parameter_kind_errors(definition.parameters(), &overload.function) {
+        let parameter_span = match (
+            definition.lparen_loc(),
+            definition.rparen_loc(),
+            definition.parameters(),
+        ) {
+            (Some(left_parenthesis), Some(right_parenthesis), _) => Span {
+                start: left_parenthesis.start_offset(),
+                end: right_parenthesis.end_offset(),
+            },
+            (_, _, Some(parameters)) => Span::of_location(&parameters.location()),
+            _ => name_span,
+        };
+        let overload = overload.steep_display();
+        for (kind, span) in parameter_kind_errors(definition.parameters(), &overloads[0].function) {
             let (code, severity, message) = match kind {
                 ParameterKindError::Mismatch => (
                     "Ruby::MethodParameterMismatch",
@@ -680,12 +769,30 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             self.infer(&parent, context, &mut outer_locals);
         }
         self.record_class_name_reference(&constant_path, &name);
+        let is_declared = self.environment.classes.contains_key(&name);
+        let constant_name = ConstantPath::of_node(&constant_path).and_then(|path| path.segments.last().cloned());
+        if !is_declared && let Some(constant_name) = &constant_name {
+            let kind = if matches!(node, Node::ClassNode { .. }) {
+                "class"
+            } else {
+                "module"
+            };
+            self.record_diagnostic(
+                Span::of_node(&constant_path),
+                Severity::Warning,
+                "Ruby::UnknownConstant",
+                format!("Cannot find the declaration of {kind}: `{constant_name}`"),
+            );
+        }
         let mut nesting = (*context.nesting).clone();
         nesting.push(name.clone());
         let nesting = Rc::new(nesting);
+        let implemented = self
+            .implemented_module(start, &nesting)
+            .or_else(|| is_declared.then(|| name.clone()));
         let self_type = self
             .annotated_self_type(start, &nesting)
-            .unwrap_or(Type::ClassSingleton { name });
+            .unwrap_or(Type::ClassSingleton { name: name.clone() });
         let class_context = Context {
             self_type,
             declared_locals: Rc::new(self.local_variable_annotations(start, &nesting)),
@@ -693,7 +800,111 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             method: None,
         };
         let mut locals = Locals::new();
-        self.infer_optional_node(body, &class_context, &mut locals)
+        let namespace_module = is_namespace_module(body.as_ref());
+        let result = self.infer_optional_node(body, &class_context, &mut locals);
+        if let Some(implemented) = implemented
+            && !namespace_module
+        {
+            self.validate_method_definitions(node, Span::of_node(&constant_path), &name, &implemented);
+        }
+        result
+    }
+
+    /// Steep's `validate_method_definitions`: the methods RBS declares in the implemented module itself must be defined
+    /// in the class body, unless `@dynamic` names them, and `@dynamic` may only name such methods
+    fn validate_method_definitions(&mut self, node: &Node<'pr>, name_span: Span, class_name: &str, implemented: &str) {
+        let Some(declaration) = self.environment.classes.get(implemented) else {
+            return;
+        };
+        if declaration.member_declaration_count != 1 {
+            return;
+        }
+        let declared_names = |methods: &std::collections::HashMap<String, rbs_environment::MethodDefinition>| {
+            let mut names: Vec<String> = methods
+                .values()
+                .filter(|method| method.owner == implemented)
+                .map(|method| method.name.clone())
+                .collect();
+            names.sort();
+            names
+        };
+        let expected_instance_methods = declared_names(&declaration.instance_methods);
+        let expected_module_methods: Vec<String> = declared_names(&declaration.singleton_methods)
+            .into_iter()
+            .filter(|name| name != "new")
+            .collect();
+        let class_span = Span::of_node(node);
+        let defined = |singleton: bool| -> Vec<String> {
+            self.file_index
+                .definitions
+                .iter()
+                .filter(|(offset, info)| {
+                    class_span.start <= **offset
+                        && **offset < class_span.end
+                        && info.owner == class_name
+                        && info.singleton == singleton
+                })
+                .filter_map(|(_, info)| {
+                    info.node
+                        .as_def_node()
+                        .map(|definition| constant_text(&definition.name()))
+                })
+                .collect()
+        };
+        let defined_instance_methods = defined(false);
+        let defined_module_methods = defined(true);
+        let dynamics = self
+            .scoped_annotations
+            .dynamics
+            .get(&class_span.start)
+            .cloned()
+            .unwrap_or_default();
+        let instance_dynamics: Vec<&String> = dynamics
+            .iter()
+            .filter(|(_, kind)| matches!(kind, DynamicKind::Instance | DynamicKind::ModuleInstance))
+            .map(|(name, _)| name)
+            .collect();
+        let module_dynamics: Vec<&String> = dynamics
+            .iter()
+            .filter(|(_, kind)| matches!(kind, DynamicKind::Module | DynamicKind::ModuleInstance))
+            .map(|(name, _)| name)
+            .collect();
+        for method_name in &expected_instance_methods {
+            if !defined_instance_methods.contains(method_name) && !instance_dynamics.contains(&method_name) {
+                self.record_diagnostic(
+                    name_span,
+                    Severity::Error,
+                    "Ruby::MethodDefinitionMissing",
+                    format!("Cannot find implementation of method `::{implemented}#{method_name}`"),
+                );
+            }
+        }
+        for method_name in &expected_module_methods {
+            if !defined_module_methods.contains(method_name) && !module_dynamics.contains(&method_name) {
+                self.record_diagnostic(
+                    name_span,
+                    Severity::Error,
+                    "Ruby::MethodDefinitionMissing",
+                    format!("Cannot find implementation of method `::{implemented}.{method_name}`"),
+                );
+            }
+        }
+        let unexpected_dynamics = instance_dynamics
+            .iter()
+            .filter(|name| !expected_instance_methods.contains(name))
+            .chain(
+                module_dynamics
+                    .iter()
+                    .filter(|name| !expected_module_methods.contains(name)),
+            );
+        for method_name in unexpected_dynamics.collect::<Vec<_>>() {
+            self.record_diagnostic(
+                name_span,
+                Severity::Error,
+                "Ruby::UnexpectedDynamicMethod",
+                format!("@dynamic annotation contains unknown method name `{method_name}`"),
+            );
+        }
     }
 
     /// Steep's `for_class` and `for_module` build both definitions of the class to type its body
@@ -749,6 +960,24 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             return Type::Untyped;
         };
         let expression_type = self.infer(&singleton_class.expression(), context, locals);
+        let receiver_type = match &expression_type {
+            Type::SelfType => &context.self_type,
+            other => other,
+        };
+        if self.options.steep_compatible
+            && !matches!(receiver_type, Type::ClassSingleton { .. } | Type::ClassInstance { .. })
+        {
+            self.record_diagnostic(
+                Span::of_node(node),
+                Severity::Hint,
+                "Ruby::UnsupportedSyntax",
+                format!(
+                    "sclass receiver must be instance type or singleton type, but type given `{}`",
+                    expression_type.steep_display()
+                ),
+            );
+            return Type::Nil;
+        }
         let mut singleton_context = context.clone();
         singleton_context.method = None;
         singleton_context.self_type = match expression_type {
@@ -761,6 +990,22 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             &singleton_context,
             &mut singleton_locals,
         )
+    }
+}
+
+/// Steep's `namespace_module?`: a body of nothing but classes and modules
+fn is_namespace_module(body: Option<&Node<'_>>) -> bool {
+    let Some(body) = body else {
+        return false;
+    };
+    let is_class_or_module =
+        |statement: &Node<'_>| matches!(statement, Node::ClassNode { .. } | Node::ModuleNode { .. });
+    match body.as_statements_node() {
+        Some(statements) => {
+            let statements: Vec<Node<'_>> = statements.body().iter().collect();
+            !statements.is_empty() && statements.iter().all(is_class_or_module)
+        }
+        None => is_class_or_module(body),
     }
 }
 
@@ -851,10 +1096,7 @@ fn parameter_kind_errors(
         }
     }
     for optional in parameters.optionals().iter() {
-        let span = optional
-            .as_optional_parameter_node()
-            .map(|optional| Span::of_location(&optional.name_loc()))
-            .unwrap_or_else(|| Span::of_node(&optional));
+        let span = Span::of_node(&optional);
         let head = if positional_exhausted {
             None
         } else {
