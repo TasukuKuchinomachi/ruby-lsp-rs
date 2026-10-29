@@ -194,6 +194,31 @@ end
 }
 
 #[test]
+fn declares_names_rbs_reads_only_in_backquotes() {
+    let environment = load_inline(
+        r#"
+class Item
+  attr_reader :"two words" #: String
+  attr_reader :type #: Integer
+  attr_reader :ready? #: Integer
+
+  #: (Integer) -> Integer
+  def +(other) = other
+
+  #: () -> Integer
+  def count = 1
+end
+"#,
+    );
+    assert_eq!(environment.signature_diagnostics, Vec::new());
+    assert_eq!(overload_strings(&environment, "Item", "two words"), vec!["() -> String"]);
+    assert_eq!(overload_strings(&environment, "Item", "type"), vec!["() -> Integer"]);
+    assert_eq!(overload_strings(&environment, "Item", "ready?"), vec!["() -> Integer"]);
+    assert_eq!(overload_strings(&environment, "Item", "+"), vec!["(Integer) -> Integer"]);
+    assert_eq!(overload_strings(&environment, "Item", "count"), vec!["() -> Integer"]);
+}
+
+#[test]
 fn an_unannotated_method_takes_the_type_of_the_method_it_overrides() {
     let environment = load_inline(
         r#"

@@ -188,7 +188,9 @@ pub fn check_workspace(workspace_path: &Path, options: &TypeCheckOptions) -> Wor
                 .find(|steepfile_target| steepfile_target.name == name)
         });
         let owns = |path: &Path| {
-            own_target.is_none_or(|own_target| project::is_signature_path_of(workspace_path, own_target, path))
+            own_target.zip(steepfile).is_none_or(|(own_target, steepfile)| {
+                project::is_signature_path_of(workspace_path, steepfile, own_target, path)
+            })
         };
         let result = check_signatures(
             &target.environment,
@@ -606,6 +608,7 @@ mod tests {
             inline_ignore_paths: Vec::new(),
             libraries: Vec::new(),
             collection_lockfile: None,
+            collection_disabled: false,
             targets: vec![SteepfileTarget {
                 name: "lib".to_string(),
                 check_paths: vec![PathBuf::from("lib")],

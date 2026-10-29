@@ -25,11 +25,13 @@ pub struct LoadedTarget {
 }
 
 impl LoadedEnvironment {
-    /// The environment of the target named `target_name`, or the shared one
+    /// The environment of the target named `target_name`, or the shared one. A file no target takes, which is checked
+    /// only when it is given explicitly, gets the environment of the first target
     pub fn environment_for(&self, target_name: Option<&str>) -> Option<&Arc<Environment>> {
         self.targets
             .iter()
             .find(|target| target.name.is_none() || target.name.as_deref() == target_name)
+            .or_else(|| target_name.is_none().then(|| self.targets.first()).flatten())
             .map(|target| &target.environment)
     }
 }
@@ -158,15 +160,29 @@ pub fn target_for<'a>(
     group_for(workspace_path, steepfile?, relative_path).map(|(target, _)| target)
 }
 
-/// Whether `path` is a signature file of `target` itself, which Steep validates for that target
-pub fn is_signature_path_of(workspace_path: &Path, target: &SteepfileTarget, path: &Path) -> bool {
+/// Whether Steep validates `path` for `target`: a signature file belongs to the first target whose `signature`
+/// patterns take it, as Steep's `Project#target_for_signature_path` finds, and an inline source to the target of
+/// `Project#group_for_inline_source_path`
+pub fn is_signature_path_of(
+    workspace_path: &Path,
+    steepfile: &SteepfileConfiguration,
+    target: &SteepfileTarget,
+    path: &Path,
+) -> bool {
     let Ok(relative_path) = path.strip_prefix(workspace_path) else {
         return false;
     };
-    target
-        .signature_patterns
+    steepfile
+        .targets
         .iter()
-        .any(|pattern| pattern_matches(workspace_path, pattern, relative_path))
+        .find(|candidate| {
+            candidate
+                .signature_patterns
+                .iter()
+                .any(|pattern| pattern_matches(workspace_path, pattern, relative_path))
+        })
+        .or_else(|| inline_group_for(workspace_path, steepfile, relative_path).map(|(inline_target, _)| inline_target))
+        .is_some_and(|owner| owner.name == target.name)
 }
 
 pub fn load_error_report(loaded: &LoadedEnvironment) -> Option<String> {
@@ -355,6 +371,7 @@ mod tests {
             inline_ignore_paths: targets.iter().flat_map(|target| target.inline_ignore_paths.clone()).collect(),
             libraries: Vec::new(),
             collection_lockfile: None,
+            collection_disabled: false,
             targets,
         }
     }
@@ -396,6 +413,26 @@ mod tests {
             locked_gems,
             ..RubyEnvironment::default()
         }
+    }
+
+    #[test]
+    fn a_file_no_target_takes_gets_the_environment_of_the_first_target() {
+        let loaded_target = |name: &str| LoadedTarget {
+            name: Some(name.to_string()),
+            environment: Arc::new(rbs_environment::Loader::new().finish()),
+        };
+        let loaded = LoadedEnvironment {
+            targets: vec![loaded_target("lib"), loaded_target("test")],
+            steepfile: None,
+            duration: Duration::ZERO,
+        };
+        let is_environment_of = |target_name: Option<&str>, index: usize| {
+            Arc::ptr_eq(loaded.environment_for(target_name).unwrap(), &loaded.targets[index].environment)
+        };
+        assert!(is_environment_of(Some("lib"), 0));
+        assert!(is_environment_of(Some("test"), 1));
+        assert!(is_environment_of(None, 0));
+        assert!(loaded.environment_for(Some("missing")).is_none());
     }
 
     #[test]
@@ -511,6 +548,28 @@ mod tests {
         assert!(is_inline_source_path(workspace, Some(&steepfile), Path::new("/workspace/lib/user.rb")));
         assert!(!is_inline_source_path(workspace, Some(&steepfile), Path::new("/workspace/lib/generated/user.rb")));
         assert!(!is_inline_source_path(workspace, None, Path::new("/workspace/lib/user.rb")));
+    }
+
+    #[test]
+    fn the_first_target_that_takes_a_signature_file_or_an_inline_source_owns_it() {
+        let workspace = Path::new("/workspace");
+        let mut app = target("app", &[], &[], DiagnosticConfiguration::default());
+        app.signature_patterns = vec![PathBuf::from("sig/app"), PathBuf::from("sig/shared")];
+        app.inline_check_paths = vec![PathBuf::from("lib")];
+        let mut tests = target("tests", &["test"], &[], DiagnosticConfiguration::default());
+        tests.signature_patterns = vec![PathBuf::from("sig/tests"), PathBuf::from("sig/shared")];
+        tests.inline_check_paths = vec![PathBuf::from("lib")];
+        let steepfile = steepfile_with_targets(vec![app, tests]);
+        let owns = |target: usize, path: &str| {
+            is_signature_path_of(workspace, &steepfile, &steepfile.targets[target], Path::new(path))
+        };
+        assert!(owns(0, "/workspace/sig/app/user.rbs"));
+        assert!(owns(1, "/workspace/sig/tests/user.rbs"));
+        assert!(owns(0, "/workspace/sig/shared/user.rbs"));
+        assert!(!owns(1, "/workspace/sig/shared/user.rbs"));
+        assert!(owns(0, "/workspace/lib/user.rb"));
+        assert!(!owns(1, "/workspace/lib/user.rb"));
+        assert!(!owns(0, "/workspace/test/user_test.rb"));
     }
 
     #[test]

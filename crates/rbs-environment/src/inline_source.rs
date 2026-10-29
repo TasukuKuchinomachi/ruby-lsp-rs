@@ -1713,6 +1713,25 @@ const RBS_KEYWORDS: [&str; 30] = [
     "void",
 ];
 
+/// Operators RBS reads as method names without backquotes
+const RBS_OPERATORS: [&str; 28] = [
+    "+", "-", "*", "/", "%", "**", "==", "===", "!=", "=~", "!~", "<", "<=", ">", ">=", "<=>", "<<", ">>", "[]", "[]=",
+    "!", "~", "+@", "-@", "&", "|", "^", "`",
+];
+
+/// A name RBS cannot read bare, as a keyword or a symbol such as `:"two words"`
+fn needs_backquotes(name: &str) -> bool {
+    let identifier = name.strip_suffix(['?', '!', '=']).unwrap_or(name);
+    let is_identifier = identifier
+        .chars()
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+        && identifier
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '_');
+    RBS_KEYWORDS.contains(&name) || !(is_identifier || RBS_OPERATORS.contains(&name))
+}
+
 struct RbsWriter<'source> {
     source: &'source str,
     rbs: String,
@@ -1747,7 +1766,7 @@ impl RbsWriter<'_> {
     }
 
     fn copy_name(&mut self, range: Range<usize>) {
-        if RBS_KEYWORDS.contains(&&self.source[range.clone()]) {
+        if needs_backquotes(&self.source[range.clone()]) {
             self.push("`");
             self.copy(range);
             self.push("`");

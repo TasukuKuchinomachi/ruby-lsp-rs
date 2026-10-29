@@ -677,3 +677,71 @@ Greeter.check_if(:name, presence: true, if: -> { greet("b") })
         checked.diagnostic_messages()
     );
 }
+
+#[test]
+fn super_calls_a_generic_ancestor_with_the_type_arguments_of_the_class() {
+    let Some(environment) = support::environment_with(
+        r#"
+class Parent[T]
+  def value: () -> T
+  def put: (T) -> void
+end
+
+class Child < Parent[String]
+  def value: () -> String
+  def put: (String) -> void
+end
+
+module Holder[U]
+  def held: () -> U
+end
+
+class Holding
+  include Holder[Integer]
+  def held: () -> Integer
+end
+"#,
+    ) else {
+        eprintln!("skipped: RBS core signatures are not found");
+        return;
+    };
+    let source = r#"
+class Child < Parent
+  def value
+    super.no_such_method
+    ""
+  end
+
+  def put(item)
+    super(1)
+  end
+end
+
+class Holding
+  def held
+    super.no_such_method
+    1
+  end
+end
+"#;
+    let options = AnalysisOptions {
+        steep_compatible: true,
+        ..AnalysisOptions::default()
+    };
+    let checked = support::check_with_options(&environment, source, options);
+    assert_eq!(
+        checked.messages_with_code("Ruby::NoMethod"),
+        vec![
+            "Type `::String` does not have method `no_such_method`",
+            "Type `::Integer` does not have method `no_such_method`",
+        ]
+    );
+    assert_eq!(
+        checked
+            .messages_with_code("Ruby::ArgumentTypeMismatch")
+            .iter()
+            .map(|message| message.lines().next().unwrap_or_default())
+            .collect::<Vec<_>>(),
+        vec!["Cannot pass a value of type `::Integer` as an argument of type `::String`"]
+    );
+}

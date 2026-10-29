@@ -233,7 +233,7 @@ impl TypeCheckingState {
                         steepfile
                             .targets
                             .iter()
-                            .find(|target| project::is_signature_path_of(&self.workspace_path, target, path))
+                            .find(|target| project::is_signature_path_of(&self.workspace_path, steepfile, target, path))
                     })
                     .map(|target| target.name.as_str())
             });
@@ -797,6 +797,7 @@ mod tests {
             inline_ignore_paths: Vec::new(),
             libraries: Vec::new(),
             collection_lockfile: None,
+            collection_disabled: false,
             targets,
         };
         let app_environment = Arc::new(Environment::default());

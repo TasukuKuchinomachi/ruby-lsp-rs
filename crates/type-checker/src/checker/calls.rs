@@ -2416,10 +2416,16 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             .skip(1)
             .find_map(|ancestor| {
                 if let Some(ancestor_declaration) = self.environment.classes.get(&ancestor.name) {
-                    return ancestor_declaration
-                        .instance_methods
-                        .contains_key(method_name)
-                        .then(|| instance_type_of_class(self.environment, &ancestor.name));
+                    return ancestor_declaration.instance_methods.contains_key(method_name).then(|| {
+                        if ancestor.arguments.is_empty() {
+                            instance_type_of_class(self.environment, &ancestor.name)
+                        } else {
+                            Type::ClassInstance {
+                                name: ancestor.name.clone(),
+                                arguments: ancestor.arguments.clone(),
+                            }
+                        }
+                    });
                 }
                 let interface = self.environment.interfaces.get(&ancestor.name)?;
                 interface.methods.contains_key(method_name).then(|| Type::Interface {
