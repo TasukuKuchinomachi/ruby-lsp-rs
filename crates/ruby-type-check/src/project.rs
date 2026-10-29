@@ -371,6 +371,7 @@ mod tests {
             inline_ignore_paths: targets.iter().flat_map(|target| target.inline_ignore_paths.clone()).collect(),
             libraries: Vec::new(),
             collection_lockfile: None,
+            collection_disabled: false,
             targets,
         }
     }

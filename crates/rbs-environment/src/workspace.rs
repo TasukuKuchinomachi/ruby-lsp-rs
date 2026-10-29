@@ -32,6 +32,8 @@ pub struct SteepfileConfiguration {
     pub inline_ignore_paths: Vec<PathBuf>,
     pub libraries: Vec<String>,
     pub collection_lockfile: Option<PathBuf>,
+    /// `disable_collection`: `rbs_collection.lock.yaml` is not loaded even when it exists
+    pub collection_disabled: bool,
     /// In `Steepfile` order, which is the order Steep looks a file's target up in
     pub targets: Vec<SteepfileTarget>,
 }
@@ -79,6 +81,7 @@ pub fn read_steepfile(workspace_path: &Path) -> Option<SteepfileConfiguration> {
             inline_ignore_paths: Vec::new(),
             libraries: Vec::new(),
             collection_lockfile: None,
+            collection_disabled: false,
             targets: Vec::new(),
         },
         constant_aliases: HashMap::new(),
@@ -228,6 +231,7 @@ impl SteepfileReader<'_> {
                             Some(collection_lockfile_path(&workspace_path.join(config_path)));
                     }
                 }
+                b"disable_collection" => self.configuration.collection_disabled = true,
                 b"configure_code_diagnostics" => {
                     self.configure_code_diagnostics(&call, scope);
                     continue;
@@ -785,10 +789,12 @@ pub fn load_target(
         };
         workspace_loader.add_stdlib_library(name, version);
     }
-    let lockfile_path = configuration
-        .and_then(|configuration| configuration.collection_lockfile.clone())
-        .unwrap_or_else(|| workspace_path.join("rbs_collection.lock.yaml"));
-    workspace_loader.add_collection(workspace_path, &lockfile_path);
+    if !configuration.is_some_and(|configuration| configuration.collection_disabled) {
+        let lockfile_path = configuration
+            .and_then(|configuration| configuration.collection_lockfile.clone())
+            .unwrap_or_else(|| workspace_path.join("rbs_collection.lock.yaml"));
+        workspace_loader.add_collection(workspace_path, &lockfile_path);
+    }
     // RBS's `EnvironmentLoader#load` adds stringio whenever core is loaded, since it moved out of core
     let has_stringio = sources
         .stdlib_directory

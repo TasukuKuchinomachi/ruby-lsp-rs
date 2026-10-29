@@ -104,6 +104,7 @@ pub fn evaluate_steepfile(
 fn configuration_of(workspace_path: &Path, evaluated: EvaluatedSteepfile) -> SteepfileConfiguration {
     let paths =
         |patterns: &[String]| -> Vec<PathBuf> { patterns.iter().map(|pattern| workspace_path.join(pattern)).collect() };
+    let is_disabled = |config: &Option<serde_yaml::Value>| matches!(config, Some(serde_yaml::Value::Bool(false)));
     let lockfile = |config: &Option<serde_yaml::Value>| match config {
         Some(serde_yaml::Value::String(path)) => Some(collection_lockfile_path(&workspace_path.join(path))),
         _ => None,
@@ -116,6 +117,7 @@ fn configuration_of(workspace_path: &Path, evaluated: EvaluatedSteepfile) -> Ste
         inline_ignore_paths: Vec::new(),
         libraries: evaluated.libraries,
         collection_lockfile: lockfile(&evaluated.collection_config),
+        collection_disabled: is_disabled(&evaluated.collection_config),
         targets: Vec::new(),
     };
     for target in evaluated.targets {
@@ -147,6 +149,7 @@ fn configuration_of(workspace_path: &Path, evaluated: EvaluatedSteepfile) -> Ste
         if let Some(lockfile) = lockfile(&target.collection_config) {
             configuration.collection_lockfile = Some(lockfile);
         }
+        configuration.collection_disabled |= is_disabled(&target.collection_config);
         configuration.targets.push(SteepfileTarget {
             name: target.name,
             check_paths: paths(&target.patterns.check),

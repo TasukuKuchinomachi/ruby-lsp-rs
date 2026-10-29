@@ -608,6 +608,7 @@ mod tests {
             inline_ignore_paths: Vec::new(),
             libraries: Vec::new(),
             collection_lockfile: None,
+            collection_disabled: false,
             targets: vec![SteepfileTarget {
                 name: "lib".to_string(),
                 check_paths: vec![PathBuf::from("lib")],

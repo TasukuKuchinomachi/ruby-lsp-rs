@@ -797,6 +797,7 @@ mod tests {
             inline_ignore_paths: Vec::new(),
             libraries: Vec::new(),
             collection_lockfile: None,
+            collection_disabled: false,
             targets,
         };
         let app_environment = Arc::new(Environment::default());

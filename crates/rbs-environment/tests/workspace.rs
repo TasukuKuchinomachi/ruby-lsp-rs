@@ -78,6 +78,7 @@ fn read_steepfile_merges_every_target() {
                 "json".to_string()
             ],
             collection_lockfile: Some(root.join("config/rbs_collection.lock.yaml")),
+            collection_disabled: false,
             targets: vec![
                 SteepfileTarget {
                     name: "lib".to_string(),
@@ -556,6 +557,50 @@ fn write_fake_rbs_gem(rbs_gem: &TemporaryDirectory) {
         "dependencies:\n  - name: tsort\n",
     );
     rbs_gem.write("stdlib/tsort/0/tsort.rbs", "module TSort\nend\n");
+}
+
+#[test]
+fn disable_collection_keeps_rbs_collection_lock_yaml_from_loading() {
+    let rbs_gem = TemporaryDirectory::new("rbs-gem-disabled-collection");
+    write_fake_rbs_gem(&rbs_gem);
+    let workspace = TemporaryDirectory::new("disabled-collection");
+    workspace.write(
+        "Steepfile",
+        "target :app do\n  signature \"sig\"\n  disable_collection\nend\n",
+    );
+    workspace.write(
+        "rbs_collection.lock.yaml",
+        r#"
+path: ".gem_rbs_collection"
+gems:
+- name: activesupport
+  version: '7.0'
+  source:
+    type: git
+    name: ruby/gem_rbs_collection
+    revision: 0123456789abcdef
+    remote: https://github.com/ruby/gem_rbs_collection.git
+    repo_dir: gems
+"#,
+    );
+    workspace.write(
+        ".gem_rbs_collection/activesupport/7.0/active_support.rbs",
+        "module ActiveSupport\nend\n",
+    );
+    workspace.write("sig/app.rbs", "class App\nend\n");
+
+    assert!(read_steepfile(&workspace.path).unwrap().collection_disabled);
+    if let Ok(Some(evaluated)) = evaluate_steepfile(&workspace.path, &["ruby".to_string()]) {
+        assert!(evaluated.collection_disabled);
+    }
+    let sources = WorkspaceSources {
+        core_directory: Some(rbs_gem.path.join("core")),
+        stdlib_directory: Some(rbs_gem.path.join("stdlib")),
+        gem_directories: HashMap::new(),
+    };
+    let environment = load_workspace(&workspace.path, &sources);
+    assert!(environment.classes.contains_key("App"));
+    assert!(!environment.classes.contains_key("ActiveSupport"));
 }
 
 #[test]
