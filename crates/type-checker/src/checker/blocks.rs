@@ -8,13 +8,16 @@ use super::{Checker, Context, Locals};
 use crate::annotations::AnnotationTarget;
 use crate::source::{Span, constant_text};
 use crate::type_utilities::{array_of, hash_of, is_bottom};
-use crate::{Severity, SteepVersion, TypeHintKind};
+use crate::{Severity, TypeHintKind};
 
 pub(crate) struct BlockSignature {
     pub(crate) function: Option<Function>,
     pub(crate) self_type: Option<Type>,
     /// What `break` inside the block makes the method call return, checked like Steep's `BreakTypeMismatch`
     pub(crate) break_type: Option<Type>,
+    /// The hint of the body: the return type of the block with the type variables of the method left unsolved, as
+    /// Steep gives it, where `function` closes them as `untyped`
+    pub(crate) body_hint: Option<Type>,
 }
 
 impl BlockSignature {
@@ -23,6 +26,7 @@ impl BlockSignature {
             function: None,
             self_type: None,
             break_type: None,
+            body_hint: None,
         }
     }
 
@@ -234,18 +238,12 @@ impl<'pr> Checker<'_, 'pr> {
                         .map(|function| function.return_type.clone()),
                 });
                 let body_node = body.as_ref().map(prism_child_nodes::copy_node);
-                let body_type = checker.infer_optional_node(body_node, &block_context, iteration_locals);
-                let body_type = match &signature.function {
-                    Some(function) if checker.options.steep_version >= SteepVersion::Version2_1 => checker
-                        .hinted_last_statement_type(
-                            body.as_ref().map(prism_child_nodes::copy_node),
-                            &function.return_type,
-                            &body_type,
-                            &block_context,
-                            iteration_locals,
-                        ),
-                    _ => body_type,
-                };
+                let body_type = checker.infer_optional_node(
+                    body_node,
+                    signature.body_hint.as_ref(),
+                    &block_context,
+                    iteration_locals,
+                );
                 checker.jump_expectations.pop();
                 let next_types = checker.block_next_frames.pop().unwrap_or_default();
                 (body_type, next_types)
@@ -492,13 +490,32 @@ impl<'pr> Checker<'_, 'pr> {
         locals.insert(name.to_string(), parameter_type);
     }
 
+    /// Steep's `type_lambda` follows the proc type of the hint
     pub(crate) fn infer_lambda(
         &mut self,
         node: &Node<'pr>,
+        hint: Option<&Type>,
         context: &Context,
         locals: &mut Locals,
     ) -> Type {
-        self.infer_lambda_with(node, &BlockSignature::untyped(), context, locals)
+        let proc_hint = hint.and_then(|hint| {
+            crate::type_utilities::members_of(&self.expand_alias_deeply(hint, 0))
+                .into_iter()
+                .find_map(|member| match member {
+                    Type::Proc(proc_type) => Some(proc_type),
+                    _ => None,
+                })
+        });
+        let signature = match proc_hint {
+            Some(proc_type) => BlockSignature {
+                body_hint: Some(proc_type.function.return_type.clone()),
+                function: Some(proc_type.function),
+                self_type: proc_type.self_type,
+                break_type: None,
+            },
+            None => BlockSignature::untyped(),
+        };
+        self.infer_lambda_with(node, &signature, context, locals)
     }
 
     /// `-> (x) { ... }`, `lambda { ... }` and `proc { ... }`, typed with the proc type the receiving parameter
@@ -520,6 +537,7 @@ impl<'pr> Checker<'_, 'pr> {
                 block: method.block.clone(),
                 has_method_type: method.has_method_type,
                 scope_start: method.scope_start,
+                block_parameter_name: method.block_parameter_name.clone(),
             })
         });
         self.method_return_frames.push(Vec::new());

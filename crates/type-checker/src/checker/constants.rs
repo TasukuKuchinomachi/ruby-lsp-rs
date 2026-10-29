@@ -331,19 +331,23 @@ impl<'pr> Checker<'_, 'pr> {
                 let Some(write) = node.as_constant_write_node() else {
                     return Type::Untyped;
                 };
-                let value_type = self.infer(&write.value(), context, locals);
                 let written = constant_text(&write.name());
-                if let Some(annotated) = self.annotated_constant_type(Span::of_node(node), &written, &context.nesting) {
-                    let snapshot = locals.clone();
+                let annotated = self.annotated_constant_type(Span::of_node(node), &written, &context.nesting);
+                let declared = annotated.clone().or_else(|| {
+                    let name = qualify(context.namespace(), &written);
+                    self.classify_constant(&name)
+                        .filter(|resolved| matches!(resolved.kind, ConstantKind::RbsConstant))
+                        .and_then(|resolved| self.environment.constants.get(&resolved.name))
+                        .map(|constant| constant.constant_type.clone())
+                });
+                let value_type = self.infer_with_hint(&write.value(), declared.as_ref(), context, locals);
+                if let Some(annotated) = annotated {
                     self.assignment_span = Some(Span::of_node(node));
                     self.report_incompatible_assignment(
                         Span::of_location(&write.name_loc()),
                         &annotated,
                         &value_type,
-                        Some(&write.value()),
                         "a constant",
-                        context,
-                        &snapshot,
                     );
                     self.assignment_span = None;
                     return value_type;
@@ -371,16 +375,12 @@ impl<'pr> Checker<'_, 'pr> {
                         .get(&resolved.name)
                         .map(|constant| constant.constant_type.clone())
                 {
-                    let snapshot = locals.clone();
                     self.assignment_span = Some(Span::of_node(node));
                     self.report_incompatible_assignment(
                         Span::of_location(&write.name_loc()),
                         &declared,
                         &value_type,
-                        Some(&write.value()),
                         "a constant",
-                        context,
-                        &snapshot,
                     );
                     self.assignment_span = None;
                 }

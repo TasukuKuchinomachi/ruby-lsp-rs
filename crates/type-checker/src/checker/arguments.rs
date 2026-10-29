@@ -20,8 +20,6 @@ pub(crate) struct ArgumentValue {
     pub(crate) argument_type: Type,
     pub(crate) span: Span,
     pub(crate) kind: ArgumentKind,
-    /// The literal type Steep gives a literal argument when the parameter expects one, e.g. `:desc` for `:asc | :desc`
-    pub(crate) literal_type: Option<Type>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -36,7 +34,6 @@ impl CallArguments {
                 argument_type,
                 span,
                 kind: ArgumentKind::Positional,
-                literal_type: None,
             }],
         }
     }
@@ -62,13 +59,11 @@ pub(crate) struct ArgumentPair {
     pub(crate) parameter_type: Type,
     pub(crate) argument_type: Type,
     pub(crate) span: Span,
-    pub(crate) literal_type: Option<Type>,
 }
 
 struct PositionalArgument {
     argument_type: Type,
     span: Span,
-    literal_type: Option<Type>,
 }
 
 pub(crate) fn match_arguments(
@@ -88,7 +83,6 @@ pub(crate) fn match_arguments(
         .map(|value| PositionalArgument {
             argument_type: value.argument_type.clone(),
             span: value.span,
-            literal_type: value.literal_type.clone(),
         })
         .collect();
     let keyword_values: Vec<&ArgumentValue> = arguments
@@ -102,12 +96,26 @@ pub(crate) fn match_arguments(
         })
         .collect();
     if !accepts_keywords && !keyword_values.is_empty() {
-        let value_type = Type::union(
-            keyword_values
-                .iter()
-                .map(|value| value.argument_type.clone())
-                .collect(),
-        );
+        // Steep types the keywords passed to a positional parameter as a hash literal, a record unless a `**`
+        // splat is among them
+        let record_fields: Option<Vec<rbs_environment::RecordField>> = keyword_values
+            .iter()
+            .map(|value| match &value.kind {
+                ArgumentKind::Keyword { name, .. } => Some(rbs_environment::RecordField {
+                    name: name.clone(),
+                    field_type: value.argument_type.clone(),
+                    required: true,
+                }),
+                _ => None,
+            })
+            .collect();
+        let folded_type = match record_fields {
+            Some(fields) => Type::Record(fields),
+            None => hash_of(
+                Type::instance("Symbol"),
+                Type::union(keyword_values.iter().map(|value| value.argument_type.clone()).collect()),
+            ),
+        };
         let start = keyword_values
             .iter()
             .map(|value| value.span.start)
@@ -119,9 +127,8 @@ pub(crate) fn match_arguments(
             .max()
             .unwrap_or(0);
         positionals.push(PositionalArgument {
-            argument_type: hash_of(Type::instance("Symbol"), value_type),
+            argument_type: folded_type,
             span: Span { start, end },
-            literal_type: None,
         });
     }
     let mut pairs = Vec::new();
@@ -161,7 +168,6 @@ pub(crate) fn match_arguments(
                     parameter_type: parameter.parameter_type.clone(),
                     argument_type: positional.argument_type.clone(),
                     span: positional.span,
-                    literal_type: positional.literal_type.clone(),
                 });
             }
         }
@@ -186,7 +192,6 @@ pub(crate) fn match_arguments(
                     parameter_type: parameter.parameter_type.clone(),
                     argument_type: value.argument_type.clone(),
                     span: value.span,
-                    literal_type: value.literal_type.clone(),
                 }),
                 None => return Err(ArityMismatch::UnexpectedKeyword(*key_span)),
             }
@@ -228,13 +233,6 @@ fn arguments_fit(
         if contains_variable_in(&pair.parameter_type, &type_parameter_names) {
             continue;
         }
-        let literal_result = pair
-            .literal_type
-            .as_ref()
-            .map(|literal| is_subtype(environment, literal, &pair.parameter_type));
-        if matches!(literal_result, Some(Certainty::Yes | Certainty::Unknown)) {
-            continue;
-        }
         match is_subtype(environment, &pair.argument_type, &pair.parameter_type) {
             Certainty::No => return Certainty::No,
             Certainty::Unknown => combined = Certainty::Unknown,
@@ -244,10 +242,12 @@ fn arguments_fit(
     combined
 }
 
-pub(crate) fn select_overload(
+/// `arguments_for(index)` are the arguments as typed against the overload at `index`, since Steep types the
+/// arguments of each overload it tries with that overload's parameters as hints
+pub(crate) fn select_overload<'arguments>(
     environment: &Environment,
     overloads: &[MethodType],
-    arguments: &CallArguments,
+    arguments_for: impl Fn(usize) -> &'arguments CallArguments,
     has_block: bool,
 ) -> usize {
     let any_block_fits = overloads
@@ -258,7 +258,7 @@ pub(crate) fn select_overload(
         if any_block_fits && !block_fits(overload, has_block) {
             continue;
         }
-        let Ok(pairs) = match_arguments(&overload.function, arguments) else {
+        let Ok(pairs) = match_arguments(&overload.function, arguments_for(index)) else {
             continue;
         };
         // Steep takes the first overload that type checks, so an undecidable argument still selects it
@@ -283,17 +283,18 @@ impl<'pr> Checker<'_, 'pr> {
         context: &Context,
         locals: &mut Locals,
     ) -> CallArguments {
-        self.infer_arguments_deferring_lambdas(arguments, context, locals, None)
+        self.infer_arguments_deferring(arguments, context, locals, None)
     }
 
-    /// Lambda literals are left for the caller, which types them once the overload tells what proc type the
-    /// parameter expects; they enter overload selection as an untyped proc
-    pub(crate) fn infer_arguments_deferring_lambdas(
+    /// Arguments whose type depends on the hint are left for the caller, which types them with the parameter of
+    /// each overload it tries, as Steep's `type_check_argument` does. They stand as `untyped` until then, a lambda
+    /// literal as an untyped proc
+    pub(crate) fn infer_arguments_deferring(
         &mut self,
         arguments: Option<ArgumentsNode<'pr>>,
         context: &Context,
         locals: &mut Locals,
-        mut deferred_lambdas: Option<&mut Vec<(usize, Node<'pr>)>>,
+        mut deferred: Option<&mut Vec<(usize, Node<'pr>)>>,
     ) -> CallArguments {
         let mut call_arguments = CallArguments::default();
         let Some(arguments) = arguments else {
@@ -307,7 +308,6 @@ impl<'pr> Checker<'_, 'pr> {
                         argument_type: element_type(&splatted),
                         span: Span::of_node(&argument),
                         kind: ArgumentKind::Splat,
-                        literal_type: None,
                     });
                 }
                 Node::ForwardingArgumentsNode { .. } => {
@@ -315,7 +315,6 @@ impl<'pr> Checker<'_, 'pr> {
                         argument_type: Type::Untyped,
                         span: Span::of_node(&argument),
                         kind: ArgumentKind::Forwarding,
-                        literal_type: None,
                     });
                 }
                 Node::KeywordHashNode { .. } => self.infer_keyword_arguments(
@@ -323,26 +322,19 @@ impl<'pr> Checker<'_, 'pr> {
                     context,
                     locals,
                     &mut call_arguments,
-                    deferred_lambdas.as_deref_mut(),
+                    deferred.as_deref_mut(),
                 ),
-                _ if deferred_lambdas.is_some() && lambda_literal_block(&argument).is_some() => {
-                    if let Some(deferred) = deferred_lambdas.as_deref_mut() {
+                _ if deferred.is_some() && depends_on_hint(&argument) => {
+                    if let Some(deferred) = deferred.as_deref_mut() {
                         deferred.push((
                             call_arguments.values.len(),
                             prism_child_nodes::copy_node(&argument),
                         ));
                     }
-                    let mut function = rbs_environment::Function::returning(Type::Untyped);
-                    function.untyped_parameters = true;
                     call_arguments.values.push(ArgumentValue {
-                        argument_type: Type::Proc(Box::new(rbs_environment::ProcType {
-                            function,
-                            block: None,
-                            self_type: None,
-                        })),
+                        argument_type: deferred_placeholder(&argument),
                         span: Span::of_node(&argument),
                         kind: ArgumentKind::Positional,
-                        literal_type: None,
                     });
                 }
                 _ => {
@@ -351,7 +343,6 @@ impl<'pr> Checker<'_, 'pr> {
                         argument_type,
                         span: Span::of_node(&argument),
                         kind: ArgumentKind::Positional,
-                        literal_type: literal_type_of(&argument),
                     });
                 }
             }
@@ -365,7 +356,7 @@ impl<'pr> Checker<'_, 'pr> {
         context: &Context,
         locals: &mut Locals,
         call_arguments: &mut CallArguments,
-        mut deferred_lambdas: Option<&mut Vec<(usize, Node<'pr>)>>,
+        mut deferred: Option<&mut Vec<(usize, Node<'pr>)>>,
     ) {
         let Some(keyword_hash) = node.as_keyword_hash_node() else {
             return;
@@ -383,7 +374,6 @@ impl<'pr> Checker<'_, 'pr> {
                 argument_type,
                 span: Span::of_node(node),
                 kind: ArgumentKind::Positional,
-                literal_type: None,
             });
             return;
         }
@@ -399,22 +389,11 @@ impl<'pr> Checker<'_, 'pr> {
                     };
                     let name = bytes_text(symbol.unescaped());
                     let value = association.value();
-                    let deferred =
-                        deferred_lambdas.is_some() && lambda_literal_block(&value).is_some();
-                    let argument_type = if deferred {
-                        if let Some(deferred_lambdas) = deferred_lambdas.as_deref_mut() {
-                            deferred_lambdas.push((
-                                call_arguments.values.len(),
-                                prism_child_nodes::copy_node(&value),
-                            ));
+                    let argument_type = if deferred.is_some() && depends_on_hint(&value) {
+                        if let Some(deferred) = deferred.as_deref_mut() {
+                            deferred.push((call_arguments.values.len(), prism_child_nodes::copy_node(&value)));
                         }
-                        let mut function = rbs_environment::Function::returning(Type::Untyped);
-                        function.untyped_parameters = true;
-                        Type::Proc(Box::new(rbs_environment::ProcType {
-                            function,
-                            block: None,
-                            self_type: None,
-                        }))
+                        deferred_placeholder(&value)
                     } else if matches!(value, Node::ImplicitNode { .. }) {
                         self.infer_implicit_value(&value, context, locals)
                     } else {
@@ -428,25 +407,61 @@ impl<'pr> Checker<'_, 'pr> {
                         argument_type,
                         span: Span::of_node(&value),
                         kind: ArgumentKind::Keyword { name, key_span },
-                        literal_type: literal_type_of(&value),
                     });
                 }
                 Node::AssocSplatNode { .. } => {
                     let Some(splat) = element.as_assoc_splat_node() else {
                         continue;
                     };
-                    let argument_type = self.infer_optional_node(splat.value(), context, locals);
+                    let argument_type = self.infer_optional_node(splat.value(), None, context, locals);
                     call_arguments.values.push(ArgumentValue {
                         argument_type,
                         span: Span::of_node(&element),
                         kind: ArgumentKind::KeywordSplat,
-                        literal_type: None,
                     });
                 }
                 _ => {}
             }
         }
     }
+}
+
+/// Whether the type of an argument depends on the hint, so that it is typed only once the parameter is known. A
+/// call is not deferred although a hint can bind the type parameter it returns: typing it again for every overload
+/// would double the work at every argument nested in another
+fn depends_on_hint(node: &Node<'_>) -> bool {
+    match node {
+        Node::SymbolNode { .. }
+        | Node::StringNode { .. }
+        | Node::IntegerNode { .. }
+        | Node::TrueNode { .. }
+        | Node::FalseNode { .. }
+        | Node::ArrayNode { .. }
+        | Node::HashNode { .. }
+        | Node::LambdaNode { .. } => true,
+        Node::CallNode { .. } => lambda_literal_block(node).is_some(),
+        Node::ParenthesesNode { .. } => node
+            .as_parentheses_node()
+            .and_then(|parentheses| parentheses.body())
+            .and_then(|body| super::narrowing::single_statement(&body))
+            .is_some_and(|statement| depends_on_hint(&statement)),
+        Node::AndNode { .. } | Node::OrNode { .. } | Node::IfNode { .. } | Node::UnlessNode { .. } => true,
+        _ => false,
+    }
+}
+
+/// What a deferred argument stands as until it is typed: a lambda literal is a proc whatever its hint
+fn deferred_placeholder(node: &Node<'_>) -> Type {
+    if lambda_literal_block(node).is_none() {
+        return Type::Untyped;
+    }
+    let mut function = rbs_environment::Function::returning(Type::Untyped);
+    function.untyped_parameters = true;
+    Type::Proc(Box::new(rbs_environment::ProcType {
+        function,
+        block: None,
+        self_type: None,
+    }))
 }
 
 /// The node a lambda literal's body hangs off: the `LambdaNode` itself, or the block of `lambda { }` / `proc { }`

@@ -10,7 +10,7 @@ use crate::file_index::FileMethod;
 use crate::source::{Span, constant_text};
 use crate::steep_relation;
 use crate::type_utilities::{
-    can_be_nil, contains_uncertain_part, contains_variable_in, hash_of, instance_type_of_class, is_bottom,
+    can_be_nil, contains_any_variable, contains_uncertain_part, contains_variable_in, instance_type_of_class, is_bottom,
     literal_class_name, members_of, remove_nil, self_instance_type,
 };
 use crate::unification::{Bindings, class_substitution};
@@ -51,9 +51,9 @@ pub(crate) enum Lookup {
 pub(crate) enum CallBlock<'pr> {
     Absent,
     Literal(Node<'pr>),
+    /// `&expression`, typed once the block type is known as its hint; `None` for an anonymous `&`
     Argument {
-        argument_type: Type,
-        symbol: Option<String>,
+        expression: Option<Node<'pr>>,
         span: Span,
     },
 }
@@ -89,13 +89,14 @@ pub(crate) struct CallSite<'pr> {
     pub(crate) block: CallBlock<'pr>,
     pub(crate) is_self_call: bool,
     pub(crate) reports_diagnostics: bool,
-    pub(crate) deferred_lambdas: Vec<(usize, Node<'pr>)>,
+    /// Arguments typed only once the parameter that takes them is known, by their index in the arguments
+    pub(crate) deferred_arguments: Vec<(usize, Node<'pr>)>,
     /// Where Steep puts diagnostics that cover the whole call (`UnresolvedOverloading`), the call from the method
     /// name to its last argument (`Insufficient*Arguments`), and `NoMethod` (the `=` of an attribute write)
     pub(crate) expression_span: Span,
     pub(crate) send_span: Span,
     pub(crate) no_method_span: Span,
-    /// The declared type of the variable the call is assigned to, which Steep gives the call as its type hint
+    /// The type the context expects of the call, which constrains the type parameter the method returns
     pub(crate) return_hint: Option<Type>,
 }
 
@@ -112,13 +113,23 @@ impl PreparedCall {
         has_block: bool,
     ) -> PreparedCall {
         if found.overloads.is_empty() {
+            return PreparedCall::with_overload(environment, None, arguments);
+        }
+        let index = select_overload(environment, &found.overloads, |_| arguments, has_block);
+        PreparedCall::with_overload(environment, Some(&found.overloads[index]), arguments)
+    }
+
+    fn with_overload(
+        environment: &rbs_environment::Environment,
+        overload: Option<&MethodType>,
+        arguments: &CallArguments,
+    ) -> PreparedCall {
+        let Some(overload) = overload.cloned() else {
             return PreparedCall {
                 overload: None,
                 bindings: Bindings::new(Vec::new()),
             };
-        }
-        let index = select_overload(environment, &found.overloads, arguments, has_block);
-        let overload = found.overloads[index].clone();
+        };
         let mut bindings = Bindings::new(
             overload
                 .type_parameters
@@ -128,21 +139,7 @@ impl PreparedCall {
         );
         if let Ok(pairs) = match_arguments(&overload.function, arguments) {
             for pair in &pairs {
-                // Steep types a hash literal passed to a record parameter as a record, whose values bind the type
-                // variables of the fields
-                let argument_type = match (&pair.parameter_type, &pair.literal_type) {
-                    (Type::Record(_), Some(Type::Record(fields))) => Type::Record(
-                        fields
-                            .iter()
-                            .map(|field| rbs_environment::RecordField {
-                                field_type: widen_literal(&field.field_type),
-                                ..field.clone()
-                            })
-                            .collect(),
-                    ),
-                    _ => pair.argument_type.clone(),
-                };
-                bindings.unify(environment, &pair.parameter_type, &argument_type);
+                bindings.unify(environment, &pair.parameter_type, &pair.argument_type);
             }
         }
         PreparedCall {
@@ -180,6 +177,26 @@ impl PreparedCall {
         }
     }
 
+    /// Steep's `try_method_type` with a block checks the return type against the hint before typing the block, so
+    /// that the hint solves the type parameters the arguments leave unbound
+    fn bind_return_hint_for_block(&mut self, environment: &rbs_environment::Environment, hint: &Type) {
+        let Some(overload) = &self.overload else {
+            return;
+        };
+        if contains_any_variable(hint) {
+            return;
+        }
+        let mut hinted = Bindings::new(self.bindings.variable_names().to_vec());
+        hinted.unify(environment, &overload.function.return_type, hint);
+        for name in self.bindings.variable_names().to_vec() {
+            if self.bindings.bound_type(&name).is_none()
+                && let Some(bound) = hinted.bound_type(&name)
+            {
+                self.bindings.bind_exactly(&name, bound);
+            }
+        }
+    }
+
     fn block_signature(&self) -> BlockSignature {
         let Some(block) = self
             .overload
@@ -200,6 +217,7 @@ impl PreparedCall {
                 .self_type
                 .as_ref()
                 .map(|self_type| self_type.substitute(&partial).substitute(&closing)),
+            body_hint: Some(block.function.return_type.substitute(&partial)),
         }
     }
 
@@ -233,14 +251,14 @@ impl PreparedCall {
                 pairs.get(positional_index)?.parameter_type.clone()
             }
         };
-        let parameter_type = &parameter_type;
         let partial = self.bindings.substitution(false);
         let closing = close_variables(self.bindings.variable_names());
-        let parameter_type = expand_aliases(
-            environment,
-            &parameter_type.substitute(&partial).substitute(&closing),
-            0,
-        );
+        let open_parameter_type = expand_aliases(environment, &parameter_type.substitute(&partial), 0);
+        let body_hint = members_of(&open_parameter_type).into_iter().find_map(|member| match member {
+            Type::Proc(proc_type) => Some(proc_type.function.return_type),
+            _ => None,
+        });
+        let parameter_type = expand_aliases(environment, &open_parameter_type.substitute(&closing), 0);
         let proc_type =
             members_of(&parameter_type)
                 .into_iter()
@@ -252,6 +270,7 @@ impl PreparedCall {
             function: Some(proc_type.function),
             self_type: proc_type.self_type,
             break_type: None,
+            body_hint,
         })
     }
 
@@ -270,15 +289,6 @@ impl PreparedCall {
             .as_ref()
             .and_then(|overload| overload.block.as_ref())
             .is_some_and(|block| block.required)
-    }
-
-    fn block_first_parameter_type(&self) -> Option<Type> {
-        let signature = self.block_signature();
-        let function = signature.function?;
-        function
-            .required_positionals
-            .first()
-            .map(|parameter| parameter.parameter_type.clone())
     }
 
     fn finish(
@@ -300,25 +310,39 @@ impl PreparedCall {
     }
 }
 
+/// Steep sends a call without a receiver to `self` and names the expanded self type in its messages, or `self` itself
+/// when no shape of it can be built
+fn implicit_receiver_display(self_type: &Type) -> Type {
+    match self_type {
+        Type::Top | Type::Void => Type::SelfType,
+        _ => self_type.clone(),
+    }
+}
+
+/// Steep's `MethodType#accept_one_arg?`
+fn accepts_one_argument(overload: &MethodType) -> bool {
+    let function = &overload.function;
+    if overload.block.as_ref().is_some_and(|block| block.required)
+        || function.untyped_parameters
+        || !function.required_keywords.is_empty()
+    {
+        return false;
+    }
+    match function.required_positionals.len() {
+        0 => !function.optional_positionals.is_empty()
+            || function.rest_positionals.is_some()
+            || !function.trailing_positionals.is_empty(),
+        1 => function.trailing_positionals.is_empty(),
+        _ => false,
+    }
+}
+
 fn close_variables(names: &[String]) -> Substitution {
     let mut substitution = Substitution::default();
     for name in names {
         substitution.variables.insert(name.clone(), Type::Untyped);
     }
     substitution
-}
-
-/// The class of a literal type, as Steep types a literal without a literal hint
-fn widen_literal(target: &Type) -> Type {
-    match target {
-        Type::Literal(literal) => Type::instance(literal_class_name(literal)),
-        Type::ClassInstance { name, arguments } => Type::ClassInstance {
-            name: name.clone(),
-            arguments: arguments.iter().map(widen_literal).collect(),
-        },
-        Type::Union(members) => Type::union(members.iter().map(widen_literal).collect()),
-        other => other.clone(),
-    }
 }
 
 fn substitute_overload(overload: &MethodType, substitution: &Substitution) -> MethodType {
@@ -408,7 +432,13 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         None
     }
 
-    pub(crate) fn infer_call(&mut self, call: &CallNode<'pr>, context: &Context, locals: &mut Locals) -> Type {
+    pub(crate) fn infer_call(
+        &mut self,
+        call: &CallNode<'pr>,
+        hint: Option<&Type>,
+        context: &Context,
+        locals: &mut Locals,
+    ) -> Type {
         let method_name = constant_text(&call.name());
         let receiver = call.receiver();
         let block_node = call.block();
@@ -421,7 +451,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 .filter(|block| matches!(block, Node::BlockNode { .. }))
         {
             self.infer_arguments(call.arguments(), context, locals);
-            return self.infer_lambda(block, context, locals);
+            return self.infer_lambda(block, hint, context, locals);
         }
         // The parser gem Steep uses reads `/regexp/ =~ value` as `match_with_lvasgn`, which Steep types as `untyped`
         // without looking the method up
@@ -437,7 +467,8 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         }
         let receiver_type = match &receiver {
             Some(receiver) => {
-                let receiver_type = self.infer(receiver, context, locals);
+                let receiver_hint = self.receiver_hint(receiver, &method_name, hint);
+                let receiver_type = self.infer_with_hint(receiver, receiver_hint, context, locals);
                 self.record_receiver(Span::of_node(receiver), &receiver_type);
                 receiver_type
             }
@@ -452,14 +483,14 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             self.record_unexpected_error(Span::of_location(&call.location()), error);
             return Type::Untyped;
         }
-        let mut deferred_lambdas = Vec::new();
-        let arguments = self.infer_arguments_deferring_lambdas(
+        let mut deferred_arguments = Vec::new();
+        let arguments = self.infer_arguments_deferring(
             call.arguments(),
             context,
             locals,
-            Some(&mut deferred_lambdas),
+            Some(&mut deferred_arguments),
         );
-        let block = self.call_block(block_node, context, locals);
+        let block = Self::call_block(block_node);
         let call_span = Span::of_location(&call.location());
         let name_span = call
             .message_loc()
@@ -482,10 +513,6 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             _ => name_span,
         };
         let is_safe_navigation = call.is_safe_navigation();
-        let return_hint = self
-            .call_hint
-            .take_if(|(hinted_span, _)| *hinted_span == call_span)
-            .map(|(_, hint)| hint);
         let dispatch_receiver = if is_safe_navigation {
             remove_nil(&receiver_type)
         } else {
@@ -499,11 +526,11 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 .as_ref()
                 .is_none_or(|receiver| matches!(receiver, Node::SelfNode { .. })),
             reports_diagnostics: true,
-            deferred_lambdas,
+            deferred_arguments,
             expression_span: call_span,
             send_span,
             no_method_span,
-            return_hint,
+            return_hint: hint.cloned(),
         };
         if receiver_type.is_untyped()
             && let Some(arguments_node) = call.arguments()
@@ -520,9 +547,13 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 }
             }
         }
+        let displayed_receiver_type = match &receiver {
+            Some(_) => receiver_type.clone(),
+            None => implicit_receiver_display(&receiver_type),
+        };
         let mut result = self.dispatch_call(
             &dispatch_receiver,
-            &receiver_type,
+            &displayed_receiver_type,
             &site,
             &arguments,
             context,
@@ -555,13 +586,6 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         {
             result = element;
         }
-        if self.options.steep_version >= SteepVersion::Version2_1
-            && let Type::Tuple(elements) = &structural_receiver
-            && method_name == "to_ary"
-            && arguments.values.is_empty()
-        {
-            result = Type::Tuple(elements.clone());
-        }
         if method_name == "class"
             && arguments.values.is_empty()
             && matches!(&result, Type::ClassInstance { name, .. } if name == "Class")
@@ -581,6 +605,31 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             self.record_attribute_hints(call, &method_name, context);
         }
         result
+    }
+
+    /// Steep gives a receiver no hint, so `[{ name: "a" }].freeze` stays an array of hashes. Beyond Steep, the
+    /// default mode hints a collection literal with the hint of a call that returns the receiver itself
+    fn receiver_hint<'hint>(
+        &self,
+        receiver: &Node<'pr>,
+        method_name: &str,
+        hint: Option<&'hint Type>,
+    ) -> Option<&'hint Type> {
+        if self.options.steep_compatible {
+            return None;
+        }
+        let class_name = match receiver {
+            Node::ArrayNode { .. } => "Array",
+            Node::HashNode { .. } => "Hash",
+            _ => return None,
+        };
+        let method = self.environment.find_instance_method(class_name, method_name)?;
+        let returns_receiver = !method.overloads.is_empty()
+            && method
+                .overloads
+                .iter()
+                .all(|overload| matches!(overload.function.return_type, Type::SelfType));
+        if returns_receiver { hint } else { None }
     }
 
     /// Why Steep cannot build the definition it looks the method up in, when the receiver is an instance or the
@@ -637,7 +686,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             block: CallBlock::Absent,
             is_self_call: true,
             reports_diagnostics: true,
-            deferred_lambdas: Vec::new(),
+            deferred_arguments: Vec::new(),
             expression_span: span,
             send_span: span,
             no_method_span: span,
@@ -646,7 +695,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         let self_type = context.self_type.clone();
         self.dispatch_call(
             &self_type,
-            &self_type,
+            &implicit_receiver_display(&self_type),
             &site,
             &CallArguments { values: Vec::new() },
             context,
@@ -654,32 +703,15 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         )
     }
 
-    fn call_block(
-        &mut self,
-        block_node: Option<Node<'pr>>,
-        context: &Context,
-        locals: &mut Locals,
-    ) -> CallBlock<'pr> {
+    fn call_block(block_node: Option<Node<'pr>>) -> CallBlock<'pr> {
         match block_node {
             Some(block) if matches!(block, Node::BlockNode { .. }) => CallBlock::Literal(block),
             Some(block) => {
                 let Some(block_argument) = block.as_block_argument_node() else {
                     return CallBlock::Absent;
                 };
-                let Some(expression) = block_argument.expression() else {
-                    return CallBlock::Argument {
-                        argument_type: Type::Untyped,
-                        symbol: None,
-                        span: Span::of_node(&block),
-                    };
-                };
-                let symbol = expression
-                    .as_symbol_node()
-                    .map(|symbol| String::from_utf8_lossy(symbol.unescaped()).into_owned());
-                let argument_type = self.infer(&expression, context, locals);
                 CallBlock::Argument {
-                    argument_type,
-                    symbol,
+                    expression: block_argument.expression(),
                     span: Span::of_node(&block),
                 }
             }
@@ -720,26 +752,58 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         let primary_index = lookups
             .iter()
             .position(|lookup| matches!(lookup, Lookup::Found(_)));
+        let primary_overloads: Vec<MethodType> = match primary_index.map(|index| &lookups[index]) {
+            Some(Lookup::Found(found)) => found.overloads.clone(),
+            _ => Vec::new(),
+        };
+        let mut overload_arguments: Vec<CallArguments> = if site.deferred_arguments.is_empty() {
+            Vec::new()
+        } else {
+            primary_overloads
+                .iter()
+                .map(|overload| {
+                    self.hint_deferred_arguments(Some(overload), arguments, &site.deferred_arguments, true, context, locals)
+                })
+                .collect()
+        };
+        let selected = (!primary_overloads.is_empty()).then(|| {
+            select_overload(
+                self.environment,
+                &primary_overloads,
+                |index| overload_arguments.get(index).unwrap_or(arguments),
+                has_block,
+            )
+        });
         if self.options.steep_compatible
             && !self.is_silent()
-            && let Some(index) = primary_index
+            && let (Some(index), Some(selected)) = (primary_index, selected)
             && let Lookup::Found(found) = &mut lookups[index]
-            && !found.overloads.is_empty()
         {
-            let selected = select_overload(self.environment, &found.overloads, arguments, has_block);
             for overload in found.overloads.iter_mut().take(selected + 1) {
                 if !overload.type_parameters.is_empty() {
                     *overload = self.rename_type_parameters_freshly(overload);
                 }
             }
         }
+        let selected_overload = match (primary_index.map(|index| &lookups[index]), selected) {
+            (Some(Lookup::Found(found)), Some(selected)) => found.overloads.get(selected).cloned(),
+            _ => None,
+        };
+        let arguments = &self.hint_deferred_arguments(
+            selected_overload.as_ref(),
+            arguments,
+            &site.deferred_arguments,
+            false,
+            context,
+            locals,
+        );
+        if let Some(selected) = selected
+            && let Some(selected_arguments) = overload_arguments.get_mut(selected)
+        {
+            *selected_arguments = arguments.clone();
+        }
         let mut primary_prepared = primary_index.and_then(|index| match &lookups[index] {
-            Lookup::Found(found) => Some(PreparedCall::new(
-                self.environment,
-                found,
-                arguments,
-                has_block,
-            )),
+            Lookup::Found(_) => Some(PreparedCall::with_overload(self.environment, selected_overload.as_ref(), arguments)),
             _ => None,
         });
         let unsatisfiable_return_hint = match (&site.return_hint, primary_prepared.as_mut()) {
@@ -783,16 +847,25 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 message,
             );
         }
-        for (value_index, lambda_node) in &site.deferred_lambdas {
+        for (value_index, node) in &site.deferred_arguments {
+            let Some(block) = super::arguments::lambda_literal_block(node) else {
+                continue;
+            };
             let signature = primary_prepared
                 .as_ref()
                 .and_then(|prepared| {
                     prepared.parameter_proc_signature(self.environment, arguments, *value_index)
                 })
                 .unwrap_or_else(BlockSignature::untyped);
-            if let Some(block) = super::arguments::lambda_literal_block(lambda_node) {
-                self.infer_lambda_with(&block, &signature, context, locals);
-            }
+            self.infer_lambda_with(&block, &signature, context, locals);
+        }
+        if let (CallBlock::Literal(_), Some(hint), Some(prepared), None) = (
+            &site.block,
+            &site.return_hint,
+            primary_prepared.as_mut(),
+            &unsatisfiable_return_hint,
+        ) {
+            prepared.bind_return_hint_for_block(self.environment, hint);
         }
         let block_result = match &site.block {
             CallBlock::Literal(block_node) => {
@@ -845,63 +918,47 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 }
                 Some(block_type)
             }
-            CallBlock::Argument {
-                argument_type,
-                symbol,
-                span,
-            } => {
-                let first_parameter = primary_prepared
-                    .as_ref()
-                    .and_then(PreparedCall::block_first_parameter_type);
-                let symbol_receiver_error = symbol
-                    .as_ref()
-                    .and(first_parameter.as_ref())
-                    .and_then(|first_parameter| self.definition_error_of(first_parameter));
-                let (block_type, symbol_is_missing) = if let Some(error) = symbol_receiver_error {
-                    self.record_unexpected_error(*span, error);
-                    (Type::Untyped, false)
+            CallBlock::Argument { expression, span } => {
+                // Steep checks a block-pass argument against the block type, `nil` included when the block is
+                // optional. Steep 2.0 also hints the argument with that type, which keeps `&:name` from being typed
+                // as the method's proc; Steep 2.1 hints it with the proc type alone
+                let proc_type = primary_prepared.as_ref().and_then(PreparedCall::block_proc_type);
+                let expected = proc_type.as_ref().map(|proc_type| {
+                    if primary_prepared.as_ref().is_some_and(PreparedCall::is_block_required) {
+                        proc_type.clone()
+                    } else {
+                        Type::optional(proc_type.clone())
+                    }
+                });
+                let hint = if self.options.steep_compatible && self.options.steep_version < SteepVersion::Version2_1 {
+                    expected.as_ref()
                 } else {
-                    self.block_argument_result(argument_type, symbol.as_deref(), first_parameter.clone(), context)
+                    proc_type.as_ref()
+                };
+                let given = match expression {
+                    Some(expression) => self.infer_block_pass(expression, hint, *span, context, locals),
+                    None => Type::Untyped,
                 };
                 if site.reports_diagnostics
-                    && let Some(expected) = primary_prepared
-                        .as_ref()
-                        .and_then(PreparedCall::block_proc_type)
+                    && let Some(expected) = &expected
+                    && self.is_certain_mismatch(&given, expected)
                 {
-                    let given = if symbol_is_missing {
-                        Some(Type::instance("Proc"))
-                    } else if symbol.is_none()
-                        && matches!(argument_type, Type::Proc(_))
-                        && self.is_certain_mismatch(argument_type, &expected)
-                    {
-                        Some(argument_type.clone())
-                    } else if let (Some(_), Some(first_parameter), Type::Proc(expected_proc)) =
-                        (symbol, first_parameter, &expected)
-                        && (self.options.steep_version >= SteepVersion::Version2_1
-                            || primary_prepared.as_ref().is_some_and(PreparedCall::is_block_required))
-                        && self.is_certain_mismatch(&block_type, &expected_proc.function.return_type)
-                    {
-                        let mut function = rbs_environment::Function::returning(block_type.clone());
-                        function.required_positionals = vec![rbs_environment::Parameter::new(first_parameter)];
-                        Some(Type::Proc(Box::new(rbs_environment::ProcType { function, block: None, self_type: None })))
-                    } else {
-                        None
-                    };
-                    if let Some(given) = given {
-                        let message = steep_relation::with_detail_lines(
-                            format!(
-                                "Cannot pass a value of type `{}` as a block-pass-argument of type `{}`",
-                                given.steep_display(),
-                                expected.steep_display()
-                            ),
-                            self.environment,
-                            &given,
-                            &expected,
-                        );
-                        self.record_diagnostic(*span, Severity::Warning, "Ruby::BlockTypeMismatch", message);
-                    }
+                    let message = steep_relation::with_detail_lines(
+                        format!(
+                            "Cannot pass a value of type `{}` as a block-pass-argument of type `{}`",
+                            given.steep_display(),
+                            expected.steep_display()
+                        ),
+                        self.environment,
+                        &given,
+                        expected,
+                    );
+                    self.record_diagnostic(*span, Severity::Warning, "Ruby::BlockTypeMismatch", message);
                 }
-                Some(block_type)
+                Some(match given {
+                    Type::Proc(proc_type) => proc_type.function.return_type,
+                    _ => Type::Untyped,
+                })
             }
             CallBlock::Absent => None,
         };
@@ -978,7 +1035,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                     found,
                     prepared,
                     site,
-                    arguments,
+                    |index| overload_arguments.get(index).unwrap_or(arguments),
                     displayed_receiver_type,
                 );
             }
@@ -1012,6 +1069,67 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             self.record_type_hover(site.name_span, &displayed_result);
         }
         result
+    }
+
+    /// Types the deferred arguments with the parameters of `overload` that take them as hints, without recording
+    /// anything when `silently`. A lambda literal is left as it stands, to be typed with its proc type once the
+    /// other arguments bind the type parameters
+    fn hint_deferred_arguments(
+        &mut self,
+        overload: Option<&MethodType>,
+        arguments: &CallArguments,
+        deferred_arguments: &[(usize, Node<'pr>)],
+        silently: bool,
+        context: &Context,
+        locals: &mut Locals,
+    ) -> CallArguments {
+        let pairs = overload
+            .and_then(|overload| match_arguments(&overload.function, arguments).ok())
+            .unwrap_or_default();
+        let mut hinted = arguments.clone();
+        for (index, node) in deferred_arguments {
+            if super::arguments::lambda_literal_block(node).is_some() {
+                continue;
+            }
+            let Some(value) = hinted.values.get_mut(*index) else {
+                continue;
+            };
+            let hint = pairs
+                .iter()
+                .find(|pair| pair.span == value.span)
+                .map(|pair| pair.parameter_type.clone())
+                .or_else(|| self.folded_keyword_hint(value, &pairs));
+            value.argument_type = if silently {
+                let mut scratch_locals = locals.clone();
+                self.silently(|checker| checker.infer_with_hint(node, hint.as_ref(), context, &mut scratch_locals))
+                    .unwrap_or(Type::Untyped)
+            } else {
+                self.infer_with_hint(node, hint.as_ref(), context, locals)
+            };
+        }
+        hinted
+    }
+
+    /// The hint of a keyword folded with the others into the hash a positional record parameter takes: the field of
+    /// the record named by the keyword
+    fn folded_keyword_hint(
+        &self,
+        value: &super::arguments::ArgumentValue,
+        pairs: &[super::arguments::ArgumentPair],
+    ) -> Option<Type> {
+        let super::arguments::ArgumentKind::Keyword { name, .. } = &value.kind else {
+            return None;
+        };
+        let pair = pairs
+            .iter()
+            .find(|pair| pair.span.start <= value.span.start && value.span.end <= pair.span.end)?;
+        match self.expand_alias_deeply(&pair.parameter_type, 0) {
+            Type::Record(fields) => fields
+                .into_iter()
+                .find(|field| field.name == *name)
+                .map(|field| field.field_type),
+            _ => None,
+        }
     }
 
     /// Return type of the overload these arguments select, before binding its type parameters
@@ -1063,12 +1181,12 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         prepared.finish(self.environment, block_result)
     }
 
-    fn report_argument_errors(
+    fn report_argument_errors<'arguments>(
         &mut self,
         found: &FoundMethod,
         _prepared: &PreparedCall,
         site: &CallSite<'pr>,
-        arguments: &CallArguments,
+        arguments_for: impl Fn(usize) -> &'arguments CallArguments,
         receiver_type: &Type,
     ) {
         if !found.diagnostics_allowed || found.overloads.is_empty() {
@@ -1076,8 +1194,8 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         }
         let has_block = !matches!(site.block, CallBlock::Absent);
         let mut failures: Vec<Vec<OverloadError>> = Vec::new();
-        for overload in &found.overloads {
-            let errors = self.overload_errors(overload, arguments, has_block);
+        for (index, overload) in found.overloads.iter().enumerate() {
+            let errors = self.overload_errors(overload, arguments_for(index), has_block);
             if errors.is_empty() {
                 return;
             }
@@ -1129,12 +1247,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                     {
                         continue;
                     }
-                    let literal_fits = pair.literal_type.as_ref().is_some_and(|literal| {
-                        !self.is_certain_mismatch(literal, &pair.parameter_type)
-                    });
-                    if !literal_fits
-                        && self.is_certain_mismatch(&pair.argument_type, &pair.parameter_type)
-                    {
+                    if self.is_certain_mismatch(&pair.argument_type, &pair.parameter_type) {
                         errors.push(OverloadError::TypeMismatch(pair));
                     }
                 }
@@ -1237,60 +1350,143 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         );
     }
 
-    /// What `&:name` makes the block return, and whether `name` is missing on the yielded value, in which case
-    /// Steep sees a plain `Proc` that does not fit the block type (`BlockTypeMismatch`)
-    fn block_argument_result(
+    /// Steep's `:block_pass`: a proc hint types `&:name` and `&method(:name)` as the proc of the method, and any
+    /// other value is converted with `to_proc`
+    fn infer_block_pass(
         &mut self,
-        argument_type: &Type,
-        symbol: Option<&str>,
-        first_parameter: Option<Type>,
+        expression: &Node<'pr>,
+        hint: Option<&Type>,
+        span: Span,
         context: &Context,
-    ) -> (Type, bool) {
-        if let Type::Proc(proc_type) = argument_type {
-            return (proc_type.function.return_type.clone(), false);
-        }
-        let (Some(symbol), Some(first_parameter)) = (symbol, first_parameter) else {
-            return (Type::Untyped, false);
+        locals: &mut Locals,
+    ) -> Type {
+        let given = self.infer_with_hint(expression, hint, context, locals);
+        let method_proc = match hint {
+            Some(Type::Proc(proc_hint)) => match expression {
+                Node::SymbolNode { .. } => expression.as_symbol_node().and_then(|symbol| {
+                    let name = String::from_utf8_lossy(symbol.unescaped()).into_owned();
+                    self.symbol_proc_type(&name, proc_hint, span, context)
+                }),
+                Node::CallNode { .. } => self.method_object_proc_type(expression, &given, context, locals),
+                _ => None,
+            },
+            _ => None,
         };
-        let mut results = Vec::new();
-        for member in members_of(&first_parameter) {
-            match self.lookup_member(&member, symbol, context, 0) {
-                Lookup::Found(found) => {
-                    // Steep types `&:name` as a plain `Proc` when no overload of the method takes no arguments
-                    let callable_without_arguments = found.overloads.is_empty()
-                        || found
-                            .overloads
-                            .iter()
-                            .any(|overload| match_arguments(&overload.function, &CallArguments::default()).is_ok());
-                    if self.options.steep_compatible && !callable_without_arguments {
-                        return (Type::Untyped, true);
-                    }
-                    let mut prepared = PreparedCall::new(
-                        self.environment,
-                        &found,
-                        &CallArguments::default(),
-                        false,
-                    );
-                    results.push(self.found_method_result(
-                        &found,
-                        &mut prepared,
-                        &CallArguments::default(),
-                        None,
-                    ));
-                    if found.missing_from_signature {
-                        return (Type::Untyped, true);
-                    }
-                }
-                Lookup::Unreachable => {}
-                Lookup::Missing { reportable: true } => return (Type::Untyped, true),
-                _ => return (Type::Untyped, false),
+        let given = method_proc.unwrap_or(given);
+        match &given {
+            Type::Proc(_) => given,
+            Type::ClassInstance { name, .. } if name == "Proc" => given,
+            _ => self.converted_type(&given, "to_proc", context).unwrap_or(given),
+        }
+    }
+
+    /// `&:name` passed to a block of one parameter calls `name` on it: the proc returns what the first overload of
+    /// `name` callable without arguments returns
+    fn symbol_proc_type(
+        &mut self,
+        method_name: &str,
+        proc_hint: &rbs_environment::ProcType,
+        span: Span,
+        context: &Context,
+    ) -> Option<Type> {
+        let function = &proc_hint.function;
+        let takes_one_argument = function.untyped_parameters
+            || function.required_positionals.len() == 1
+                && function.optional_positionals.is_empty()
+                && function.rest_positionals.is_none()
+                && function.trailing_positionals.is_empty()
+                && function.required_keywords.is_empty()
+                && function.optional_keywords.is_empty()
+                && function.rest_keywords.is_none();
+        if !takes_one_argument || function.untyped_parameters {
+            return None;
+        }
+        let parameter_type = function.required_positionals[0].parameter_type.clone();
+        if parameter_type.is_untyped() {
+            return Some(Type::Untyped);
+        }
+        if let Some(error) = self.definition_error_of(&parameter_type) {
+            self.record_unexpected_error(span, error);
+            return Some(Type::Untyped);
+        }
+        let mut return_types = Vec::new();
+        for member in members_of(&parameter_type) {
+            let Lookup::Found(found) = self.lookup_member(&member, method_name, context, 0) else {
+                return None;
+            };
+            if found.missing_from_signature {
+                return None;
             }
+            let return_type = found
+                .overloads
+                .iter()
+                .find(|overload| match_arguments(&overload.function, &CallArguments::default()).is_ok())
+                .map(|overload| overload.function.return_type.clone())?;
+            return_types.push(return_type);
         }
-        if results.is_empty() {
-            (Type::Untyped, false)
-        } else {
-            (Type::union(results), false)
+        let mut proc_function = rbs_environment::Function::returning(Type::union(return_types));
+        proc_function.required_positionals = vec![rbs_environment::Parameter::new(parameter_type)];
+        Some(Type::Proc(Box::new(rbs_environment::ProcType {
+            function: proc_function,
+            block: None,
+            self_type: None,
+        })))
+    }
+
+    /// `&method(:name)` is the proc of the method when an overload of it without type parameters takes one argument
+    fn method_object_proc_type(
+        &mut self,
+        expression: &Node<'pr>,
+        given: &Type,
+        context: &Context,
+        locals: &mut Locals,
+    ) -> Option<Type> {
+        if !matches!(given, Type::ClassInstance { name, .. } if name == "Method") {
+            return None;
         }
+        let call = expression.as_call_node()?;
+        if call.name().as_slice() != b"method" {
+            return None;
+        }
+        let arguments: Vec<Node<'pr>> = call.arguments()?.arguments().iter().collect();
+        let [argument] = arguments.as_slice() else {
+            return None;
+        };
+        let method_name = String::from_utf8_lossy(argument.as_symbol_node()?.unescaped()).into_owned();
+        let receiver_type = match call.receiver() {
+            Some(receiver) => {
+                let mut scratch_locals = locals.clone();
+                self.silently(|checker| checker.infer(&receiver, context, &mut scratch_locals))?
+            }
+            None => context.self_type.clone(),
+        };
+        let Lookup::Found(found) = self.lookup_member(&receiver_type, &method_name, context, 0) else {
+            return None;
+        };
+        let overload = found.overloads.iter().find(|overload| accepts_one_argument(overload))?;
+        if !overload.type_parameters.is_empty() {
+            return None;
+        }
+        Some(Type::Proc(Box::new(rbs_environment::ProcType {
+            function: overload.function.clone(),
+            block: overload.block.clone(),
+            self_type: None,
+        })))
+    }
+
+    /// Steep's `try_convert`: what the conversion method returns when it can be called without arguments
+    fn converted_type(&mut self, target: &Type, method_name: &str, context: &Context) -> Option<Type> {
+        let Lookup::Found(found) = self.lookup_member(target, method_name, context, 0) else {
+            return None;
+        };
+        found
+            .overloads
+            .iter()
+            .find(|overload| match_arguments(&overload.function, &CallArguments::default()).is_ok())
+            .map(|overload| overload.function.return_type.substitute(&Substitution {
+                self_type: Some(target.clone()),
+                ..Substitution::default()
+            }))
     }
 
     pub(crate) fn operator_result_type(
@@ -1307,7 +1503,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             block: CallBlock::Absent,
             is_self_call: false,
             reports_diagnostics: true,
-            deferred_lambdas: Vec::new(),
+            deferred_arguments: Vec::new(),
             expression_span: operator_span,
             send_span: operator_span,
             no_method_span: operator_span,
@@ -1330,9 +1526,9 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
         }
         match member {
             Type::Bottom => Lookup::Unreachable,
-            Type::Untyped | Type::Top | Type::Void | Type::Variable(_) | Type::Class => {
-                Lookup::Unknown
-            }
+            Type::Untyped | Type::Variable(_) | Type::Class => Lookup::Unknown,
+            // Unlike `untyped`, Steep builds no shape for `top` and `void`, so no method is found on them
+            Type::Top | Type::Void => Lookup::Missing { reportable: true },
             Type::SelfType | Type::Instance => {
                 if matches!(context.self_type, Type::SelfType | Type::Instance) {
                     Lookup::Unknown
@@ -1381,8 +1577,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 } else {
                     Type::union(elements.clone())
                 };
-                let array = Type::generic("Array", vec![element.clone()]);
-                self.lookup_instance("Array", &[element], &array, method_name, context, depth)
+                self.lookup_instance("Array", &[element], member, method_name, context, depth)
             }
             Type::Record(fields) => {
                 let value = Type::union(
@@ -1391,11 +1586,10 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                         .map(|field| field.field_type.clone())
                         .collect(),
                 );
-                let hash = hash_of(Type::instance("Symbol"), value.clone());
                 self.lookup_instance(
                     "Hash",
                     &[Type::instance("Symbol"), value],
-                    &hash,
+                    member,
                     method_name,
                     context,
                     depth,
@@ -2059,7 +2253,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             block: CallBlock::Absent,
             is_self_call: receiver.is_none(),
             reports_diagnostics: true,
-            deferred_lambdas: Vec::new(),
+            deferred_arguments: Vec::new(),
             expression_span: name_span,
             send_span: name_span,
             no_method_span: name_span,
@@ -2087,13 +2281,19 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
     }
 
     pub(crate) fn infer_super(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
+        let mut deferred_arguments = Vec::new();
         let (arguments, block_node, keyword_span) = match node {
             Node::SuperNode { .. } => {
                 let Some(super_node) = node.as_super_node() else {
                     return Type::Untyped;
                 };
                 (
-                    self.infer_arguments(super_node.arguments(), context, locals),
+                    self.infer_arguments_deferring(
+                        super_node.arguments(),
+                        context,
+                        locals,
+                        Some(&mut deferred_arguments),
+                    ),
                     super_node.block(),
                     Span::of_location(&super_node.keyword_loc()),
                 )
@@ -2107,7 +2307,6 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                         argument_type: Type::Untyped,
                         span: Span::of_node(node),
                         kind: super::arguments::ArgumentKind::Forwarding,
-                        literal_type: None,
                     }],
                 };
                 (
@@ -2117,10 +2316,17 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
                 )
             }
         };
-        let block = self.call_block(block_node, context, locals);
+        let block = Self::call_block(block_node);
         let infer_untyped_block = |checker: &mut Self, locals: &mut Locals| {
-            if let CallBlock::Literal(block_node) = &block {
-                checker.infer_block(block_node, &BlockSignature::untyped(), context, locals);
+            checker.hint_deferred_arguments(None, &arguments, &deferred_arguments, false, context, locals);
+            match &block {
+                CallBlock::Literal(block_node) => {
+                    checker.infer_block(block_node, &BlockSignature::untyped(), context, locals);
+                }
+                CallBlock::Argument { expression: Some(expression), .. } => {
+                    checker.infer(expression, context, locals);
+                }
+                _ => {}
             }
         };
         let declared = context.method.as_ref().is_some_and(|method| {
@@ -2166,7 +2372,7 @@ impl<'environment, 'pr> Checker<'environment, 'pr> {
             block,
             is_self_call: true,
             reports_diagnostics: self.options.steep_compatible,
-            deferred_lambdas: Vec::new(),
+            deferred_arguments,
             expression_span,
             send_span: expression_span,
             no_method_span: expression_span,

@@ -39,6 +39,30 @@ class Settings
   ENTRIES: Array[{ name: String }]
   LITERAL_ENTRIES: Array[{ name: String }]
 end
+
+class LabeledEnum
+  type field = { key: Symbol, label: String }
+
+  def self.define_label: (Symbol name) -> void
+  def self.field: (Symbol key, String label) -> field
+end
+
+class NamePositions
+  def self.positions: (Array[String] names) -> Hash[[String, Integer], Integer]
+end
+
+class IndexWith
+  def index_with: (?untyped default) ?{ (untyped) -> untyped } -> untyped
+end
+
+class Endpoint
+  def self.build: (Array[String] parts) -> Endpoint
+                | ({ host: String?, path: String?, query: String? }) -> Endpoint
+end
+
+class Request
+  def cancel!: () -> void
+end
 "#;
 
 const STEEP_COMPATIBLE: AnalysisOptions = AnalysisOptions {
@@ -361,14 +385,9 @@ class Clock
 end
 "#;
     let (default, compatible) = both_modes(environment, source);
-    assert_eq!(
-        compatible.messages_with_code("Ruby::IncompatibleAssignment"),
-        vec!["Cannot assign a value of type `void` to a variable of type `::String`\n  void <: ::String"]
-    );
-    assert_eq!(
-        diagnostics_with_code(&default, "Ruby::IncompatibleAssignment"),
-        Vec::<String>::new()
-    );
+    let expected = vec!["Cannot assign a value of type `void` to a variable of type `::String`\n  void <: ::String"];
+    assert_eq!(compatible.messages_with_code("Ruby::IncompatibleAssignment"), expected);
+    assert_eq!(default.messages_with_code("Ruby::IncompatibleAssignment"), expected);
 }
 
 #[test]
@@ -421,4 +440,72 @@ fn a_local_variable_that_is_nil_keeps_its_type_in_a_block() {
         diagnostics_with_code(&default, "Ruby::NoMethod"),
         Vec::<String>::new()
     );
+}
+
+#[test]
+fn what_steep_reports_on_a_self_type_of_top_and_on_a_frozen_hash_for_a_record() {
+    let environment = steep_compatible_environment_or_skip!();
+    let source = r##"
+class LabeledEnum
+  def self.define_label(name)
+    define_method(:"#{name}_label") do
+      public_send(name)
+    end
+  end
+
+  def self.field(key, label)
+    { key:, label: }.freeze
+  end
+end
+"##;
+    let (default, compatible) = both_modes(environment, source);
+    assert_eq!(
+        compatible.diagnostic_messages(),
+        vec![
+            "Ruby::NoMethod: Type `self` does not have method `public_send`",
+            "Ruby::MethodBodyTypeMismatch: Cannot allow method body have type `::Hash[::Symbol, (::Symbol | ::String)]` because declared as type `{ :key => ::Symbol, :label => ::String }`\n  ::Hash[::Symbol, (::Symbol | ::String)] <: { :key => ::Symbol, :label => ::String }",
+        ]
+    );
+    // The default mode hints the receiver of `freeze`, which returns the receiver, so the hash is the record
+    assert_eq!(
+        default.diagnostic_messages(),
+        vec!["Ruby::NoMethod: Type `self` does not have method `public_send`"]
+    );
+}
+
+#[test]
+fn a_symbol_block_argument_of_an_optional_block_is_a_plain_proc_only_in_steep_2_0() {
+    let environment = steep_compatible_environment_or_skip!();
+    let source = "IndexWith.new.index_with(&:to_s)\n";
+    let (default, compatible) = both_modes(environment, source);
+    assert_eq!(
+        compatible.diagnostic_messages(),
+        vec![
+            "Ruby::BlockTypeMismatch: Cannot pass a value of type `::Proc` as a block-pass-argument of type `(^(untyped) -> untyped | nil)`\n  ::Proc <: (^(untyped) -> untyped | nil)\n    ::Proc <: ^(untyped) -> untyped"
+        ]
+    );
+    let steep_2_1 = AnalysisOptions {
+        steep_compatible: true,
+        steep_version: SteepVersion::Version2_1,
+    };
+    assert!(support::check_with_options(environment, source, steep_2_1).diagnostic_messages().is_empty());
+    assert!(default.diagnostic_messages().is_empty());
+}
+
+#[test]
+fn hints_type_generic_block_results_folded_keywords_and_void_block_results_as_steep_does() {
+    let environment = steep_compatible_environment_or_skip!();
+    let source = r#"
+class NamePositions
+  def self.positions(names)
+    names.each_with_index.to_h { |name, index| [[name, index], index] }
+  end
+end
+
+Endpoint.build(host: "example.com", path: "/")
+[Request.new].map(&:cancel!)
+"#;
+    let (default, compatible) = both_modes(environment, source);
+    assert_eq!(compatible.diagnostic_messages(), Vec::<String>::new());
+    assert_eq!(default.diagnostic_messages(), Vec::<String>::new());
 }

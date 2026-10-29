@@ -43,7 +43,13 @@ fn merge_branches(base: &Locals, branches: Vec<Branch>) -> (Locals, Type) {
 }
 
 impl<'pr> Checker<'_, 'pr> {
-    pub(crate) fn infer_conditional(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
+    pub(crate) fn infer_conditional(
+        &mut self,
+        node: &Node<'pr>,
+        hint: Option<&Type>,
+        context: &Context,
+        locals: &mut Locals,
+    ) -> Type {
         let (predicate, statements, subsequent, negated) = match node {
             Node::IfNode { .. } => {
                 let Some(if_node) = node.as_if_node() else {
@@ -84,7 +90,7 @@ impl<'pr> Checker<'_, 'pr> {
             }
             None => context.clone(),
         };
-        let then_type = self.infer_optional_statements(statements, &then_context, &mut then_locals);
+        let then_type = self.infer_optional_statements(statements, hint, &then_context, &mut then_locals);
         let else_type = match subsequent {
             Some(Node::ElseNode { .. }) => {
                 let else_statements = subsequent
@@ -97,11 +103,11 @@ impl<'pr> Checker<'_, 'pr> {
                     }
                     None => context.clone(),
                 };
-                self.infer_optional_statements(else_statements, &else_context, &mut else_locals)
+                self.infer_optional_statements(else_statements, hint, &else_context, &mut else_locals)
             }
             Some(other) => {
                 let else_context = self.branch_context(Span::of_node(&other), context, &mut else_locals);
-                self.infer(&other, &else_context, &mut else_locals)
+                self.infer_with_hint(&other, hint, &else_context, &mut else_locals)
             }
             None => Type::Nil,
         };
@@ -310,6 +316,7 @@ impl<'pr> Checker<'_, 'pr> {
     pub(crate) fn infer_and(
         &mut self,
         node: &Node<'pr>,
+        hint: Option<&Type>,
         context: &Context,
         locals: &mut Locals,
     ) -> Type {
@@ -317,10 +324,10 @@ impl<'pr> Checker<'_, 'pr> {
             return Type::Untyped;
         };
         let left = and.left();
-        let left_type = self.infer(&left, context, locals);
+        let left_type = self.infer_with_hint(&left, hint, context, locals);
         let mut right_locals = locals.clone();
         self.narrow(&left, true, context, &mut right_locals);
-        let right_type = self.infer(&and.right(), context, &mut right_locals);
+        let right_type = self.infer_with_hint(&and.right(), hint, context, &mut right_locals);
         let mut short_circuit_locals = locals.clone();
         self.narrow(&left, false, context, &mut short_circuit_locals);
         let falsy = if left_type.is_untyped() {
@@ -352,6 +359,7 @@ impl<'pr> Checker<'_, 'pr> {
     pub(crate) fn infer_or(
         &mut self,
         node: &Node<'pr>,
+        hint: Option<&Type>,
         context: &Context,
         locals: &mut Locals,
     ) -> Type {
@@ -359,10 +367,14 @@ impl<'pr> Checker<'_, 'pr> {
             return Type::Untyped;
         };
         let left = or.left();
-        let left_type = self.infer(&left, context, locals);
+        // Steep lets the left side be falsy within the hint, and hints the right side with what the left side is
+        // when truthy
+        let left_hint = hint.map(|hint| Type::union(vec![hint.clone(), Type::Nil, Type::Literal(rbs_environment::Literal::False)]));
+        let left_type = self.infer_with_hint(&left, left_hint.as_ref(), context, locals);
         let mut right_locals = locals.clone();
         self.narrow(&left, false, context, &mut right_locals);
-        let right_type = self.infer(&or.right(), context, &mut right_locals);
+        let right_hint = truthy_part(&left_type);
+        let right_type = self.infer_with_hint(&or.right(), Some(&right_hint), context, &mut right_locals);
         if !left_type.is_untyped() && !can_be_falsy(&left_type) {
             return left_type;
         }
@@ -390,7 +402,13 @@ impl<'pr> Checker<'_, 'pr> {
         Type::union(vec![truthy, right_type])
     }
 
-    pub(crate) fn infer_case(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
+    pub(crate) fn infer_case(
+        &mut self,
+        node: &Node<'pr>,
+        hint: Option<&Type>,
+        context: &Context,
+        locals: &mut Locals,
+    ) -> Type {
         let Some(case) = node.as_case_node() else {
             return Type::Untyped;
         };
@@ -399,7 +417,7 @@ impl<'pr> Checker<'_, 'pr> {
             && self.options.steep_compatible
         {
             let subject_type = self.infer(predicate, context, locals);
-            return self.infer_case_when(&case, predicate, subject_type, context, locals);
+            return self.infer_case_when(&case, predicate, subject_type, hint, context, locals);
         }
         if let Some(predicate) = &predicate {
             self.infer(predicate, context, locals);
@@ -449,7 +467,7 @@ impl<'pr> Checker<'_, 'pr> {
             }
             all_conditions_are_classes &= conditions_are_classes;
             let result_type =
-                self.infer_optional_statements(when.statements(), context, &mut branch_locals);
+                self.infer_optional_statements(when.statements(), hint, context, &mut branch_locals);
             branches.push(Branch {
                 locals: branch_locals,
                 result_type,
@@ -476,7 +494,7 @@ impl<'pr> Checker<'_, 'pr> {
         }
         let else_type = match case.else_clause() {
             Some(else_clause) => {
-                self.infer_optional_statements(else_clause.statements(), context, &mut else_locals)
+                self.infer_optional_statements(else_clause.statements(), hint, context, &mut else_locals)
             }
             None => Type::Nil,
         };
@@ -497,6 +515,7 @@ impl<'pr> Checker<'_, 'pr> {
         case: &ruby_prism::CaseNode<'pr>,
         predicate: &Node<'pr>,
         subject_type: Type,
+        hint: Option<&Type>,
         context: &Context,
         locals: &mut Locals,
     ) -> Type {
@@ -534,7 +553,7 @@ impl<'pr> Checker<'_, 'pr> {
                 }
                 None => context.clone(),
             };
-            let body_type = self.infer_optional_statements(when.statements(), &body_context, &mut body_locals);
+            let body_type = self.infer_optional_statements(when.statements(), hint, &body_context, &mut body_locals);
             if clause_unreachable || all_patterns_unreachable {
                 if !is_bottom(&body_type) {
                     self.report_unreachable_value_branch(Span::of_location(&when.keyword_loc()), &body_type);
@@ -549,7 +568,7 @@ impl<'pr> Checker<'_, 'pr> {
         match case.else_clause() {
             Some(else_clause) => {
                 let mut else_locals = current_locals;
-                let else_type = self.infer_optional_statements(else_clause.statements(), context, &mut else_locals);
+                let else_type = self.infer_optional_statements(else_clause.statements(), hint, context, &mut else_locals);
                 if next_unreachable {
                     if !is_bottom(&else_type) {
                         self.report_unreachable_value_branch(
@@ -744,6 +763,7 @@ impl<'pr> Checker<'_, 'pr> {
     pub(crate) fn infer_case_match(
         &mut self,
         node: &Node<'pr>,
+        hint: Option<&Type>,
         context: &Context,
         locals: &mut Locals,
     ) -> Type {
@@ -756,7 +776,7 @@ impl<'pr> Checker<'_, 'pr> {
             "Ruby::UnsupportedSyntax",
             "Syntax `case_match` is not supported in Steep".to_string(),
         );
-        let predicate_type = self.infer_optional_node(case_match.predicate(), context, locals);
+        let predicate_type = self.infer_optional_node(case_match.predicate(), None, context, locals);
         let mut branches = Vec::new();
         for condition in case_match.conditions().iter() {
             let Some(in_node) = condition.as_in_node() else {
@@ -771,7 +791,7 @@ impl<'pr> Checker<'_, 'pr> {
                 0,
             );
             let result_type =
-                self.infer_optional_statements(in_node.statements(), context, &mut branch_locals);
+                self.infer_optional_statements(in_node.statements(), hint, context, &mut branch_locals);
             branches.push(Branch {
                 locals: branch_locals,
                 result_type,
@@ -780,7 +800,7 @@ impl<'pr> Checker<'_, 'pr> {
         let mut else_locals = locals.clone();
         let else_type = match case_match.else_clause() {
             Some(else_clause) => {
-                self.infer_optional_statements(else_clause.statements(), context, &mut else_locals)
+                self.infer_optional_statements(else_clause.statements(), hint, context, &mut else_locals)
             }
             None => Type::Bottom,
         };
@@ -937,7 +957,7 @@ impl<'pr> Checker<'_, 'pr> {
                     .as_ref()
                     .map(|statements| statements.as_node())
                     .and_then(|node| node.as_statements_node());
-                checker.infer_optional_statements(statements, context, iteration_locals);
+                checker.infer_optional_statements(statements, None, context, iteration_locals);
                 checker.block_next_frames.pop();
                 checker.jump_expectations.pop();
             });
@@ -967,7 +987,7 @@ impl<'pr> Checker<'_, 'pr> {
                     break_type: Some(Type::Nil),
                     next_type: None,
                 });
-                checker.infer_optional_statements(for_node.statements(), context, iteration_locals);
+                checker.infer_optional_statements(for_node.statements(), None, context, iteration_locals);
                 checker.block_next_frames.pop();
                 checker.jump_expectations.pop();
             });
@@ -978,6 +998,7 @@ impl<'pr> Checker<'_, 'pr> {
     pub(crate) fn infer_begin(
         &mut self,
         node: &Node<'pr>,
+        hint: Option<&Type>,
         context: &Context,
         locals: &mut Locals,
     ) -> Type {
@@ -985,7 +1006,7 @@ impl<'pr> Checker<'_, 'pr> {
             return Type::Untyped;
         };
         let base = locals.clone();
-        let body_type = self.infer_optional_statements(begin.statements(), context, locals);
+        let body_type = self.infer_optional_statements(begin.statements(), hint, context, locals);
         let mut branches = Vec::new();
         if let Some(rescue_clause) = begin.rescue_clause() {
             let rescue_start = merge_locals(&base, vec![base.clone(), locals.clone()]);
@@ -997,7 +1018,7 @@ impl<'pr> Checker<'_, 'pr> {
                     break;
                 }
                 let mut rescue_locals = rescue_start.clone();
-                let result_type = self.infer_rescue_clause(&rescue, context, &mut rescue_locals);
+                let result_type = self.infer_rescue_clause(&rescue, hint, context, &mut rescue_locals);
                 branches.push(Branch {
                     locals: rescue_locals,
                     result_type,
@@ -1007,7 +1028,7 @@ impl<'pr> Checker<'_, 'pr> {
         }
         let main_type = match begin.else_clause() {
             Some(else_clause) if !is_bottom(&body_type) => {
-                self.infer_optional_statements(else_clause.statements(), context, locals)
+                self.infer_optional_statements(else_clause.statements(), hint, context, locals)
             }
             _ => body_type,
         };
@@ -1033,7 +1054,7 @@ impl<'pr> Checker<'_, 'pr> {
             for name in assigned_in_body {
                 ensure_locals.insert(super::variables::fallback_local_key(&name), Type::Untyped);
             }
-            self.infer_optional_statements(ensure.statements(), context, &mut ensure_locals);
+            self.infer_optional_statements(ensure.statements(), None, context, &mut ensure_locals);
             ensure_locals.retain(|name, _| !name.starts_with("\0fallback:"));
             merged = ensure_locals;
         }
@@ -1044,6 +1065,7 @@ impl<'pr> Checker<'_, 'pr> {
     fn infer_rescue_clause(
         &mut self,
         rescue: &RescueNode<'pr>,
+        hint: Option<&Type>,
         context: &Context,
         locals: &mut Locals,
     ) -> Type {
@@ -1071,22 +1093,25 @@ impl<'pr> Checker<'_, 'pr> {
         if let Some(reference) = rescue.reference() {
             self.assign_target(&reference, exception_type, context, locals);
         }
-        self.infer_optional_statements(rescue.statements(), context, locals)
+        self.infer_optional_statements(rescue.statements(), hint, context, locals)
     }
 
     pub(crate) fn infer_return(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let Some(return_node) = node.as_return_node() else {
             return Type::Bottom;
         };
-        let returned_type = self.infer_jump_value(return_node.arguments(), context, locals);
+        let declared_return_type = context
+            .method
+            .as_ref()
+            .and_then(|method| method.declared_return_type.clone());
+        let returned_type =
+            self.infer_jump_value(return_node.arguments(), declared_return_type.as_ref(), context, locals);
         if let Some(frame) = self.method_return_frames.last_mut() {
             frame.push(returned_type.clone());
         }
-        if let Some(method) = &context.method
-            && let Some(declared) = &method.declared_return_type
+        if let Some(declared) = &declared_return_type
             && !matches!(declared, Type::Void)
             && self.is_certain_mismatch(&returned_type, declared)
-            && self.return_value_mismatches(&return_node, declared, &returned_type, context, locals)
         {
             let message = steep_relation::with_detail_lines(
                 format!(
@@ -1103,49 +1128,19 @@ impl<'pr> Checker<'_, 'pr> {
         Type::Bottom
     }
 
-    fn return_value_mismatches(
-        &mut self,
-        return_node: &ruby_prism::ReturnNode<'pr>,
-        declared: &Type,
-        returned_type: &Type,
-        context: &Context,
-        locals: &Locals,
-    ) -> bool {
-        let hinted =
-            self.hinted_return_value_type(return_node, declared, returned_type, context, locals);
-        self.is_certain_mismatch(&hinted, declared)
-    }
-
-    fn hinted_return_value_type(
-        &mut self,
-        return_node: &ruby_prism::ReturnNode<'pr>,
-        declared: &Type,
-        returned_type: &Type,
-        context: &Context,
-        locals: &Locals,
-    ) -> Type {
-        let values: Vec<Node<'pr>> = return_node
-            .arguments()
-            .map(|arguments| arguments.arguments().iter().collect())
-            .unwrap_or_default();
-        match values.as_slice() {
-            [value] => self.hinted_value_type(value, declared, returned_type, context, locals, 0),
-            _ => returned_type.clone(),
-        }
-    }
-
     pub(crate) fn infer_next(&mut self, node: &Node<'pr>, context: &Context, locals: &mut Locals) -> Type {
         let Some(next_node) = node.as_next_node() else {
             return Type::Bottom;
         };
-        let next_type = self.infer_jump_value(next_node.arguments(), context, locals);
+        let expected = self
+            .jump_expectations
+            .last()
+            .and_then(|expectation| expectation.next_type.clone());
+        let next_type = self.infer_jump_value(next_node.arguments(), expected.as_ref(), context, locals);
         if self.jump_expectations.is_empty() {
             self.report_unexpected_jump(node);
         }
-        if let Some(expected) = self
-            .jump_expectations
-            .last()
-            .and_then(|expectation| expectation.next_type.clone())
+        if let Some(expected) = expected
             && self.is_certain_mismatch(&next_type, &expected)
         {
             let message = self.break_type_mismatch_message(&next_type, &expected);
@@ -1162,15 +1157,15 @@ impl<'pr> Checker<'_, 'pr> {
             return Type::Bottom;
         };
         let has_value = break_node.arguments().is_some();
-        let break_type = self.infer_jump_value(break_node.arguments(), context, locals);
+        let expected = self
+            .jump_expectations
+            .last()
+            .and_then(|expectation| expectation.break_type.clone());
+        let break_type = self.infer_jump_value(break_node.arguments(), expected.as_ref(), context, locals);
         if self.jump_expectations.is_empty() {
             self.report_unexpected_jump(node);
         }
-        let Some(expected) = self
-            .jump_expectations
-            .last()
-            .and_then(|expectation| expectation.break_type.clone())
-        else {
+        let Some(expected) = expected else {
             return Type::Bottom;
         };
         if matches!(expected, Type::Void) || !self.is_certain_mismatch(&break_type, &expected) {
@@ -1216,24 +1211,22 @@ impl<'pr> Checker<'_, 'pr> {
         )
     }
 
+    /// Steep types the values of `return a, b` as the array literal `[a, b]`
     fn infer_jump_value(
         &mut self,
         arguments: Option<ruby_prism::ArgumentsNode<'pr>>,
+        hint: Option<&Type>,
         context: &Context,
         locals: &mut Locals,
     ) -> Type {
         let Some(arguments) = arguments else {
             return Type::Nil;
         };
-        let values: Vec<Type> = arguments
-            .arguments()
-            .iter()
-            .map(|argument| self.infer(&argument, context, locals))
-            .collect();
-        match values.len() {
-            0 => Type::Nil,
-            1 => values.into_iter().next().unwrap_or(Type::Nil),
-            _ => Type::Tuple(values),
+        let values: Vec<Node<'pr>> = arguments.arguments().iter().collect();
+        match values.as_slice() {
+            [] => Type::Nil,
+            [value] => self.infer_with_hint(value, hint, context, locals),
+            _ => self.infer_array_values(&values, hint, context, locals),
         }
     }
 
@@ -1241,32 +1234,4 @@ impl<'pr> Checker<'_, 'pr> {
         !is_bottom(actual) && is_subtype(self.environment, actual, declared) == Certainty::No
     }
 
-    /// Steep does not pass the declared type to the receiver of a call, so `[{ key: 1 }].freeze` stays
-    /// `Array[Hash[Symbol, Integer]]` and is certainly not an array of records. A `void` value fits only `void`,
-    /// `top` and `untyped`
-    pub(crate) fn is_certain_assignment_mismatch(
-        &self,
-        actual: &Type,
-        declared: &Type,
-        value_node: Option<&Node<'_>>,
-    ) -> bool {
-        if self.options.steep_compatible && matches!(actual, Type::Void) {
-            return !matches!(declared, Type::Void | Type::Top | Type::Untyped);
-        }
-        let is_call_on_collection_literal = value_node
-            .and_then(|value_node| value_node.as_call_node())
-            .and_then(|call| call.receiver())
-            .is_some_and(|receiver| {
-                matches!(receiver, Node::ArrayNode { .. } | Node::HashNode { .. })
-            });
-        if !self.options.steep_compatible || !is_call_on_collection_literal {
-            return self.is_certain_mismatch(actual, declared);
-        }
-        !is_bottom(actual)
-            && crate::subtyping::is_subtype_with_strict_collections(
-                self.environment,
-                actual,
-                declared,
-            ) == Certainty::No
-    }
 }

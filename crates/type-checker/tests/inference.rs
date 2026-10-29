@@ -177,7 +177,7 @@ with_it‸ = -> { it.to_s }
 }
 
 #[test]
-fn an_array_literal_returned_from_a_block_is_a_tuple_when_the_block_returns_a_pair_in_steep_2_1() {
+fn an_array_literal_returned_from_a_block_is_a_tuple_when_the_block_returns_a_pair_in_steep_2_1_and_to_ary_keeps_a_tuple() {
     let environment = environment_or_skip!();
     let source = r#"
 maker = PairMaker.new
@@ -196,10 +196,7 @@ converted‸ = maker.pair.to_ary
     };
     let checked = support::check_with_options(environment, source, options);
     assert_eq!(checked.hint(0, VariableType).as_deref(), Some("Hash[untyped, untyped]"));
-    assert_eq!(
-        checked.hint(2, VariableType).as_deref(),
-        Some("Array[Symbol | Integer]")
-    );
+    assert_eq!(checked.hint(2, VariableType).as_deref(), Some("[Symbol, Integer]"));
 }
 
 #[test]
