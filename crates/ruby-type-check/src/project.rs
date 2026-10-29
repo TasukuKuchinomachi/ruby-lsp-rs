@@ -25,11 +25,13 @@ pub struct LoadedTarget {
 }
 
 impl LoadedEnvironment {
-    /// The environment of the target named `target_name`, or the shared one
+    /// The environment of the target named `target_name`, or the shared one. A file no target takes, which is checked
+    /// only when it is given explicitly, gets the environment of the first target
     pub fn environment_for(&self, target_name: Option<&str>) -> Option<&Arc<Environment>> {
         self.targets
             .iter()
             .find(|target| target.name.is_none() || target.name.as_deref() == target_name)
+            .or_else(|| target_name.is_none().then(|| self.targets.first()).flatten())
             .map(|target| &target.environment)
     }
 }
@@ -410,6 +412,26 @@ mod tests {
             locked_gems,
             ..RubyEnvironment::default()
         }
+    }
+
+    #[test]
+    fn a_file_no_target_takes_gets_the_environment_of_the_first_target() {
+        let loaded_target = |name: &str| LoadedTarget {
+            name: Some(name.to_string()),
+            environment: Arc::new(rbs_environment::Loader::new().finish()),
+        };
+        let loaded = LoadedEnvironment {
+            targets: vec![loaded_target("lib"), loaded_target("test")],
+            steepfile: None,
+            duration: Duration::ZERO,
+        };
+        let is_environment_of = |target_name: Option<&str>, index: usize| {
+            Arc::ptr_eq(loaded.environment_for(target_name).unwrap(), &loaded.targets[index].environment)
+        };
+        assert!(is_environment_of(Some("lib"), 0));
+        assert!(is_environment_of(Some("test"), 1));
+        assert!(is_environment_of(None, 0));
+        assert!(loaded.environment_for(Some("missing")).is_none());
     }
 
     #[test]
