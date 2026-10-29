@@ -158,8 +158,14 @@ pub fn target_for<'a>(
     group_for(workspace_path, steepfile?, relative_path).map(|(target, _)| target)
 }
 
-/// Whether `path` is a signature file of `target` itself, which Steep validates for that target
-pub fn is_signature_path_of(workspace_path: &Path, target: &SteepfileTarget, path: &Path) -> bool {
+/// Whether `path` is a signature file of `target` itself or an inline source of it, which Steep validates for that
+/// target
+pub fn is_signature_path_of(
+    workspace_path: &Path,
+    steepfile: &SteepfileConfiguration,
+    target: &SteepfileTarget,
+    path: &Path,
+) -> bool {
     let Ok(relative_path) = path.strip_prefix(workspace_path) else {
         return false;
     };
@@ -167,6 +173,8 @@ pub fn is_signature_path_of(workspace_path: &Path, target: &SteepfileTarget, pat
         .signature_patterns
         .iter()
         .any(|pattern| pattern_matches(workspace_path, pattern, relative_path))
+        || inline_group_for(workspace_path, steepfile, relative_path)
+            .is_some_and(|(inline_target, _)| inline_target.name == target.name)
 }
 
 pub fn load_error_report(loaded: &LoadedEnvironment) -> Option<String> {
@@ -511,6 +519,24 @@ mod tests {
         assert!(is_inline_source_path(workspace, Some(&steepfile), Path::new("/workspace/lib/user.rb")));
         assert!(!is_inline_source_path(workspace, Some(&steepfile), Path::new("/workspace/lib/generated/user.rb")));
         assert!(!is_inline_source_path(workspace, None, Path::new("/workspace/lib/user.rb")));
+    }
+
+    #[test]
+    fn a_target_owns_its_signature_files_and_the_inline_sources_it_takes_first() {
+        let workspace = Path::new("/workspace");
+        let mut app = target("app", &[], &[], DiagnosticConfiguration::default());
+        app.signature_patterns = vec![PathBuf::from("sig/app")];
+        app.inline_check_paths = vec![PathBuf::from("lib")];
+        let mut tests = target("tests", &["test"], &[], DiagnosticConfiguration::default());
+        tests.inline_check_paths = vec![PathBuf::from("lib")];
+        let steepfile = steepfile_with_targets(vec![app, tests]);
+        let owns = |target: usize, path: &str| {
+            is_signature_path_of(workspace, &steepfile, &steepfile.targets[target], Path::new(path))
+        };
+        assert!(owns(0, "/workspace/sig/app/user.rbs"));
+        assert!(owns(0, "/workspace/lib/user.rb"));
+        assert!(!owns(1, "/workspace/lib/user.rb"));
+        assert!(!owns(0, "/workspace/test/user_test.rb"));
     }
 
     #[test]
