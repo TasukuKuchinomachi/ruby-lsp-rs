@@ -560,6 +560,27 @@ fn write_fake_rbs_gem(rbs_gem: &TemporaryDirectory) {
 }
 
 #[test]
+fn a_signature_glob_that_matches_nothing_is_no_error_unlike_a_missing_directory() {
+    let rbs_gem = TemporaryDirectory::new("rbs-gem-unmatched-glob");
+    write_fake_rbs_gem(&rbs_gem);
+    let workspace = TemporaryDirectory::new("unmatched-glob");
+    workspace.write(
+        "Steepfile",
+        "target :app do\n  signature \"sig\", \"sig/optional/**/*.rbs\", \"missing\"\nend\n",
+    );
+    workspace.write("sig/app.rbs", "class App\nend\n");
+    let sources = WorkspaceSources {
+        core_directory: Some(rbs_gem.path.join("core")),
+        stdlib_directory: Some(rbs_gem.path.join("stdlib")),
+        gem_directories: HashMap::new(),
+    };
+    let environment = load_workspace(&workspace.path, &sources);
+    assert!(environment.classes.contains_key("App"));
+    let error_paths: Vec<&Path> = environment.errors.iter().map(|error| error.path.as_path()).collect();
+    assert_eq!(error_paths, vec![workspace.path.join("missing").as_path()]);
+}
+
+#[test]
 fn disable_collection_keeps_rbs_collection_lock_yaml_from_loading() {
     let rbs_gem = TemporaryDirectory::new("rbs-gem-disabled-collection");
     write_fake_rbs_gem(&rbs_gem);

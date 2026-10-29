@@ -809,7 +809,8 @@ pub fn load_target(
             for (patterns, validated) in signature_patterns_of(configuration, target) {
                 for pattern in patterns {
                     let paths = pattern_files(workspace_path, std::slice::from_ref(pattern), &[], ".rbs");
-                    if paths.is_empty() && validated {
+                    let is_glob = pattern.to_string_lossy().contains(['*', '?', '[', '{']);
+                    if paths.is_empty() && validated && !is_glob {
                         workspace_loader.loader.add_signature_directory(pattern);
                     }
                     for path in paths {
