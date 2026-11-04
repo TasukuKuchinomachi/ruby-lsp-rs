@@ -369,6 +369,7 @@ pub fn run_with_setup(
     setup: impl Fn(&mut Project),
     each: impl Fn(&mut Project, &Path, &str, &mut Dump),
 ) -> ExitCode {
+    steep::ruby_exception::install_panic_hook();
     let arguments = match arguments() {
         Ok(arguments) => arguments,
         Err(message) => {
