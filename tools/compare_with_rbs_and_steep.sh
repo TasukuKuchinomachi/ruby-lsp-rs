@@ -21,6 +21,7 @@ status=0
 package_of() {
   case $1 in
     rbs_*) echo rbs-definition ;;
+    steep_*) echo steep-interface ;;
   esac
 }
 
@@ -28,8 +29,16 @@ compare() {
   label=$1
   kind=$2
   shift 2
-  $ruby_command "$repository/tools/dump_$kind.rb" "$@" > "$output/expected.txt"
-  cargo run --quiet --release --manifest-path "$repository/Cargo.toml" -p "$(package_of "$kind")" --bin "dump_$kind" -- "$rbs_gem" "$@" > "$output/actual.txt"
+  ruby_version_argument=
+  rust_version_argument=
+  case $kind in
+    steep_*) ruby_version_argument=--steep-version=$steep_version ;;
+  esac
+  if [ "$kind" = steep_shapes ]; then
+    rust_version_argument=--steep-version=$steep_version
+  fi
+  $ruby_command "$repository/tools/dump_$kind.rb" $ruby_version_argument "$@" > "$output/expected.txt"
+  cargo run --quiet --release --manifest-path "$repository/Cargo.toml" -p "$(package_of "$kind")" --bin "dump_$kind" -- $rust_version_argument "$rbs_gem" "$@" > "$output/actual.txt"
   report "$label"
 }
 
@@ -43,8 +52,8 @@ report() {
   status=1
 }
 
-kinds="rbs_environment rbs_ancestors rbs_definitions"
-fixtures="environment ancestors definitions"
+kinds="rbs_environment rbs_ancestors rbs_definitions steep_shapes"
+fixtures="environment ancestors definitions shapes"
 
 for kind in $kinds; do
   compare "$kind (core)" "$kind"
@@ -52,6 +61,8 @@ for kind in $kinds; do
     compare "$kind (core + fixtures/$fixture)" "$kind" "$repository/fixtures/$fixture"
   done
 done
+
+compare "steep_shapes --implicitly-returns-nil (core + fixtures/shapes)" steep_shapes --implicitly-returns-nil "$repository/fixtures/shapes"
 
 echo "compared with rbs $rbs_version (Steep $steep_version)"
 rm -r "$output"

@@ -1,0 +1,66 @@
+module ShapeFixture
+  interface _Named[T]
+    def name: () -> T
+    def rename: (T) -> self
+    def to_s: () -> String
+  end
+
+  class Box[T]
+    def get: () -> T
+    def copy: () -> self
+    def to_s: () -> String
+    private def secret: () -> void
+  end
+
+  type named = _Named[String]
+  type box = Box[Integer]
+  type alias_of_alias = named
+  type generic_alias[A] = Box[A]
+  type applied_alias = generic_alias[Symbol]
+  type integer_literal = 1
+  type string_literal = "text"
+  type symbol_literal = :name
+  type true_literal = true
+  type false_literal = false
+  type same_class_literals = :first | :second
+  type nil_type = nil
+  type tuple = [Integer, String]
+  type empty_tuple = [ ]
+  type record = { name: String, age: Integer }
+  type optional_record = { name: String, ?age: Integer }
+  type string_key_record = { "name" => String }
+  type proc_type = ^(Integer) -> String
+  type proc_with_block = ^(Integer) { (String) -> void } -> String
+  type proc_with_self = ^() [self: String] -> void
+  type intersection = _Named[String] & Box[Integer]
+  type bounded[T < Box[String]] = T
+  type unbounded[T] = T
+  type singleton_type = singleton(Box)
+  type untyped_type = untyped
+  type integer_or_string = Integer | String
+  type optional_integer = Integer?
+  type boolean = bool
+  type literals_and_class = :first | Integer | :second
+  type array_or_hash = Array[Integer] | Hash[Symbol, String]
+  type box_or_named = Box[Integer] | _Named[String]
+  type optional_tuple = [Integer, String]?
+  type three_classes = Integer | String | Symbol
+
+  interface _GenericPicker
+    def pick: [T < Integer] (T) -> T
+    def pick_any: [T] (T) -> T
+    def pick_first: [T < Numeric] (T) -> T
+    def wrap: [T] (T) -> Array[T]
+    def each_pick: [T] () { (Integer) -> T } -> T
+  end
+
+  interface _OtherGenericPicker
+    def pick: [U < String] (U) -> U
+    def pick_any: [U < String] (U) -> U
+    def pick_first: [U] (U) -> U
+    def wrap: [U] (Array[U]) -> U
+    def each_pick: [U] () { (String) -> U } -> U
+  end
+
+  type generic_pickers = _GenericPicker | _OtherGenericPicker
+end
