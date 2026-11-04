@@ -135,6 +135,27 @@ pub struct Lockfile {
     pub gems: IndexMap<String, LockedGem>,
 }
 
+// Why not Path::join: Pathname#+ of Ruby removes a `..` with the component before it,
+// and the rbs gem names the files of a collection with the joined path.
+fn lexical_join(base: &Path, path: &Path) -> PathBuf {
+    let mut joined = base.to_path_buf();
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir
+                if matches!(
+                    joined.components().next_back(),
+                    Some(std::path::Component::Normal(_))
+                ) =>
+            {
+                joined.pop();
+            }
+            std::path::Component::CurDir => {}
+            _ => joined.push(component),
+        }
+    }
+    joined
+}
+
 pub fn lockfile_path(config_path: &Path) -> PathBuf {
     let extension = config_path
         .extension()
@@ -188,7 +209,7 @@ impl Lockfile {
     }
 
     pub fn full_path(&self) -> PathBuf {
-        self.lockfile_directory.join(&self.path)
+        lexical_join(&self.lockfile_directory, &self.path)
     }
 
     fn installed_path(&self, gem: &LockedGem) -> PathBuf {
