@@ -7,3 +7,4 @@ edition.workspace = true
 rbs-definition = { path = "../rbs-definition" }
 ruby-prism = "1.9.0"
 ruby-prism-sys = "1.9.0"
+steep-interface = { path = "../steep-interface" }

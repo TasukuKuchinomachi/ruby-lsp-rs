@@ -370,6 +370,7 @@ dependencies = [
  "rbs-definition",
  "ruby-prism",
  "ruby-prism-sys",
+ "steep-interface",
 ]
 
 [[package]]
