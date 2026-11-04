@@ -5,24 +5,35 @@ use super::support::common::{delegate_request_if_needed, determine_target, locat
 use super::support::hover_response_builder::HoverResponseBuilder;
 use super::support::sorbet_level::SorbetLevel;
 use super::{RequestContext, RequestResult, TextDocumentPositionParams, parse_params};
-use crate::document::ParsedDocument;
+use crate::document::{LanguageId, ParsedDocument};
 use crate::listeners::hover::{ALLOWED_TARGETS, Hover};
 use crate::position::Position;
 use crate::prism::NodeExt;
+use crate::type_checking;
+use crate::type_checking::worker::HoverAnswer;
 
 pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult {
     let params: TextDocumentPositionParams = parse_params(params)?;
     let document = context.store.get(&params.text_document.uri)?;
+    let global_state = &*context.global_state;
+    let position = params.position;
+    if document.language_id() == LanguageId::Rbs {
+        let type_hover = global_state.type_checking.hover(document.uri(), position);
+        return Ok(hover_response(type_hover, None));
+    }
     if !document.is_ruby_or_erb() {
         return Ok(Value::Null);
     }
 
-    let global_state = &*context.global_state;
     let parsed = document.parse();
-    let position = params.position;
     let offset = parsed.offset_of(position)?;
     delegate_request_if_needed(global_state, document, offset)?;
 
+    let type_hover = if document.is_ruby() {
+        global_state.type_checking.hover(document.uri(), position)
+    } else {
+        None
+    };
     let node_context = parsed.locate(offset, ALLOWED_TARGETS);
     let Some(target) = refine_target(
         &parsed,
@@ -30,7 +41,7 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
         node_context.parent.as_ref(),
         position,
     ) else {
-        return Ok(Value::Null);
+        return Ok(hover_response(type_hover, None));
     };
 
     let sorbet_level = SorbetLevel::for_document(global_state, &parsed);
@@ -49,14 +60,19 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
     }
 
     let existing_markdown = (!response_builder.is_empty()).then(|| response_builder.response());
-    Ok(markdown_response(existing_markdown))
+    Ok(hover_response(type_hover, existing_markdown))
 }
 
-fn markdown_response(markdown: Option<String>) -> Value {
-    match markdown {
-        Some(markdown) => json!({ "contents": { "kind": "markdown", "value": markdown } }),
-        None => Value::Null,
+fn hover_response(type_hover: Option<HoverAnswer>, existing_markdown: Option<String>) -> Value {
+    let range = type_hover.as_ref().map(|hover| hover.range);
+    let Some(markdown) = type_checking::merge_hover(type_hover.map(|hover| hover.markdown), existing_markdown) else {
+        return Value::Null;
+    };
+    let mut response = json!({ "contents": { "kind": "markdown", "value": markdown } });
+    if let Some(range) = range {
+        response["range"] = json!(range);
     }
+    response
 }
 
 fn refine_target<'pr>(
