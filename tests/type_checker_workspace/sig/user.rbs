@@ -1,0 +1,9 @@
+class User
+  attr_reader name: String
+
+  def initialize: (String name) -> void
+  # Returns a greeting for the user
+  def greeting: () -> String
+
+  def format: (Integer width, ?String padding) -> String
+end

@@ -1,0 +1,10 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    steep (2.1.0)
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  steep (= 2.1.0)

@@ -1,0 +1,11 @@
+module Garage
+  class Car < Object
+  end
+
+  class Truck < Object
+  end
+end
+
+class Mechanic
+  def inspect_cars: (Array[Garage::Car] cars, Garage::Car? spare) -> Integer
+end

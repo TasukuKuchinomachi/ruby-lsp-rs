@@ -1,0 +1,3 @@
+class Garage::Truck
+  def load: () -> Integer
+end

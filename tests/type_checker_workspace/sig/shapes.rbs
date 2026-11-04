@@ -1,0 +1,9 @@
+class Circle
+  def area: () -> Integer
+  def radius: () -> Integer
+end
+
+class Square
+  def self.unit: () -> Square
+  def area: () -> Integer
+end
