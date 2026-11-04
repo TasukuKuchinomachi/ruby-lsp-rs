@@ -1,0 +1,12 @@
+[package]
+name = "rbs-definition"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+indexmap.workspace = true
+ruby-prism = "1.9.0"
+ruby-rbs.workspace = true
+ruby-rbs-sys.workspace = true
+rustc-hash.workspace = true
+serde_yaml.workspace = true
