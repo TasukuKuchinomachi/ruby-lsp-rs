@@ -1,0 +1,30 @@
+class BasicObject
+  def initialize: () -> void
+  def !: () -> bool
+end
+
+class Object < BasicObject
+  include Kernel
+end
+
+module Kernel : BasicObject
+  def class: () -> untyped
+end
+
+class Module
+end
+
+class Class < Module
+  def new: (*untyped) -> untyped
+end
+
+class String
+  def +: (String) -> String
+end
+
+class Integer
+end
+
+interface _ToS
+  def to_s: () -> String
+end
