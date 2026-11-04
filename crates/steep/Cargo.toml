@@ -5,6 +5,17 @@ edition.workspace = true
 
 [dependencies]
 rbs-definition = { path = "../rbs-definition" }
+regex = "1.13.1"
 ruby-prism = "1.9.0"
 ruby-prism-sys = "1.9.0"
+ruby-rbs.workspace = true
 steep-interface = { path = "../steep-interface" }
+serde.workspace = true
+serde_yaml.workspace = true
+# Why not mimalloc v3, the default: it spent more time in the kernel returning and
+# taking back memory pages while the threads type check.
+mimalloc = { version = "0.1.52", features = ["v2"] }
+
+[[bin]]
+name = "steep-check"
+path = "src/main.rs"

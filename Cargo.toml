@@ -10,4 +10,5 @@ indexmap = "2.14.2"
 ruby-rbs = "0.3.0"
 ruby-rbs-sys = "0.3.0"
 rustc-hash = "2.1.1"
+serde = { version = "1.0.228", features = ["derive"] }
 serde_yaml = "0.9.34"

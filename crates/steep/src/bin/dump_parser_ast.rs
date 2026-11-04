@@ -103,6 +103,14 @@ fn child(buffer: &Buffer, value: &Child, indent: &str, output: &mut Vec<String>)
         Child::Float(value) => output.push(format!("{indent}float {}", inspect_float(*value))),
         Child::Rational(value) => output.push(format!("{indent}rational {value}")),
         Child::Complex(value) => output.push(format!("{indent}complex {value}")),
+        Child::TypeAssertion(assertion) => output.push(format!(
+            "{indent}assertion \"{}\"",
+            escape(&assertion.source)
+        )),
+        Child::TypeApplication(application) => output.push(format!(
+            "{indent}type application \"{}\"",
+            escape(&application.source)
+        )),
     }
 }
 

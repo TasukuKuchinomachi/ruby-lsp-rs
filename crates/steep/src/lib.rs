@@ -1,7 +1,21 @@
+pub mod annotation;
+pub mod annotations_helper;
+pub mod ast;
 pub mod diagnostic;
 pub mod environment_loader;
+pub mod expectations;
+pub mod ignore;
+pub mod inline_source;
 pub mod project;
 pub mod ruby;
+pub mod ruby_exception;
+pub mod signature;
+pub mod source;
 pub mod steep_gem;
+pub mod strict;
+pub mod type_check_service;
+pub mod type_construction;
+pub mod type_inference;
+pub mod typing;
 
 pub use steep_interface::steep_version;

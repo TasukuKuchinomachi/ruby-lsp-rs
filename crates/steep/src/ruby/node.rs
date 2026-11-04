@@ -4,6 +4,8 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+use crate::ast::node::{type_application::TypeApplication, type_assertion::TypeAssertion};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SourceRange {
     pub begin_pos: usize,
@@ -149,6 +151,8 @@ pub enum Child {
     Float(f64),
     Rational(String),
     Complex(String),
+    TypeAssertion(Rc<TypeAssertion>),
+    TypeApplication(Rc<TypeApplication>),
 }
 
 impl Child {
@@ -319,6 +323,10 @@ impl fmt::Display for Node {
                     write!(formatter, " {value}")?
                 }
                 Child::Float(value) => write!(formatter, " {value:?}")?,
+                Child::TypeAssertion(assertion) => write!(formatter, " {:?}", assertion.source)?,
+                Child::TypeApplication(application) => {
+                    write!(formatter, " {:?}", application.source)?
+                }
             }
         }
         write!(formatter, ")")
