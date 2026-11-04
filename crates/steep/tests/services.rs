@@ -288,3 +288,24 @@ fn goes_to_the_definitions_of_a_queried_name() {
     );
     assert_eq!(parse_name(""), None);
 }
+
+#[test]
+fn returns_results_that_other_threads_can_take() {
+    fn assert_send<Value: Send>() {}
+    assert_send::<steep::services::type_check_service::SourceFile>();
+    assert_send::<steep::expectations::Diagnostic>();
+    assert_send::<HoverContent>();
+    assert_send::<CompletionItem>();
+    assert_send::<steep::services::signature_help_provider::SignatureHelp>();
+    assert_send::<GotoLocation>();
+    assert_send::<steep::services::signature_service::SignatureService>();
+}
+
+#[test]
+fn tells_the_files_that_need_a_new_service() {
+    let service = load_service();
+    assert!(service.is_project_configuration(Path::new("Steepfile")));
+    assert!(service.is_project_configuration(Path::new("rbs_collection.lock.yaml")));
+    assert!(service.is_project_configuration(Path::new("rbs_collection.yaml")));
+    assert!(!service.is_project_configuration(Path::new("sig/greeter.rbs")));
+}

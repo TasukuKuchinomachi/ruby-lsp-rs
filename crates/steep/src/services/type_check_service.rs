@@ -29,7 +29,7 @@ use crate::{
     ignore::{self, IgnoreRanges},
     index::source_index::SourceIndex,
     inline_source, locator,
-    project::{Project, Target, UniquePaths},
+    project::{CollectionConfiguration, Project, Target, UniquePaths},
     ruby::node::{Buffer, SourceRange},
     ruby_exception::{self, RubyException},
     services::{
@@ -726,6 +726,26 @@ impl TypeCheckService {
             signature_validation_diagnostics,
             checkers: RefCell::default(),
             validator_cache: Rc::default(),
+        })
+    }
+
+    pub fn is_project_configuration(&self, path: &Path) -> bool {
+        let absolute_path = self.project.absolute_path(path);
+        if absolute_path == self.project.absolute_path(Path::new("Steepfile")) {
+            return true;
+        }
+        self.project.targets.iter().any(|target| {
+            let configuration = match &self.project.options(target).collection_config_path {
+                CollectionConfiguration::Path(path) => Some(self.project.absolute_path(path)),
+                CollectionConfiguration::Default => {
+                    Some(self.project.absolute_path(Path::new("rbs_collection.yaml")))
+                }
+                CollectionConfiguration::Disabled => None,
+            };
+            configuration.is_some_and(|configuration| {
+                absolute_path == configuration
+                    || absolute_path == rbs_definition::collection::lockfile_path(&configuration)
+            })
         })
     }
 
