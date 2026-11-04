@@ -36,6 +36,7 @@ use crate::position::{Encoding, LineIndex, Position, Range};
 use crate::requests::support::interface::LocationLink;
 
 pub const SIGNATURE_RELOAD_DELAY: Duration = Duration::from_millis(300);
+const SOURCE_INDEX_WAIT: Duration = Duration::from_secs(2);
 const DEFAULT_STEEPFILE: &str = "target :default do\n  check \".\"\n  signature \"sig\"\nend\n";
 const BUILTIN_TYPES: &[&str] = &[
     "untyped", "void", "bool", "class", "module", "instance", "nil", "top", "bot",
@@ -166,6 +167,7 @@ struct Loaded {
     service: TypeCheckService,
     encoding: Encoding,
     steep_version: SteepVersion,
+    has_steepfile: bool,
 }
 
 struct Worker {
@@ -250,24 +252,29 @@ fn steep_version(request: &LoadRequest, events: &Sender<Event>) -> SteepVersion 
 
 fn load_service(request: &LoadRequest, events: &Sender<Event>) -> Result<Loaded, String> {
     let steepfile_path = request.workspace_path.join("Steepfile");
-    let steepfile = fs::read_to_string(&steepfile_path).unwrap_or_else(|_| DEFAULT_STEEPFILE.to_string());
+    let read_steepfile = fs::read_to_string(&steepfile_path).ok();
+    let has_steepfile = read_steepfile.is_some();
+    let steepfile = read_steepfile.unwrap_or_else(|| DEFAULT_STEEPFILE.to_string());
     let project = dsl::parse(&request.workspace_path, &steepfile)
         .map_err(|error| format!("{}: {error}", steepfile_path.display()))?;
     let steep_version = steep_version(request, events);
     let rbs_gem = rbs_gem(request)?;
     let jobs = thread::available_parallelism().map_or(1, usize::from);
     let mut service = TypeCheckService::load(project, &rbs_gem, steep_version, EnabledChecks::default(), jobs)?;
-    let mut changes = Vec::new();
-    for path in service.project_paths() {
-        if let Ok(content) = fs::read_to_string(service.project.absolute_path(&path)) {
-            changes.push((path, vec![ContentChange::string(content)]));
+    if has_steepfile {
+        let mut changes = Vec::new();
+        for path in service.project_paths() {
+            if let Ok(content) = fs::read_to_string(service.project.absolute_path(&path)) {
+                changes.push((path, vec![ContentChange::string(content)]));
+            }
         }
+        service.update(&changes)?;
     }
-    service.update(&changes)?;
     Ok(Loaded {
         service,
         encoding: request.encoding,
         steep_version,
+        has_steepfile,
     })
 }
 
@@ -385,6 +392,9 @@ impl Worker {
 
     fn queue_project_paths(&mut self) {
         let Some(loaded) = &self.loaded else { return };
+        if !loaded.has_steepfile {
+            return;
+        }
         self.unchecked_paths = loaded
             .service
             .project_paths()
@@ -394,7 +404,8 @@ impl Worker {
     }
 
     fn check_for_source_indexes(&mut self, path: &Path) {
-        while !self.unchecked_paths.is_empty() {
+        let deadline = Instant::now() + SOURCE_INDEX_WAIT;
+        while !self.unchecked_paths.is_empty() && Instant::now() < deadline {
             self.check_next_unchecked_path();
         }
         let Some(relative_path) = self.relative_path(path) else {
@@ -443,6 +454,10 @@ impl Worker {
             return;
         };
         if self.is_signature_input(&relative_path) {
+            let pending_text = self.signature_changes.get(&relative_path).cloned();
+            if pending_text.or_else(|| self.signature_text(&relative_path)).as_deref() == Some(text.as_str()) {
+                return;
+            }
             if let Some(loaded) = &mut self.loaded
                 && let Some(file) = loaded.service.source_files.get_mut(&relative_path)
             {
@@ -463,6 +478,16 @@ impl Worker {
             Ok(Err(message)) => self.log(&message),
             Err(payload) => self.log(&panic_message(&*payload)),
         }
+    }
+
+    fn signature_text(&self, relative_path: &Path) -> Option<String> {
+        self.loaded
+            .as_ref()?
+            .service
+            .signature_services
+            .values()
+            .find_map(|signature| signature.files.get(relative_path))
+            .map(|file| file.content().to_string())
     }
 
     fn flush_signature_changes(&mut self) {

@@ -840,10 +840,18 @@ impl Server {
                 message_type::ERROR,
             );
         }
-        if let Some(document) = self.store.get_open(uri)
-            && matches!(document.language_id(), LanguageId::Ruby | LanguageId::Rbs)
-        {
+        let Some(document) = self.store.get_open(uri) else {
+            return;
+        };
+        let language_id = document.language_id();
+        if matches!(language_id, LanguageId::Ruby | LanguageId::Rbs) {
             self.global_state.type_checking.notify_text(uri, document.source());
+        }
+        if language_id == LanguageId::Rbs {
+            for (_, document) in self.store.iter_mut() {
+                document.clear_cache(requests::inlay_hints::CACHE_KEY);
+                document.clear_cache(requests::diagnostics::CACHE_KEY);
+            }
         }
     }
 

@@ -429,6 +429,21 @@ fn rebuilds_the_service_when_the_steepfile_changes() {
 }
 
 #[test]
+fn checks_a_workspace_without_steepfile_as_one_target() {
+    let workspace = temporary_workspace("without-steepfile");
+    std::fs::remove_file(workspace.join("Steepfile")).unwrap();
+    let mut server = start_server_in(&workspace, json!({}));
+    let uri = server.open("lib/user.rb");
+    let codes: Vec<Value> = server
+        .type_diagnostics(&uri)
+        .iter()
+        .map(|diagnostic| diagnostic["code"].clone())
+        .collect();
+    assert_eq!(codes, vec![json!("Ruby::NoMethod")]);
+    let _ = std::fs::remove_dir_all(workspace);
+}
+
+#[test]
 fn shows_method_calls_on_hover_as_steep_does_before_the_ruby_lsp_hover() {
     let mut server = start_server();
     let uri = server.open("lib/user.rb");
