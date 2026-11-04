@@ -1,3 +1,6 @@
+// Why not a library module: only the dump binaries use it, and each uses a part of it.
+#![allow(dead_code)]
+
 use std::{
     env, fs,
     path::{Path, PathBuf},
@@ -19,7 +22,10 @@ use steep::{
 
 pub enum Json {
     Null,
+    Bool(bool),
+    Integer(i64),
     String(String),
+    Raw(String),
     Array(Vec<Json>),
     Object(Vec<(String, Json)>),
 }
@@ -45,7 +51,10 @@ impl Json {
     pub fn write(&self, output: &mut String) {
         match self {
             Json::Null => output.push_str("null"),
+            Json::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
+            Json::Integer(value) => output.push_str(&value.to_string()),
             Json::String(value) => write_string(value, output),
+            Json::Raw(value) => output.push_str(value),
             Json::Array(values) => {
                 output.push('[');
                 for (index, value) in values.iter().enumerate() {
@@ -141,10 +150,53 @@ pub struct Dump {
     pub directory: PathBuf,
 }
 
-// Why not print the numbers of fresh type variables: Steep counts them in the whole
-// process, so they depend on the queries made before.
+// Why not print the numbers of fresh type variables and the names of the variables
+// of case-when: Steep counts the former in the whole process and makes the latter
+// random.
 static FRESH_VARIABLE_NUMBER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(\w)\(\d+\)").expect("the pattern is valid"));
+static CASE_WHEN_VARIABLE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"__case_when:\w{5}__").expect("the pattern is valid"));
+
+pub fn normalize(json: &str) -> String {
+    let json = FRESH_VARIABLE_NUMBER.replace_all(json, "${1}(*)");
+    CASE_WHEN_VARIABLE
+        .replace_all(&json, "__case_when:*__")
+        .into_owned()
+}
+
+fn crc32(bytes: &[u8]) -> u32 {
+    let mut crc = !0u32;
+    for byte in bytes {
+        crc ^= u32::from(*byte);
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+        }
+    }
+    !crc
+}
+
+// Why not print every item: a completion at the start of a statement lists all the
+// constants and methods, so printing them at every position makes gigabytes. Set
+// STEEP_SERVICES_FULL=1 to print them.
+pub fn summarize(values: Vec<Json>) -> Json {
+    let mut lines: Vec<String> = values
+        .iter()
+        .map(|value| normalize(&to_string(value)))
+        .collect();
+    lines.sort();
+    if env::var_os("STEEP_SERVICES_FULL").is_some() {
+        return Json::Array(lines.into_iter().map(Json::Raw).collect());
+    }
+    Json::object([
+        ("count", Json::Integer(lines.len() as i64)),
+        (
+            "crc32",
+            Json::String(format!("{:x}", crc32(lines.join("\n").as_bytes()))),
+        ),
+    ])
+}
 
 impl Dump {
     pub fn print(&mut self, path: &Path, query: &Query, result: Json) {
@@ -154,10 +206,7 @@ impl Dump {
             query.line,
             query.column
         ));
-        let mut json = String::new();
-        result.write(&mut json);
-        self.output
-            .push_str(&FRESH_VARIABLE_NUMBER.replace_all(&json, "${1}(*)"));
+        self.output.push_str(&normalize(&to_string(&result)));
         self.output.push('\n');
     }
 }
@@ -171,6 +220,22 @@ pub fn ruby_range(path: &Path, buffer: &Buffer, range: SourceRange) -> Json {
         buffer.line(range.end_pos),
         buffer.column(range.end_pos)
     ))
+}
+
+pub fn position_range(buffer: &Buffer, range: SourceRange) -> Json {
+    Json::String(format!(
+        "{}:{}-{}:{}",
+        buffer.line(range.begin_pos),
+        buffer.column(range.begin_pos),
+        buffer.line(range.end_pos),
+        buffer.column(range.end_pos)
+    ))
+}
+
+pub fn to_string(json: &Json) -> String {
+    let mut output = String::new();
+    json.write(&mut output);
+    output
 }
 
 pub fn rbs_location(location: Option<&Location>) -> Json {
@@ -297,6 +362,13 @@ pub fn load_project(directory: &Path, steep_version: SteepVersion) -> Result<Pro
 }
 
 pub fn run(each: impl Fn(&mut Project, &Path, &str, &mut Dump)) -> ExitCode {
+    run_with_setup(|_| {}, each)
+}
+
+pub fn run_with_setup(
+    setup: impl Fn(&mut Project),
+    each: impl Fn(&mut Project, &Path, &str, &mut Dump),
+) -> ExitCode {
     let arguments = match arguments() {
         Ok(arguments) => arguments,
         Err(message) => {
@@ -317,6 +389,7 @@ pub fn run(each: impl Fn(&mut Project, &Path, &str, &mut Dump)) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
+        setup(&mut project);
         for path in project.paths.clone() {
             let absolute_path = project.service.project.absolute_path(&path);
             let Ok(text) = fs::read_to_string(&absolute_path) else {

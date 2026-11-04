@@ -468,6 +468,17 @@ impl Environment {
         }
     }
 
+    pub fn use_map(&self, directives: &[Directive]) -> Result<UseMap, String> {
+        let table = UseTable::new(
+            self.class_declarations
+                .keys()
+                .chain(self.class_alias_declarations.keys())
+                .chain(self.type_alias_declarations.keys())
+                .chain(self.interface_declarations.keys()),
+        );
+        UseMap::build(&table, directives)
+    }
+
     pub fn resolve_type_names(&self, jobs: usize) -> Result<Environment, String> {
         let resolver = TypeNameResolver::new(self);
         let table = UseTable::new(
@@ -560,6 +571,10 @@ impl UseMap {
             }
         }
         Ok(use_map)
+    }
+
+    pub fn names(&self) -> impl Iterator<Item = &String> {
+        self.map.keys()
     }
 
     pub fn resolve(&self, type_name: &TypeName) -> Option<TypeName> {

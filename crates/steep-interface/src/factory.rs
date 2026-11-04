@@ -3,12 +3,13 @@ use std::{cell::RefCell, sync::Arc};
 use rbs_definition::{
     ast::{self, TypeName, TypeNameKind},
     environment::Environment,
+    location::{AstLocation, TypeLocation},
     substitution::normalize_args,
 };
 use rbs_definition::{collections::HashMap, errors::RbsError};
 
 use crate::{
-    method_type::{Block, Function, KeywordParams, MethodType, Params, TypeParam},
+    method_type::{Block, Function, KeywordParams, MethodType, Params, PositionalKind, TypeParam},
     substitution::Substitution,
     types::{RecordElement, Type},
 };
@@ -384,5 +385,141 @@ impl Factory {
             name: name.clone(),
             args: vec![Type::Any; parameter_count],
         }
+    }
+}
+
+fn parameter_1(type_: &Type) -> ast::Parameter {
+    ast::Parameter {
+        type_: type_1(type_),
+        name: None,
+    }
+}
+
+pub fn type_1(type_: &Type) -> ast::Type {
+    let location = TypeLocation::default;
+    match type_ {
+        Type::Any => ast::Type::Any,
+        Type::Class => ast::Type::Class,
+        Type::Instance => ast::Type::Instance,
+        Type::SelfType => ast::Type::SelfType,
+        Type::Top => ast::Type::Top,
+        Type::Bot => ast::Type::Bottom,
+        Type::Boolean | Type::Logic(_) => ast::Type::Bool,
+        Type::Void => ast::Type::Void,
+        Type::Nil => ast::Type::Nil,
+        Type::Var(name) => ast::Type::Variable(name.clone()),
+        Type::Singleton(name) => ast::Type::ClassSingleton {
+            name: name.clone(),
+            args: Vec::new(),
+            location: location(),
+        },
+        Type::NameInstance { name, args } => ast::Type::ClassInstance {
+            name: name.clone(),
+            args: args.iter().map(type_1).collect(),
+            location: location(),
+        },
+        Type::Interface { name, args } => ast::Type::Interface {
+            name: name.clone(),
+            args: args.iter().map(type_1).collect(),
+            location: location(),
+        },
+        Type::Alias { name, args } => ast::Type::Alias {
+            name: name.clone(),
+            args: args.iter().map(type_1).collect(),
+            location: location(),
+        },
+        Type::Union(types) => ast::Type::Union(types.iter().map(type_1).collect()),
+        Type::Intersection(types) => ast::Type::Intersection(types.iter().map(type_1).collect()),
+        Type::Literal(literal) => ast::Type::Literal(literal.clone()),
+        Type::Tuple(types) => ast::Type::Tuple(types.iter().map(type_1).collect()),
+        Type::Record(elements) => ast::Type::Record(
+            elements
+                .iter()
+                .map(|element| ast::RecordField {
+                    key: element.key.clone(),
+                    type_: type_1(&element.type_),
+                    required: element.required,
+                })
+                .collect(),
+        ),
+        Type::Proc {
+            function,
+            block,
+            self_type,
+        } => ast::Type::Proc {
+            function: Box::new(function_1(function)),
+            block: block.as_ref().map(|block| Box::new(block_1(block))),
+            self_type: self_type.as_ref().map(|type_| Box::new(type_1(type_))),
+        },
+    }
+}
+
+fn block_1(block: &Block) -> ast::Block {
+    ast::Block {
+        type_: function_1(&block.type_),
+        required: !block.optional,
+        self_type: block.self_type.as_ref().map(type_1),
+    }
+}
+
+pub fn function_1(function: &Function) -> ast::Callable {
+    let Some(params) = &function.params else {
+        return ast::Callable::Untyped {
+            return_type: type_1(&function.return_type),
+        };
+    };
+    let positionals = &params.positionals;
+    let required: Vec<ast::Parameter> = positionals
+        .iter()
+        .take_while(|param| param.kind == PositionalKind::Required)
+        .map(|param| parameter_1(&param.type_))
+        .collect();
+    let optional: Vec<ast::Parameter> = positionals
+        .iter()
+        .skip_while(|param| param.kind == PositionalKind::Required)
+        .take_while(|param| param.kind == PositionalKind::Optional)
+        .map(|param| parameter_1(&param.type_))
+        .collect();
+    let rest = positionals
+        .iter()
+        .find(|param| param.kind == PositionalKind::Rest)
+        .map(|param| parameter_1(&param.type_));
+    let keywords = |keywords: &[(String, Type)]| -> Vec<(String, ast::Parameter)> {
+        keywords
+            .iter()
+            .map(|(name, type_)| (name.clone(), parameter_1(type_)))
+            .collect()
+    };
+    ast::Callable::Function(Box::new(ast::Function {
+        required_positionals: required,
+        optional_positionals: optional,
+        rest_positionals: rest,
+        trailing_positionals: Vec::new(),
+        required_keywords: keywords(&params.keywords.requireds),
+        optional_keywords: keywords(&params.keywords.optionals),
+        rest_keywords: params.keywords.rest.as_ref().map(parameter_1),
+        return_type: type_1(&function.return_type),
+    }))
+}
+
+pub fn method_type_1(method_type: &MethodType) -> ast::MethodType {
+    ast::MethodType {
+        type_parameters: method_type
+            .type_params
+            .iter()
+            .map(|param| ast::TypeParameter {
+                name: param.name.clone(),
+                variance: param.variance,
+                unchecked: param.unchecked,
+                upper_bound: param.upper_bound.as_ref().map(type_1),
+                lower_bound: None,
+                default_type: None,
+                location: AstLocation::default(),
+                default_type_location: AstLocation::default(),
+            })
+            .collect(),
+        type_: function_1(&method_type.type_),
+        block: method_type.block.as_ref().map(block_1),
+        location: AstLocation::default(),
     }
 }

@@ -42,7 +42,7 @@ pub fn nesting_names(context: &ResolverContext) -> Vec<TypeName> {
     names
 }
 
-type ConstantTable = IndexMap<String, Constant>;
+pub type ConstantTable = IndexMap<String, Constant>;
 
 type ContextKey = Option<Vec<Option<TypeName>>>;
 
@@ -184,6 +184,41 @@ impl ConstantResolver {
                 }
             })
             .cloned()
+    }
+
+    fn merge_source(&self, source: &ConstantSource, table: &mut ConstantTable) {
+        match source {
+            ConstantSource::Children(module_name) => {
+                for (name, constant) in &self.tables.children_table[module_name] {
+                    table.insert(name.clone(), constant.clone());
+                }
+            }
+            ConstantSource::Toplevel => {
+                for (name, constant) in &self.tables.toplevel {
+                    table.insert(name.clone(), constant.clone());
+                }
+            }
+            ConstantSource::Itself(name, constant) => {
+                table.insert(name.clone(), constant.clone());
+            }
+        }
+    }
+
+    pub fn constants(&self, builder: &Builder, context: &ResolverContext) -> Option<ConstantTable> {
+        let sources = self.context_sources(builder, context)?;
+        let mut table = ConstantTable::default();
+        for source in sources.iter() {
+            self.merge_source(source, &mut table);
+        }
+        Some(table)
+    }
+
+    pub fn children(&self, builder: &Builder, module_name: &TypeName) -> ConstantTable {
+        let mut table = ConstantTable::default();
+        for ancestor in self.child_sources(builder, module_name).iter() {
+            self.merge_source(&ConstantSource::Children(ancestor.clone()), &mut table);
+        }
+        table
     }
 
     fn context_sources(

@@ -5,7 +5,7 @@ pub mod definition;
 mod deprecation;
 mod missing_signature;
 mod multiple_assignment;
-mod send;
+pub mod send;
 mod send_args;
 mod singleton_class;
 mod special_method;

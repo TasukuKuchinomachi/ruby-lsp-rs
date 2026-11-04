@@ -1,0 +1,8 @@
+target :app do
+  signature "sig"
+  check "lib"
+end
+
+target :inline do
+  check "inline", inline: true
+end

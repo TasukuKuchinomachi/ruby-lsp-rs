@@ -4,6 +4,7 @@ gem "rbs", "4.2.0"
 gem "steep", steep_version
 require "steep"
 require "json"
+require "zlib"
 
 module SteepServices
   module_function
@@ -109,9 +110,24 @@ module SteepServices
     end
   end
 
-  # Why not print the numbers of fresh type variables: Steep counts them in the whole
-  # process, so they depend on the queries made before.
+  # Why not print the numbers of fresh type variables and the names of the variables
+  # of case-when: Steep counts the former in the whole process and makes the latter
+  # random.
+  def normalize(json)
+    json.gsub(/(?<=\w)\(\d+\)/, "(*)").gsub(/__case_when:\w{5}__/, "__case_when:*__")
+  end
+
+  # Why not print every item: a completion at the start of a statement lists all the
+  # constants and methods, so printing them at every position makes gigabytes. Set
+  # STEEP_SERVICES_FULL=1 to print them.
+  def summarize(values)
+    lines = values.map { |value| normalize(JSON.generate(value)) }.sort
+    return lines.map { |line| JSON.parse(line) } if ENV["STEEP_SERVICES_FULL"]
+
+    { "count" => lines.size, "crc32" => Zlib.crc32(lines.join("\n")).to_s(16) }
+  end
+
   def print_result(directory, path, line, column, result)
-    puts "#{Pathname(directory) + path}:#{line}:#{column}: #{JSON.generate(result).gsub(/(?<=\w)\(\d+\)/, "(*)")}"
+    puts "#{Pathname(directory) + path}:#{line}:#{column}: #{normalize(JSON.generate(result))}"
   end
 end

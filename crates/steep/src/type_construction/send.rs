@@ -35,10 +35,7 @@ use crate::{
     },
 };
 
-pub(super) fn method_declarations(
-    method_name: &str,
-    overload: &Overload,
-) -> Vec<MethodDeclaration> {
+pub fn method_declarations(method_name: &str, overload: &Overload) -> Vec<MethodDeclaration> {
     overload
         .definitions
         .iter()
