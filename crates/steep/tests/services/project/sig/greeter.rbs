@@ -1,0 +1,7 @@
+# Greets people.
+class Greeter
+  def initialize: (String name) -> void
+
+  # Returns a greeting.
+  def greet: (String greeting, ?times: Integer) -> String
+end
