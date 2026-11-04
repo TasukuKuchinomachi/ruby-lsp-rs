@@ -146,6 +146,16 @@ impl TypeName {
     pub fn join(&self, other: &TypeName) -> TypeName {
         other.with_prefix(&self.to_namespace())
     }
+
+    pub fn relative(&self) -> TypeName {
+        TypeName {
+            namespace: Namespace {
+                absolute: false,
+                path: self.namespace.path.clone(),
+            },
+            name: self.name.clone(),
+        }
+    }
 }
 
 impl fmt::Display for TypeName {
@@ -300,6 +310,8 @@ pub struct MethodDefinition {
     pub visibility: Option<Visibility>,
     pub annotations: Vec<String>,
     pub location: Option<Location>,
+    pub name_location: Option<Location>,
+    pub comment: Option<String>,
     pub declared_in_ruby: bool,
     pub unannotated_ruby_definition: bool,
 }
@@ -334,7 +346,9 @@ pub struct Attribute {
     pub visibility: Option<Visibility>,
     pub annotations: Vec<String>,
     pub location: Option<Location>,
+    pub name_location: Option<Location>,
     pub type_location: Option<Location>,
+    pub comment: Option<String>,
     pub declared_in_ruby: bool,
 }
 
@@ -345,6 +359,8 @@ pub struct Alias {
     pub kind: MemberKind,
     pub annotations: Vec<String>,
     pub location: Option<Location>,
+    pub new_name_location: Option<Location>,
+    pub comment: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -360,6 +376,7 @@ pub struct Mixin {
     pub name: TypeName,
     pub args: Vec<Type>,
     pub location: Option<Location>,
+    pub name_location: Option<Location>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -395,6 +412,7 @@ pub struct Super {
     pub name: TypeName,
     pub args: Vec<Type>,
     pub location: Option<Location>,
+    pub name_location: Option<Location>,
 }
 
 #[derive(Clone, Debug)]
@@ -406,6 +424,7 @@ pub struct ClassDeclaration {
     pub annotations: Vec<String>,
     pub location: Option<Location>,
     pub name_location: Option<Location>,
+    pub comment: Option<String>,
     pub declared_in_ruby: bool,
 }
 
@@ -414,6 +433,7 @@ pub struct ModuleSelf {
     pub name: TypeName,
     pub args: Vec<Type>,
     pub location: Option<Location>,
+    pub name_location: Option<Location>,
 }
 
 #[derive(Clone, Debug)]
@@ -425,6 +445,7 @@ pub struct ModuleDeclaration {
     pub annotations: Vec<String>,
     pub location: Option<Location>,
     pub name_location: Option<Location>,
+    pub comment: Option<String>,
     pub declared_in_ruby: bool,
 }
 
@@ -436,6 +457,7 @@ pub struct InterfaceDeclaration {
     pub annotations: Vec<String>,
     pub location: Option<Location>,
     pub name_location: Option<Location>,
+    pub comment: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -448,6 +470,7 @@ pub struct TypeAliasDeclaration {
     pub name_location: Option<Location>,
     pub type_parameters_location: Option<Location>,
     pub type_location: Option<Location>,
+    pub comment: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -456,6 +479,8 @@ pub struct ConstantDeclaration {
     pub type_: Type,
     pub annotations: Vec<String>,
     pub location: Option<Location>,
+    pub name_location: Option<Location>,
+    pub comment: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -464,6 +489,8 @@ pub struct GlobalDeclaration {
     pub type_: Type,
     pub annotations: Vec<String>,
     pub location: Option<Location>,
+    pub name_location: Option<Location>,
+    pub comment: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -481,6 +508,7 @@ pub struct AliasDeclaration {
     pub location: Option<Location>,
     pub new_name_location: Option<Location>,
     pub old_name_location: Option<Location>,
+    pub comment: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -499,15 +527,19 @@ pub enum UseClause {
     Single {
         type_name: TypeName,
         new_name: Option<String>,
+        location: AstLocation,
+        type_name_location: AstLocation,
     },
     Wildcard {
         namespace: Namespace,
+        location: AstLocation,
+        namespace_location: AstLocation,
     },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Directive {
-    Use(Vec<UseClause>),
+    Use(Vec<UseClause>, AstLocation),
 }
 
 impl Literal {

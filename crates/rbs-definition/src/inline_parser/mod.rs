@@ -100,6 +100,7 @@ impl PendingModule {
                 annotations: Vec::new(),
                 location: self.location,
                 name_location: self.name_location,
+                comment: None,
                 declared_in_ruby: true,
             })),
             ModuleKind::Module => Declaration::Module(Arc::new(ModuleDeclaration {
@@ -110,6 +111,7 @@ impl PendingModule {
                 annotations: Vec::new(),
                 location: self.location,
                 name_location: self.name_location,
+                comment: None,
                 declared_in_ruby: true,
             })),
         }
@@ -482,6 +484,7 @@ impl Parser<'_> {
             name,
             args,
             location: self.range_location(location),
+            name_location: None,
         })
     }
 
@@ -533,6 +536,7 @@ impl Parser<'_> {
                 name: module_name,
                 args,
                 location: self.location(&node.location()),
+                name_location: None,
             })),
         );
     }
@@ -611,7 +615,9 @@ impl Parser<'_> {
                     visibility: Some(Visibility::Public),
                     annotations: Vec::new(),
                     location: self.location(&location),
+                    name_location: None,
                     type_location: type_location.clone(),
+                    comment: None,
                     declared_in_ruby: true,
                 })),
             );
@@ -694,6 +700,7 @@ impl Parser<'_> {
                     location: self.location(&location),
                     new_name_location: self.location(&name_location),
                     old_name_location: None,
+                    comment: None,
                 })),
             );
         } else {
@@ -705,6 +712,8 @@ impl Parser<'_> {
                     type_,
                     annotations: Vec::new(),
                     location: self.location(&location),
+                    name_location: self.location(&name_location),
+                    comment: None,
                 })),
             );
         }
@@ -784,6 +793,7 @@ impl<'pr> Visit<'pr> for Parser<'_> {
                             name,
                             args: arguments,
                             location: self.range_location(location),
+                            name_location: None,
                         }),
                     )),
                     Paragraph::Text => {}
@@ -871,6 +881,8 @@ impl<'pr> Visit<'pr> for Parser<'_> {
                 visibility: Some(Visibility::Public),
                 annotations: Vec::new(),
                 location: self.location(&location),
+                name_location: self.location(&node.name_loc()),
+                comment: None,
                 declared_in_ruby: true,
                 unannotated_ruby_definition: method_type.is_empty(),
             })),

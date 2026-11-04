@@ -513,17 +513,18 @@ pub struct UseMap {
 impl UseMap {
     fn build(table: &UseTable, directives: &[Directive]) -> Result<UseMap, String> {
         let mut use_map = UseMap::default();
-        for Directive::Use(clauses) in directives {
+        for Directive::Use(clauses, _) in directives {
             for clause in clauses {
                 match clause {
                     UseClause::Single {
                         type_name,
                         new_name,
+                        ..
                     } => {
                         let name = new_name.as_ref().unwrap_or(&type_name.name);
                         use_map.map.insert(name.clone(), type_name.absolute());
                     }
-                    UseClause::Wildcard { namespace } => {
+                    UseClause::Wildcard { namespace, .. } => {
                         let namespace = Namespace {
                             absolute: true,
                             path: namespace.path.clone(),
@@ -792,6 +793,7 @@ impl DeclarationResolver<'_> {
                         name: self.absolute_type_name(&super_class.name, context),
                         args: self.absolute_types(&super_class.args, context),
                         location: super_class.location.clone(),
+                        name_location: super_class.name_location.clone(),
                     }),
                     members: self.resolve_members(&class.members, &inner_context, &inner_prefix),
                     name,
@@ -813,6 +815,7 @@ impl DeclarationResolver<'_> {
                             name: self.absolute_type_name(&self_type.name, &inner_context),
                             args: self.absolute_types(&self_type.args, &inner_context),
                             location: self_type.location.clone(),
+                            name_location: self_type.name_location.clone(),
                         })
                         .collect(),
                     members: self.resolve_members(&module.members, &inner_context, &inner_prefix),

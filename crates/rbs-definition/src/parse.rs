@@ -1,7 +1,7 @@
 use std::{ffi::CStr, os::raw::c_char, sync::Arc};
 
 use ruby_rbs::node::{
-    self, AliasKind, AttrIvarName, AttributeVisibility, MethodDefinitionKind,
+    self, AliasKind, AttrIvarName, AttributeVisibility, CommentNode, MethodDefinitionKind,
     MethodDefinitionVisibility, NamespaceNode, Node, NodeList, RBSLocationRange, SymbolNode,
     TypeNameNode, TypeParamVariance,
 };
@@ -85,7 +85,11 @@ pub fn parse_signature_buffer(buffer: &Arc<Buffer>) -> Result<Signature, Signatu
         position: &|position| position,
     };
     Ok(Signature {
-        directives: signature.directives().iter().map(directive).collect(),
+        directives: signature
+            .directives()
+            .iter()
+            .map(|node| directive(&parser, node))
+            .collect(),
         declarations: signature
             .declarations()
             .iter()
@@ -94,7 +98,7 @@ pub fn parse_signature_buffer(buffer: &Arc<Buffer>) -> Result<Signature, Signatu
     })
 }
 
-fn directive(node: Node) -> Directive {
+fn directive(locations: &Parser, node: Node) -> Directive {
     let Node::Use(use_node) = node else {
         unreachable!("a signature has only use directives")
     };
@@ -106,13 +110,22 @@ fn directive(node: Node) -> Directive {
                 Node::UseSingleClause(clause) => UseClause::Single {
                     type_name: type_name(clause.type_name()),
                     new_name: clause.new_name().map(symbol),
+                    location: AstLocation::new(locations.location(clause.location())),
+                    type_name_location: AstLocation::new(
+                        locations.location(clause.type_name_location()),
+                    ),
                 },
                 Node::UseWildcardClause(clause) => UseClause::Wildcard {
                     namespace: namespace(clause.namespace()),
+                    location: AstLocation::new(locations.location(clause.location())),
+                    namespace_location: AstLocation::new(
+                        locations.location(clause.namespace_location()),
+                    ),
                 },
                 _ => unreachable!("a use directive has only use clauses"),
             })
             .collect(),
+        AstLocation::new(locations.location(use_node.location())),
     )
 }
 
@@ -411,6 +424,10 @@ fn type_location(node: &Node) -> Option<RBSLocationRange> {
 }
 
 impl Parser<'_> {
+    fn comment(&self, comment: CommentNode) -> String {
+        comment.string().as_str().to_string()
+    }
+
     pub(crate) fn location(&self, range: RBSLocationRange) -> Option<Location> {
         if range.start() < 0 || range.end() < 0 {
             return None;
@@ -627,12 +644,14 @@ impl Parser<'_> {
         name: TypeNameNode,
         args: NodeList,
         location: RBSLocationRange,
+        name_location: RBSLocationRange,
     ) -> Member {
         Member::Mixin(Mixin {
             mixin_kind,
             name: type_name(name),
             args: self.types(args),
             location: self.location(location),
+            name_location: self.location(name_location),
         })
     }
 
@@ -672,6 +691,8 @@ impl Parser<'_> {
                     visibility: attribute_visibility(attribute.visibility()),
                     annotations: annotations(attribute.annotations()),
                     location: self.location(attribute.location()),
+                    name_location: self.location(attribute.name_location()),
+                    comment: attribute.comment().map(|comment| self.comment(comment)),
                     declared_in_ruby: false,
                 })
             }};
@@ -699,6 +720,8 @@ impl Parser<'_> {
                 visibility: method_visibility(definition.visibility()),
                 annotations: annotations(definition.annotations()),
                 location: self.location(definition.location()),
+                name_location: self.location(definition.name_location()),
+                comment: definition.comment().map(|comment| self.comment(comment)),
                 declared_in_ruby: false,
                 unannotated_ruby_definition: false,
             }),
@@ -714,24 +737,29 @@ impl Parser<'_> {
                 },
                 annotations: annotations(alias.annotations()),
                 location: self.location(alias.location()),
+                new_name_location: self.location(alias.new_name_location()),
+                comment: alias.comment().map(|comment| self.comment(comment)),
             }),
             Node::Include(mixin) => self.mixin(
                 MixinKind::Include,
                 mixin.name(),
                 mixin.args(),
                 mixin.location(),
+                mixin.name_location(),
             ),
             Node::Extend(mixin) => self.mixin(
                 MixinKind::Extend,
                 mixin.name(),
                 mixin.args(),
                 mixin.location(),
+                mixin.name_location(),
             ),
             Node::Prepend(mixin) => self.mixin(
                 MixinKind::Prepend,
                 mixin.name(),
                 mixin.args(),
                 mixin.location(),
+                mixin.name_location(),
             ),
             Node::InstanceVariable(variable) => self.variable(
                 VariableKind::InstanceVariable,
@@ -769,11 +797,13 @@ impl Parser<'_> {
                     name: type_name(super_class.name()),
                     args: self.types(super_class.args()),
                     location: self.location(super_class.location()),
+                    name_location: self.location(super_class.name_location()),
                 }),
                 members: self.members(class.members()),
                 annotations: annotations(class.annotations()),
                 location: self.location(class.location()),
                 name_location: self.location(class.name_location()),
+                comment: class.comment().map(|comment| self.comment(comment)),
                 declared_in_ruby: false,
             })),
             Node::Module(module) => Declaration::Module(Arc::new(ModuleDeclaration {
@@ -787,6 +817,7 @@ impl Parser<'_> {
                             name: type_name(self_type.name()),
                             args: self.types(self_type.args()),
                             location: self.location(self_type.location()),
+                            name_location: self.location(self_type.name_location()),
                         },
                         _ => unreachable!("not a module self type"),
                     })
@@ -795,6 +826,7 @@ impl Parser<'_> {
                 annotations: annotations(module.annotations()),
                 location: self.location(module.location()),
                 name_location: self.location(module.name_location()),
+                comment: module.comment().map(|comment| self.comment(comment)),
                 declared_in_ruby: false,
             })),
             Node::Interface(interface) => Declaration::Interface(Arc::new(InterfaceDeclaration {
@@ -804,6 +836,7 @@ impl Parser<'_> {
                 annotations: annotations(interface.annotations()),
                 location: self.location(interface.location()),
                 name_location: self.location(interface.name_location()),
+                comment: interface.comment().map(|comment| self.comment(comment)),
             })),
             Node::TypeAlias(alias) => {
                 let type_node = alias.type_();
@@ -816,6 +849,7 @@ impl Parser<'_> {
                     location: self.location(alias.location()),
                     name_location: self.location(alias.name_location()),
                     type_parameters_location: self.optional_location(alias.type_params_location()),
+                    comment: alias.comment().map(|comment| self.comment(comment)),
                 }))
             }
             Node::Constant(constant) => Declaration::Constant(Arc::new(ConstantDeclaration {
@@ -823,12 +857,16 @@ impl Parser<'_> {
                 type_: self.type_(constant.type_()),
                 annotations: annotations(constant.annotations()),
                 location: self.location(constant.location()),
+                name_location: self.location(constant.name_location()),
+                comment: constant.comment().map(|comment| self.comment(comment)),
             })),
             Node::Global(global) => Declaration::Global(Arc::new(GlobalDeclaration {
                 name: symbol(global.name()),
                 type_: self.type_(global.type_()),
                 annotations: annotations(global.annotations()),
                 location: self.location(global.location()),
+                name_location: self.location(global.name_location()),
+                comment: global.comment().map(|comment| self.comment(comment)),
             })),
             Node::ClassAlias(alias) => Declaration::ClassAlias(Arc::new(AliasDeclaration {
                 kind: ClassOrModule::Class,
@@ -838,6 +876,7 @@ impl Parser<'_> {
                 location: self.location(alias.location()),
                 new_name_location: self.location(alias.new_name_location()),
                 old_name_location: self.location(alias.old_name_location()),
+                comment: alias.comment().map(|comment| self.comment(comment)),
             })),
             Node::ModuleAlias(alias) => Declaration::ClassAlias(Arc::new(AliasDeclaration {
                 kind: ClassOrModule::Module,
@@ -847,6 +886,7 @@ impl Parser<'_> {
                 location: self.location(alias.location()),
                 new_name_location: self.location(alias.new_name_location()),
                 old_name_location: self.location(alias.old_name_location()),
+                comment: alias.comment().map(|comment| self.comment(comment)),
             })),
             _ => unreachable!("not a declaration"),
         }
