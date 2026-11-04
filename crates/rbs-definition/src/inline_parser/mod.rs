@@ -55,6 +55,15 @@ pub struct Diagnostic {
 pub struct ParseResult {
     pub declarations: Vec<Declaration>,
     pub diagnostics: Vec<Diagnostic>,
+    pub type_regions: Vec<TypeRegion>,
+}
+
+#[derive(Clone, Debug)]
+pub struct TypeRegion {
+    pub annotation: ByteRange,
+    pub type_locations: Vec<Location>,
+    pub type_name: Option<(TypeName, Location)>,
+    pub context: Vec<TypeName>,
 }
 
 enum ModuleKind {
@@ -153,6 +162,38 @@ pub fn parse(buffer: &Arc<Buffer>) -> ParseResult {
         parser.report_unused_block(index);
     }
     parser.result
+}
+
+impl Parser<'_> {
+    fn type_context(&self, current: Option<&TypeName>) -> Vec<TypeName> {
+        let mut context = Vec::new();
+        let mut prefix = Namespace::root();
+        for name in self
+            .module_nesting
+            .iter()
+            .map(|module| &module.name)
+            .chain(current)
+        {
+            context.push(name.with_prefix(&prefix));
+            prefix = prefix.join(&name.to_namespace());
+        }
+        context
+    }
+
+    fn add_type_region(
+        &mut self,
+        annotation: ByteRange,
+        type_locations: Vec<Option<Location>>,
+        type_name: Option<(TypeName, Location)>,
+        context: Vec<TypeName>,
+    ) {
+        self.result.type_regions.push(TypeRegion {
+            annotation,
+            type_locations: type_locations.into_iter().flatten().collect(),
+            type_name,
+            context,
+        });
+    }
 }
 
 fn range(location: &PrismLocation) -> ByteRange {
@@ -438,17 +479,21 @@ impl Parser<'_> {
                                 ..
                             },
                         location,
-                    }) => module.members.push((
-                        self.lines.line(location.start),
-                        PendingMember::Member(Member::Variable(Variable {
-                            variable_kind: VariableKind::InstanceVariable,
-                            name,
-                            type_,
-                            location: self.range_location(location),
-                            name_location: None,
-                            type_location,
-                        })),
-                    )),
+                    }) => {
+                        let context = self.type_context(Some(&module.name));
+                        self.add_type_region(location, vec![type_location.clone()], None, context);
+                        module.members.push((
+                            self.lines.line(location.start),
+                            PendingMember::Member(Member::Variable(Variable {
+                                variable_kind: VariableKind::InstanceVariable,
+                                name,
+                                type_,
+                                location: self.range_location(location),
+                                name_location: None,
+                                type_location,
+                            })),
+                        ))
+                    }
                     paragraph => self.report_unused_paragraph(paragraph),
                 }
             }
@@ -471,11 +516,18 @@ impl Parser<'_> {
         if let Some(index) = self.comments.trailing_block_associating(end_line) {
             match self.trailing_annotation(index) {
                 Some(TrailingAnnotation::Annotation(LocatedAnnotation {
-                    annotation: Annotation::TypeApplication { type_arguments, .. },
+                    annotation:
+                        Annotation::TypeApplication {
+                            type_arguments,
+                            type_locations,
+                            ..
+                        },
                     location: annotation_location,
                 })) => {
                     args = type_arguments;
                     location.end = annotation_location.end;
+                    let context = self.type_context(None);
+                    self.add_type_region(annotation_location, type_locations, None, context);
                 }
                 other => self.report_unused_trailing(other),
             }
@@ -517,9 +569,18 @@ impl Parser<'_> {
         if let Some(index) = self.comments.trailing_block_associating(end_line) {
             match self.trailing_annotation(index) {
                 Some(TrailingAnnotation::Annotation(LocatedAnnotation {
-                    annotation: Annotation::TypeApplication { type_arguments, .. },
-                    ..
-                })) => args = type_arguments,
+                    annotation:
+                        Annotation::TypeApplication {
+                            type_arguments,
+                            type_locations,
+                            ..
+                        },
+                    location: annotation_location,
+                })) => {
+                    args = type_arguments;
+                    let context = self.type_context(None);
+                    self.add_type_region(annotation_location, type_locations, None, context);
+                }
                 other => self.report_unused_trailing(other),
             }
         }
@@ -581,9 +642,16 @@ impl Parser<'_> {
                             type_location: asserted_location,
                             ..
                         },
-                    ..
+                    location: annotation_location,
                 })) => {
                     type_ = Some(asserted);
+                    let context = self.type_context(None);
+                    self.add_type_region(
+                        annotation_location,
+                        vec![asserted_location.clone()],
+                        None,
+                        context,
+                    );
                     type_location = asserted_location;
                 }
                 Some(TrailingAnnotation::SyntaxError(error)) => self.diagnostic(
@@ -653,9 +721,18 @@ impl Parser<'_> {
         {
             match self.trailing_annotation(index) {
                 Some(TrailingAnnotation::Annotation(LocatedAnnotation {
-                    annotation: Annotation::NodeTypeAssertion { type_, .. },
-                    ..
-                })) => type_annotation = Some(type_),
+                    annotation:
+                        Annotation::NodeTypeAssertion {
+                            type_,
+                            type_location,
+                            ..
+                        },
+                    location: annotation_location,
+                })) => {
+                    let context = self.type_context(None);
+                    self.add_type_region(annotation_location, vec![type_location], None, context);
+                    type_annotation = Some(type_);
+                }
                 Some(TrailingAnnotation::Annotation(
                     annotation @ LocatedAnnotation {
                         annotation: Annotation::ClassAlias { .. } | Annotation::ModuleAlias { .. },
@@ -672,6 +749,25 @@ impl Parser<'_> {
         }
         let line = self.start_line(&location);
         if let Some(alias_annotation) = alias_annotation {
+            if let Annotation::ClassAlias {
+                type_name: Some(type_name),
+                type_name_location: Some(type_name_location),
+                ..
+            }
+            | Annotation::ModuleAlias {
+                type_name: Some(type_name),
+                type_name_location: Some(type_name_location),
+                ..
+            } = &alias_annotation.annotation
+            {
+                let context = self.type_context(None);
+                self.add_type_region(
+                    alias_annotation.location,
+                    Vec::new(),
+                    Some((type_name.clone(), type_name_location.clone())),
+                    context,
+                );
+            }
             let inferred_old_name = constant_as_type_name(&value);
             let (kind, type_name) = match alias_annotation.annotation {
                 Annotation::ClassAlias { type_name, .. } => (ClassOrModule::Class, type_name),
@@ -701,6 +797,7 @@ impl Parser<'_> {
                     new_name_location: self.location(&name_location),
                     old_name_location: None,
                     comment: None,
+                    declared_in_ruby: true,
                 })),
             );
         } else {
@@ -714,6 +811,7 @@ impl Parser<'_> {
                     location: self.location(&location),
                     name_location: self.location(&name_location),
                     comment: None,
+                    declared_in_ruby: true,
                 })),
             );
         }
@@ -870,6 +968,10 @@ impl<'pr> Visit<'pr> for Parser<'_> {
             self.report_unused(unused);
         }
         let method_type = built.method_type;
+        for (annotation, type_locations) in method_type.type_regions() {
+            let context = self.type_context(None);
+            self.add_type_region(annotation, type_locations, None, context);
+        }
         let line = self.start_line(&location);
         self.insert_member(
             line,

@@ -59,24 +59,29 @@ pub enum Annotation {
     ClassAlias {
         location: ByteRange,
         type_name: Option<TypeName>,
+        type_name_location: Option<Location>,
     },
     ModuleAlias {
         location: ByteRange,
         type_name: Option<TypeName>,
+        type_name_location: Option<Location>,
     },
     TypeApplication {
         location: ByteRange,
         type_arguments: Vec<Type>,
+        type_locations: Vec<Option<Location>>,
     },
     ColonMethodType {
         location: ByteRange,
         annotations: Vec<String>,
         method_type: Box<MethodType>,
+        type_locations: Vec<Option<Location>>,
     },
     MethodTypes {
         location: ByteRange,
         overloads: Vec<Overload>,
         overloading: bool,
+        type_locations: Vec<Option<Location>>,
     },
     Skip {
         location: ByteRange,
@@ -84,6 +89,7 @@ pub enum Annotation {
     ReturnType {
         location: ByteRange,
         return_type: Type,
+        type_location: Option<Location>,
     },
     InstanceVariable {
         location: ByteRange,
@@ -283,6 +289,9 @@ fn convert(parser: &Parser, located: &parse::Parser, pointer: *mut rbs_node_t) -
             Annotation::ClassAlias {
                 location: byte_range(node.location()),
                 type_name: has_type_name.then(|| parse::type_name(node.type_name())),
+                type_name_location: has_type_name
+                    .then(|| located.optional_location(node.type_name_location()))
+                    .flatten(),
             }
         }
         Node::ModuleAliasAnnotation(node) => {
@@ -291,15 +300,24 @@ fn convert(parser: &Parser, located: &parse::Parser, pointer: *mut rbs_node_t) -
             Annotation::ModuleAlias {
                 location: byte_range(node.location()),
                 type_name: has_type_name.then(|| parse::type_name(node.type_name())),
+                type_name_location: has_type_name
+                    .then(|| located.optional_location(node.type_name_location()))
+                    .flatten(),
             }
         }
         Node::TypeApplicationAnnotation(node) => Annotation::TypeApplication {
             location: byte_range(node.location()),
             type_arguments: located.types(node.type_args()),
+            type_locations: node
+                .type_args()
+                .iter()
+                .map(|type_| located.type_node_location(&type_))
+                .collect(),
         },
         Node::ColonMethodTypeAnnotation(node) => Annotation::ColonMethodType {
             location: byte_range(node.location()),
             annotations: parse::annotations(node.annotations()),
+            type_locations: located.method_type_type_locations(node.method_type()),
             method_type: Box::new(located.method_type(node.method_type())),
         },
         Node::MethodTypesAnnotation(node) => Annotation::MethodTypes {
@@ -316,12 +334,23 @@ fn convert(parser: &Parser, located: &parse::Parser, pointer: *mut rbs_node_t) -
                 })
                 .collect(),
             overloading: node.dot3_location().is_some(),
+            type_locations: node
+                .overloads()
+                .iter()
+                .flat_map(|overload| match overload {
+                    Node::MethodDefinitionOverload(overload) => {
+                        located.method_type_type_locations(overload.method_type())
+                    }
+                    _ => unreachable!("method types annotation has only overloads"),
+                })
+                .collect(),
         },
         Node::SkipAnnotation(node) => Annotation::Skip {
             location: byte_range(node.location()),
         },
         Node::ReturnTypeAnnotation(node) => Annotation::ReturnType {
             location: byte_range(node.location()),
+            type_location: located.type_node_location(&node.return_type()),
             return_type: located.type_(node.return_type()),
         },
         Node::InstanceVariableAnnotation(node) => Annotation::InstanceVariable {

@@ -3,10 +3,10 @@ use std::sync::Arc;
 use crate::{
     ast::{Block, Callable, Function, MethodType, Overload, Parameter, Type},
     inline_parser::{
-        annotation::Annotation,
+        annotation::{Annotation, ByteRange},
         comment_block::{LocatedAnnotation, Paragraph, TrailingAnnotation},
     },
-    location::AstLocation,
+    location::{AstLocation, Location},
 };
 
 pub enum DefinitionParameter {
@@ -339,6 +339,7 @@ enum TypeAnnotations {
 
 pub struct MethodTypeAnnotation {
     type_annotations: Option<TypeAnnotations>,
+    return_type_annotation: Option<LocatedAnnotation>,
 }
 
 pub struct BuiltMethodTypeAnnotation {
@@ -357,13 +358,21 @@ impl MethodTypeAnnotation {
         let mut unused_trailing = None;
         let mut overloads: Option<Vec<LocatedAnnotation>> = None;
         let mut return_type: Option<Type> = None;
+        let mut return_type_annotation: Option<LocatedAnnotation> = None;
         let mut parameter_annotations = Vec::new();
 
         match trailing_annotation {
-            Some(TrailingAnnotation::Annotation(LocatedAnnotation {
-                annotation: Annotation::NodeTypeAssertion { type_, .. },
-                ..
-            })) => return_type = Some(type_),
+            Some(TrailingAnnotation::Annotation(
+                annotation @ LocatedAnnotation {
+                    annotation: Annotation::NodeTypeAssertion { .. },
+                    ..
+                },
+            )) => {
+                if let Annotation::NodeTypeAssertion { type_, .. } = &annotation.annotation {
+                    return_type = Some(type_.clone());
+                }
+                return_type_annotation = Some(annotation);
+            }
             Some(TrailingAnnotation::Annotation(annotation)) => {
                 unused_trailing = Some(Unused::Annotation(annotation))
             }
@@ -391,6 +400,7 @@ impl MethodTypeAnnotation {
                     return_type: type_, ..
                 } if overloads.is_none() && return_type.is_none() => {
                     return_type = Some(type_.clone());
+                    return_type_annotation = Some(annotation);
                     continue;
                 }
                 Annotation::ParameterType { .. }
@@ -419,7 +429,10 @@ impl MethodTypeAnnotation {
         };
 
         BuiltMethodTypeAnnotation {
-            method_type: MethodTypeAnnotation { type_annotations },
+            method_type: MethodTypeAnnotation {
+                type_annotations,
+                return_type_annotation,
+            },
             unused_leading,
             unused_trailing,
         }
@@ -427,6 +440,33 @@ impl MethodTypeAnnotation {
 
     pub fn is_empty(&self) -> bool {
         self.type_annotations.is_none()
+    }
+
+    pub fn type_regions(&self) -> Vec<(ByteRange, Vec<Option<Location>>)> {
+        match &self.type_annotations {
+            Some(TypeAnnotations::Overloads(annotations)) => annotations
+                .iter()
+                .filter_map(|annotation| match &annotation.annotation {
+                    Annotation::ColonMethodType { type_locations, .. }
+                    | Annotation::MethodTypes { type_locations, .. } => {
+                        Some((annotation.location, type_locations.clone()))
+                    }
+                    _ => None,
+                })
+                .collect(),
+            Some(TypeAnnotations::Document(_)) => self
+                .return_type_annotation
+                .iter()
+                .filter_map(|annotation| match &annotation.annotation {
+                    Annotation::ReturnType { type_location, .. }
+                    | Annotation::NodeTypeAssertion { type_location, .. } => {
+                        Some((annotation.location, vec![type_location.clone()]))
+                    }
+                    _ => None,
+                })
+                .collect(),
+            None => Vec::new(),
+        }
     }
 
     pub fn overloads(&self) -> Vec<Overload> {

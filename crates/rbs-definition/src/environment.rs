@@ -158,6 +158,13 @@ pub struct Environment {
     pub class_alias_declarations: IndexMap<TypeName, Entry<AliasDeclaration>>,
 }
 
+#[derive(Clone, Copy)]
+pub enum ConstantEntry<'environment> {
+    Class(&'environment ClassEntry),
+    ClassAlias(&'environment Entry<AliasDeclaration>),
+    Constant(&'environment Entry<ConstantDeclaration>),
+}
+
 pub enum NormalizedModuleName {
     Found(TypeName),
     Cyclic,
@@ -440,6 +447,18 @@ impl Environment {
     pub fn is_module_name(&self, name: &TypeName) -> bool {
         self.class_declarations.contains_key(name)
             || self.class_alias_declarations.contains_key(name)
+    }
+
+    pub fn constant_entry(&self, name: &TypeName) -> Option<ConstantEntry<'_>> {
+        if let Some(entry) = self.class_declarations.get(name) {
+            return Some(ConstantEntry::Class(entry));
+        }
+        if let Some(entry) = self.class_alias_declarations.get(name) {
+            return Some(ConstantEntry::ClassAlias(entry));
+        }
+        self.constant_declarations
+            .get(name)
+            .map(ConstantEntry::Constant)
     }
 
     pub fn module_class_entry(&self, name: &TypeName) -> Option<&ClassEntry> {

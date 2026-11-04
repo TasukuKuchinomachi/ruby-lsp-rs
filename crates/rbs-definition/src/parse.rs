@@ -267,6 +267,27 @@ pub fn parse_type(source: &str) -> Result<Option<ParsedType>, ParsingError> {
     }))
 }
 
+pub fn parse_method_type_node<R>(
+    source: &str,
+    convert: impl FnOnce(Node) -> R,
+) -> Result<Option<R>, ParsingError> {
+    let buffer = Buffer::new("", source);
+    let parser = annotation::Parser::new(source, 0, source.len());
+    if parser.raw().next_token.type_ == RBSTokenType_pEOF {
+        return Ok(None);
+    }
+    let mut method_type: *mut rbs_method_type_t = std::ptr::null_mut();
+    let succeeded =
+        unsafe { rbs_parse_method_type(parser.pointer(), &mut method_type, false, true) };
+    if let Some(error) = parsing_error(parser.raw(), &buffer) {
+        return Err(error);
+    }
+    if !succeeded || method_type.is_null() {
+        return Ok(None);
+    }
+    Ok(Some(convert(parser.node(method_type.cast::<rbs_node_t>()))))
+}
+
 pub fn parse_method_type(source: &str) -> Result<Option<MethodType>, ParsingError> {
     let buffer = Buffer::new("", source);
     let parser = annotation::Parser::new(source, 0, source.len());
@@ -605,6 +626,53 @@ impl Parser<'_> {
             .collect()
     }
 
+    pub(crate) fn method_type_type_locations(&self, node: Node) -> Vec<Option<Location>> {
+        let mut locations = Vec::new();
+        let function = |node: Node, locations: &mut Vec<Option<Location>>| match node {
+            Node::FunctionType(function) => {
+                let parameters = function
+                    .required_positionals()
+                    .iter()
+                    .chain(function.optional_positionals().iter())
+                    .chain(function.rest_positionals())
+                    .chain(function.trailing_positionals().iter())
+                    .chain(
+                        function
+                            .required_keywords()
+                            .iter()
+                            .map(|(_, parameter)| parameter),
+                    )
+                    .chain(
+                        function
+                            .optional_keywords()
+                            .iter()
+                            .map(|(_, parameter)| parameter),
+                    )
+                    .chain(function.rest_keywords());
+                for parameter in parameters {
+                    if let Node::FunctionParam(parameter) = parameter {
+                        locations.push(self.type_node_location(&parameter.type_()));
+                    }
+                }
+                locations.push(self.type_node_location(&function.return_type()));
+            }
+            Node::UntypedFunctionType(function) => {
+                locations.push(self.type_node_location(&function.return_type()));
+            }
+            _ => {}
+        };
+        if let Node::MethodType(method_type) = node {
+            function(method_type.type_(), &mut locations);
+            if let Some(block) = method_type.block() {
+                function(block.type_(), &mut locations);
+                if let Some(self_type) = block.self_type() {
+                    locations.push(self.type_node_location(&self_type));
+                }
+            }
+        }
+        locations
+    }
+
     pub(crate) fn method_type(&self, node: Node) -> MethodType {
         match node {
             Node::MethodType(method_type) => MethodType {
@@ -859,6 +927,7 @@ impl Parser<'_> {
                 location: self.location(constant.location()),
                 name_location: self.location(constant.name_location()),
                 comment: constant.comment().map(|comment| self.comment(comment)),
+                declared_in_ruby: false,
             })),
             Node::Global(global) => Declaration::Global(Arc::new(GlobalDeclaration {
                 name: symbol(global.name()),
@@ -877,6 +946,7 @@ impl Parser<'_> {
                 new_name_location: self.location(alias.new_name_location()),
                 old_name_location: self.location(alias.old_name_location()),
                 comment: alias.comment().map(|comment| self.comment(comment)),
+                declared_in_ruby: false,
             })),
             Node::ModuleAlias(alias) => Declaration::ClassAlias(Arc::new(AliasDeclaration {
                 kind: ClassOrModule::Module,
@@ -887,6 +957,7 @@ impl Parser<'_> {
                 new_name_location: self.location(alias.new_name_location()),
                 old_name_location: self.location(alias.old_name_location()),
                 comment: alias.comment().map(|comment| self.comment(comment)),
+                declared_in_ruby: false,
             })),
             _ => unreachable!("not a declaration"),
         }

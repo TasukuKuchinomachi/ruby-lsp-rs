@@ -481,6 +481,7 @@ pub struct ConstantDeclaration {
     pub location: Option<Location>,
     pub name_location: Option<Location>,
     pub comment: Option<String>,
+    pub declared_in_ruby: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -509,6 +510,7 @@ pub struct AliasDeclaration {
     pub new_name_location: Option<Location>,
     pub old_name_location: Option<Location>,
     pub comment: Option<String>,
+    pub declared_in_ruby: bool,
 }
 
 #[derive(Clone, Debug)]
