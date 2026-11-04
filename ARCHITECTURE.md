@@ -63,7 +63,8 @@ The server uses the services of `crates/steep` as Steep's language server uses t
   positions in the negotiated encoding: diagnostics as LSP JSON, hover markdown and range, completion items, signature
   help, location links and type hints.
 - While idle, the thread type checks every file of the project so that `GotoService` finds definitions in Ruby files, as
-  Steep's type check workers do. A goto query checks the files left first.
+  Steep's type check workers do. A goto query checks the files left first, for at most two seconds. Without a
+  `Steepfile` only the opened files are checked.
 - Each request merges the answer with ruby-lsp's own result: hover puts the type checker's markdown above ruby-lsp's,
   completion lists the type checker's items first and drops ruby-lsp's items with a guessed receiver or the same label,
   and definition prefers the implementations the type checker found, then its signatures, then ruby-lsp's name based
