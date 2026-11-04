@@ -1,0 +1,5 @@
+class Printer
+  attr_reader output: String
+
+  def print: () -> void
+end

@@ -1,0 +1,5 @@
+class Loose
+  def anything: () -> untyped
+
+  def top_value: () -> top
+end

@@ -1,0 +1,11 @@
+interface _KeyValue[K, V]
+  def to_ary: () -> [K, V]
+end
+
+class PairMaker
+  def make: [K, V] () { (String) -> _KeyValue[K, V] } -> Hash[K, V]
+
+  def make_pair: () { (String) -> ([Symbol, Integer] & _KeyValue[Symbol, Integer]) } -> Hash[Symbol, Integer]
+
+  def make_strings: () { (String) -> _KeyValue[String, String] } -> Hash[String, String]
+end

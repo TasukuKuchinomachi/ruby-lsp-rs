@@ -1,0 +1,9 @@
+target :test do
+  check "*.rb"
+  signature "*.rbs"
+
+  repo_path "vendor/rbs"
+  library "greeting"
+
+  configure_code_diagnostics(Steep::Diagnostic::Ruby.all_error)
+end

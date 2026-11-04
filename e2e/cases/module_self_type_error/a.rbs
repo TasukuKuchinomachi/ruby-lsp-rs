@@ -1,0 +1,16 @@
+interface _Named
+  def name: () -> String
+end
+
+module Greeting : _Named
+end
+
+class Robot
+  include Greeting
+end
+
+class Person
+  include Greeting
+
+  def name: () -> String
+end

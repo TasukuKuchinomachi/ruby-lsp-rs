@@ -1,0 +1,12 @@
+target :application do
+  check "lib"
+  signature "sig"
+
+  configure_code_diagnostics(Steep::Diagnostic::Ruby.all_error)
+
+  group :legacy do
+    check "lib/legacy"
+
+    configure_code_diagnostics(Steep::Diagnostic::Ruby.silent)
+  end
+end

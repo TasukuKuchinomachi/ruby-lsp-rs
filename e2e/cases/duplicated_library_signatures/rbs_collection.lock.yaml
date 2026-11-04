@@ -1,0 +1,11 @@
+---
+path: ".gem_rbs_collection"
+gems:
+- name: json
+  version: '0'
+  source:
+    type: stdlib
+- name: stringio
+  version: '0'
+  source:
+    type: stdlib

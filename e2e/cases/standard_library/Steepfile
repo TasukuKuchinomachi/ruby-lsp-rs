@@ -1,0 +1,13 @@
+target :with_library do
+  check "with_library.rb"
+
+  library "json"
+
+  configure_code_diagnostics(Steep::Diagnostic::Ruby.all_error)
+end
+
+target :without_library do
+  check "without_library.rb"
+
+  configure_code_diagnostics(Steep::Diagnostic::Ruby.all_error)
+end

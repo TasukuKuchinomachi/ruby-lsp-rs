@@ -1,0 +1,7 @@
+class Worker
+  def perform: () -> void
+
+  def fail!: () -> bot
+
+  def ready?: () -> bool
+end

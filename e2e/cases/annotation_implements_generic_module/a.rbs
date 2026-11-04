@@ -1,0 +1,5 @@
+class Stack[T]
+  def push: (T) -> void
+
+  def peek: () -> T?
+end

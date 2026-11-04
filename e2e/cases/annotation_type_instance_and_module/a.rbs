@@ -1,0 +1,9 @@
+class Service
+  def call: () -> void
+
+  def self.create: () -> Service
+end
+
+class Special
+  def special: () -> void
+end

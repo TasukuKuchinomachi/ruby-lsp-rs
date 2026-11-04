@@ -1,0 +1,9 @@
+class Object
+  def stringify: (Integer value) -> String
+end
+
+class OptionalBlockTest
+  def sum: (?untyped init) ?{ (Integer e) -> untyped } -> untyped
+
+  def map: () ?{ (Integer element) -> String } -> Array[String]
+end

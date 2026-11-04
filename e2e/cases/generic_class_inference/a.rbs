@@ -1,0 +1,7 @@
+class Box[T]
+  def initialize: (T) -> void
+
+  def get: () -> T
+
+  def map: [U] () { (T) -> U } -> Box[U]
+end

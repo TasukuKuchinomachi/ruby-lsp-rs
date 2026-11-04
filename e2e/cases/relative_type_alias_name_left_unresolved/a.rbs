@@ -1,0 +1,18 @@
+module Outer
+  type member = String | Integer
+
+  module Inner
+    class Outer
+    end
+
+    class Item
+      attr_reader member: Outer::member
+
+      def initialize: (Outer::member) -> void
+
+      def describe: () -> (String | Integer)
+
+      def replace: (Outer::member) -> void
+    end
+  end
+end

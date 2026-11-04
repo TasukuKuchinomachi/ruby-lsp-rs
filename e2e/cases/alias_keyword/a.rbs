@@ -1,0 +1,5 @@
+class Greeter
+  def hello: () -> String
+
+  alias greet hello
+end

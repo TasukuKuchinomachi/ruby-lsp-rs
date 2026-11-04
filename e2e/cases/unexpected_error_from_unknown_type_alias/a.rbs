@@ -1,0 +1,7 @@
+class Item
+  def member: () -> Missing::member
+
+  def accept: (Missing::member) -> void
+
+  def name: () -> String
+end

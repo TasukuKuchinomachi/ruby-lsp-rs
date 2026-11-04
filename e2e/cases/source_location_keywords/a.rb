@@ -1,0 +1,4 @@
+__FILE__.no_such_method
+__LINE__.no_such_method
+__dir__.no_such_method
+__method__.no_such_method

@@ -1,0 +1,12 @@
+%a{deprecated} class LegacyClient
+end
+
+class Client
+  %a{deprecated: Use Client.connect instead} def self.open: () -> Client
+
+  def self.connect: () -> Client
+end
+
+%a{deprecated} $legacy_setting: String
+
+%a{deprecated: Use LIMIT instead} OLD_LIMIT: Integer

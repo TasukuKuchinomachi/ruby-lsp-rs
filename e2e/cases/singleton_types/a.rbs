@@ -1,0 +1,7 @@
+class Plugin
+  def self.load: () -> instance
+end
+
+class Registry
+  def register: (singleton(Plugin)) -> void
+end

@@ -1,0 +1,3 @@
+class Catalog
+  %a{implicitly-returns-nil} def find: (Integer) -> String
+end

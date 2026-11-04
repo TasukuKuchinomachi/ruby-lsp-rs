@@ -1,0 +1,23 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 13
+      end:
+        line: 1
+        character: 15
+    severity: ERROR
+    message: Type `::Object` does not have method `it`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 4
+        character: 23
+      end:
+        line: 4
+        character: 25
+    severity: ERROR
+    message: Type `::Object` does not have method `it`
+    code: Ruby::NoMethod

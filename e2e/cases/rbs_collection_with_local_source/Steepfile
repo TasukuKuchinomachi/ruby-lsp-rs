@@ -1,0 +1,13 @@
+target :with_collection do
+  check "with_collection.rb"
+
+  configure_code_diagnostics(Steep::Diagnostic::Ruby.all_error)
+end
+
+target :without_collection do
+  check "without_collection.rb"
+
+  disable_collection
+
+  configure_code_diagnostics(Steep::Diagnostic::Ruby.all_error)
+end

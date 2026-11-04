@@ -1,0 +1,9 @@
+---
+path: "../.gem_rbs_collection"
+gems:
+- name: greeting
+  version: '1.0'
+  source:
+    type: local
+    path: "../vendor/collection"
+gemfile_lock_path: "../Gemfile.lock"

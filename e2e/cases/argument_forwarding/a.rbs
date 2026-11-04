@@ -1,0 +1,7 @@
+class Logger
+  def write: (String, ?level: Symbol) { (String) -> void } -> void
+
+  def info: (String, ?level: Symbol) { (String) -> void } -> void
+
+  def tagged: (Symbol, String, ?level: Symbol) { (String) -> void } -> void
+end

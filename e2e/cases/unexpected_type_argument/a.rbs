@@ -1,0 +1,3 @@
+class Container
+  def identity: [T] (T) -> T
+end

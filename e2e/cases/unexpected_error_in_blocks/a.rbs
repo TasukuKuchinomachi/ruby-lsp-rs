@@ -1,0 +1,3 @@
+class Runner
+  def run: () { (?Integer) -> void } -> void
+end

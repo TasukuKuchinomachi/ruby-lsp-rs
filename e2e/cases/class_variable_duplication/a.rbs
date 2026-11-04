@@ -1,0 +1,7 @@
+class Parent
+  @@count: Integer
+end
+
+class Child < Parent
+  @@count: Integer
+end

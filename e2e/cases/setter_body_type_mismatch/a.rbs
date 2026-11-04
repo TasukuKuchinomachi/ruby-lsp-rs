@@ -1,0 +1,5 @@
+class Profile
+  @name: String
+
+  def name=: (String) -> String
+end

@@ -1,0 +1,8 @@
+class NumberBox[T < Numeric]
+end
+
+class Shelf
+  def integer_box: () -> NumberBox[Integer]
+
+  def string_box: () -> NumberBox[String]
+end

@@ -1,0 +1,7 @@
+target :test do
+  check "*.rb"
+
+  collection_config "config/rbs_collection.yaml"
+
+  configure_code_diagnostics(Steep::Diagnostic::Ruby.all_error)
+end

@@ -1,0 +1,9 @@
+$cache: String?
+
+class Settings
+  @name: String?
+
+  attr_accessor label: String?
+
+  def load: () -> void
+end

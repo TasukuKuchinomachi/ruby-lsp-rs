@@ -1,0 +1,9 @@
+[package]
+name = "steep"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+rbs-definition = { path = "../rbs-definition" }
+ruby-prism = "1.9.0"
+ruby-prism-sys = "1.9.0"
