@@ -1,0 +1,7 @@
+class Box
+end
+
+class UseFixtureWithoutUse
+  def circle: () -> UseFixture::Shapes::Circle
+  def box: () -> Box
+end

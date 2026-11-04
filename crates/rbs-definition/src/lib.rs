@@ -3,6 +3,7 @@ pub mod ast;
 pub mod collection;
 pub mod collections;
 pub mod definition_builder;
+pub mod dump;
 pub mod environment;
 pub mod environment_loader;
 pub mod errors;

@@ -1,0 +1,66 @@
+module DefinitionFixture
+  interface _Sized
+    def size: () -> Integer
+    alias length size
+  end
+
+  interface _Box[T]
+    include _Sized
+    def get: () -> T
+    def get: (Integer) -> T | ...
+  end
+
+  module Countable : _Sized
+    def count: () -> Integer
+    alias total size
+  end
+
+  module Loud
+    def speak: () -> String
+  end
+
+  # 日本語のコメントの後ろでも instance 変数の名前を切り出せるか
+  class Animal[A]
+    include _Box[A]
+    prepend Loud
+
+    attr_reader name (@animal_name): String
+    attr_accessor age (): Integer
+    attr_writer self.registry: Hash[String, Animal[untyped]]
+    @weight: Float
+    self.@count: Integer
+    @@instances: Array[Animal[untyped]]
+
+    def initialize: [A] (A value) -> void
+                  | (String name) -> void
+
+    def speak: () -> String
+    def speak: (Integer times) -> String | ...
+    alias talk speak
+    alias shout talk
+
+    def self?.build: () -> Animal[untyped]
+
+    private
+
+    def secret: () -> void
+    public def open: () -> void
+    def respond_to_missing?: (Symbol, bool) -> bool
+  end
+
+  class Animal[B]
+    def fetch: () -> B
+    def other: () -> Array[B]
+  end
+
+  class Dog < Animal[String]
+    def speak: () -> String | ...
+    alias bark speak
+    def self.new: () -> Dog
+  end
+
+  class Cat < Animal[Symbol]
+    def initialize: () -> void
+    alias self.create self.new
+  end
+end

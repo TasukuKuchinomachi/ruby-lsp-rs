@@ -1,0 +1,9 @@
+use UseFixture::Shapes::*
+
+class UseFixtureWildcardUser
+  def circle: () -> Circle
+  def square: () -> Square
+  def drawable: () -> _Drawable
+  def size: () -> size
+  def leaf: () -> Nested::Leaf
+end

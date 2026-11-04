@@ -1,0 +1,29 @@
+module UseFixture
+  module Shapes
+    class Circle
+      def radius: () -> Integer
+    end
+
+    class Square
+      def side: () -> Integer
+    end
+
+    interface _Drawable
+      def draw: () -> void
+    end
+
+    type size = Integer
+
+    module Nested
+      class Leaf
+      end
+    end
+  end
+
+  module Shadowing
+    class Circle
+    end
+  end
+
+  module ShapesAlias = Shapes
+end
