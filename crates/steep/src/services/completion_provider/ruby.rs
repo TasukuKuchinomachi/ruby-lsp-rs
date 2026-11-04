@@ -335,10 +335,7 @@ impl Ruby {
         }
     }
 
-    fn context(
-        &self,
-        checked: &TypeChecked,
-    ) -> Result<Context, CompletionError> {
+    fn context(&self, checked: &TypeChecked) -> Result<Context, CompletionError> {
         checked
             .typing
             .cursor_context()

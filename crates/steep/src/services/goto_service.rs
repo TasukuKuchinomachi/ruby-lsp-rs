@@ -166,6 +166,58 @@ fn each_type_name_of_children(type_: &Type, names: &mut Vec<TypeName>) {
     names.extend(children.into_iter().skip(own));
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum QueryName {
+    TypeName(TypeName),
+    Method(MethodName),
+}
+
+fn parse_type_name(string: &str) -> Option<TypeName> {
+    let string = if string.starts_with("::") {
+        string.to_string()
+    } else {
+        format!("::{string}")
+    };
+    let type_name = TypeName::parse(&string);
+    (!type_name.name.is_empty()).then_some(type_name)
+}
+
+fn find_singleton_method_dot(string: &str) -> Option<usize> {
+    let characters: Vec<(usize, char)> = string.char_indices().collect();
+    (1..characters.len()).rev().find_map(|index| {
+        let (position, character) = characters[index];
+        let previous = characters[index - 1].1;
+        (character == '.' && previous != '.' && previous != ':').then_some(position)
+    })
+}
+
+pub fn parse_name(string: &str) -> Option<QueryName> {
+    if string.is_empty() {
+        return None;
+    }
+    if let Some(index) = string.find('#') {
+        let (type_part, method_part) = (&string[..index], &string[index + 1..]);
+        if type_part.is_empty() || method_part.is_empty() {
+            return None;
+        }
+        return Some(QueryName::Method(MethodName::instance(
+            parse_type_name(type_part)?,
+            method_part,
+        )));
+    }
+    if let Some(index) = find_singleton_method_dot(string) {
+        let (type_part, method_part) = (&string[..index], &string[index + 1..]);
+        if type_part.is_empty() || method_part.is_empty() {
+            return None;
+        }
+        return Some(QueryName::Method(MethodName::singleton(
+            parse_type_name(type_part)?,
+            method_part,
+        )));
+    }
+    parse_type_name(string).map(QueryName::TypeName)
+}
+
 pub struct GotoService<'service> {
     pub service: &'service TypeCheckService,
 }
@@ -207,6 +259,43 @@ impl<'service> GotoService<'service> {
             }
         }
         Ok(unique(locations))
+    }
+
+    pub fn query_definition(&self, name: &QueryName) -> Result<Vec<GotoLocation>, GotoError> {
+        let mut locations = Vec::new();
+        match name {
+            QueryName::TypeName(name) => {
+                self.constant_definition_in_rbs(name, &mut locations);
+                self.constant_definition_in_ruby(name, &mut locations)?;
+                self.interface_and_type_alias_locations(name, &mut locations);
+            }
+            QueryName::Method(name) => self.method_locations(name, true, true, &mut locations)?,
+        }
+        Ok(unique(locations))
+    }
+
+    fn interface_and_type_alias_locations(
+        &self,
+        name: &TypeName,
+        locations: &mut Vec<GotoLocation>,
+    ) {
+        for target in &self.service.project.targets {
+            let Some(environment) =
+                self.service.signature_services[&target.name].latest_environment()
+            else {
+                continue;
+            };
+            if let Some(entry) = environment.interface_declarations.get(name)
+                && let Some(location) = &entry.declaration.name_location
+            {
+                locations.push(GotoLocation::Rbs(location.clone()));
+            }
+            if let Some(entry) = environment.type_alias_declarations.get(name)
+                && let Some(location) = &entry.declaration.name_location
+            {
+                locations.push(GotoLocation::Rbs(location.clone()));
+            }
+        }
     }
 
     pub fn implementation(
@@ -443,39 +532,35 @@ impl<'service> GotoService<'service> {
                             }
                         }
                     }
-                    "send"
-                        if test_ast_location(node.location.selector, position)? => {
-                            let block_types: &[&str] =
-                                if self.steep_version() >= SteepVersion::Version2_1_0 {
-                                    &["block", "numblock", "itblock"]
-                                } else {
-                                    &["block"]
-                                };
-                            let call_node = match result.parents.first() {
-                                Some(parent)
-                                    if block_types.contains(&parent.type_)
-                                        && parent
-                                            .child_node(0)
-                                            .is_some_and(|child| child == node) =>
-                                {
-                                    parent.clone()
-                                }
-                                _ => node.clone(),
+                    "send" if test_ast_location(node.location.selector, position)? => {
+                        let block_types: &[&str] =
+                            if self.steep_version() >= SteepVersion::Version2_1_0 {
+                                &["block", "numblock", "itblock"]
+                            } else {
+                                &["block"]
                             };
-                            let call =
-                                typing.call_of(call_node.id).ok_or(GotoError::UnknownNode)?;
-                            if let MethodCallKind::Typed { .. }
-                            | MethodCallKind::Special { .. }
-                            | MethodCallKind::Error { .. } = call.kind
+                        let call_node = match result.parents.first() {
+                            Some(parent)
+                                if block_types.contains(&parent.type_)
+                                    && parent.child_node(0).is_some_and(|child| child == node) =>
                             {
-                                for declaration in &call.method_decls {
-                                    queries.push(Query::Method {
-                                        name: declaration.name(),
-                                        from: QuerySource::Ruby,
-                                    });
-                                }
+                                parent.clone()
+                            }
+                            _ => node.clone(),
+                        };
+                        let call = typing.call_of(call_node.id).ok_or(GotoError::UnknownNode)?;
+                        if let MethodCallKind::Typed { .. }
+                        | MethodCallKind::Special { .. }
+                        | MethodCallKind::Error { .. } = call.kind
+                        {
+                            for declaration in &call.method_decls {
+                                queries.push(Query::Method {
+                                    name: declaration.name(),
+                                    from: QuerySource::Ruby,
+                                });
                             }
                         }
+                    }
                     _ => {}
                 }
             }

@@ -6,11 +6,12 @@ use std::{
 
 use rbs_definition::loader::RbsGem;
 use steep::{
+    method_name::MethodName,
     project::dsl,
     services::{
         completion_provider::{CompletionItem, ruby::Ruby},
         content_change::{ContentChange, Position},
-        goto_service::{GotoLocation, GotoService},
+        goto_service::{GotoLocation, GotoService, QueryName, parse_name},
         hover_provider::{HoverContent, content_for},
         signature_help_provider::SignatureHelpProvider,
         type_check_service::TypeCheckService,
@@ -255,4 +256,35 @@ fn goes_to_the_definitions_of_a_method_in_rbs_and_ruby() {
         implementations.as_slice(),
         [GotoLocation::Ruby { path, .. }] if path == Path::new("lib/greeter.rb")
     ));
+}
+
+#[test]
+fn goes_to_the_definitions_of_a_queried_name() {
+    let mut service = load_service();
+    for path in service.project_paths() {
+        service
+            .typecheck_source(&path)
+            .expect("the file is checked");
+    }
+    let goto = GotoService::new(&service);
+
+    let name = parse_name("Greeter#greet").expect("the name parses");
+    let locations = goto.query_definition(&name).expect("the query succeeds");
+
+    assert_eq!(
+        name,
+        QueryName::Method(MethodName::instance(
+            rbs_definition::ast::TypeName::parse("::Greeter"),
+            "greet"
+        ))
+    );
+    assert_eq!(locations.len(), 2, "{locations:?}");
+    assert_eq!(
+        parse_name("Greeter.new"),
+        Some(QueryName::Method(MethodName::singleton(
+            rbs_definition::ast::TypeName::parse("::Greeter"),
+            "new"
+        )))
+    );
+    assert_eq!(parse_name(""), None);
 }
