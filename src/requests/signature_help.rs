@@ -23,6 +23,14 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
     let offset = parsed.offset_of(position)?;
     delegate_request_if_needed(global_state, document, offset)?;
 
+    let sorbet_level = SorbetLevel::for_document(global_state, &parsed);
+    if document.is_ruby()
+        && !sorbet_level.is_true_or_higher()
+        && let Some(response) = global_state.type_checking.signature_help(document.uri(), position)
+    {
+        return Ok(response);
+    }
+
     let node_context = locate_call(&parsed, document.ruby_source(), offset);
     let Some(target) = adjust_for_nested_target(
         &parsed,
@@ -33,7 +41,6 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
         return Ok(Value::Null);
     };
 
-    let sorbet_level = SorbetLevel::for_document(global_state, &parsed);
     let mut index = global_state.index();
     let mut listener = SignatureHelpListener::new(
         &mut index,
