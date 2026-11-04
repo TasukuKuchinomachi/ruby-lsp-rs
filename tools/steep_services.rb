@@ -6,6 +6,8 @@ require "steep"
 require "json"
 require "zlib"
 
+Steep.log_output = File.open(File::NULL, "w")
+
 module SteepServices
   module_function
 
