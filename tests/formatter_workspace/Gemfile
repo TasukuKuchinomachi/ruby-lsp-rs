@@ -1,0 +1,15 @@
+# frozen_string_literal: true
+
+source "https://rubygems.org"
+
+gem "parser", "3.3.8.0"
+gem "prism", "1.9.0"
+gem "regexp_parser", "2.10.0"
+gem "rubocop", "1.78.0"
+gem "rubocop-ast", "1.46.0"
+gem "rubocop-minitest", "0.38.1"
+gem "rubocop-rake", "0.7.1"
+gem "rubocop-shopify", "2.17.1"
+gem "rubocop-sorbet", "0.8.7"
+gem "syntax_tree", "6.3.0"
+gem "unicode-display_width", "3.1.4"

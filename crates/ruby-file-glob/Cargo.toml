@@ -1,0 +1,6 @@
+[package]
+name = "ruby-file-glob"
+version.workspace = true
+edition = "2024"
+
+[dependencies]

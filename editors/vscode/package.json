@@ -1,0 +1,348 @@
+{
+  "name": "ruby-lsp-rs",
+  "displayName": "Ruby LSP RS",
+  "description": "Ruby language support powered by ruby-lsp-rs: a Rust port of Ruby LSP with Steep-compatible type inference, type inlay hints, hover and diagnostics.",
+  "version": "0.1.0",
+  "publisher": "ruby-lsp-rs",
+  "private": true,
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Formatters"
+  ],
+  "keywords": [
+    "ruby",
+    "rbs",
+    "steep",
+    "type checking",
+    "inlay hints"
+  ],
+  "activationEvents": [
+    "onLanguage:ruby",
+    "workspaceContains:Gemfile",
+    "workspaceContains:Steepfile"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "rubyLspRs.restartServer",
+        "title": "Restart Server",
+        "category": "Ruby LSP RS"
+      },
+      {
+        "command": "rubyLspRs.showOutput",
+        "title": "Show Output",
+        "category": "Ruby LSP RS"
+      },
+      {
+        "command": "rubyLspRs.toggleInlayHints",
+        "title": "Toggle Inlay Hints",
+        "category": "Ruby LSP RS"
+      },
+      {
+        "command": "rubyLspRs.toggleTypeHintKind",
+        "title": "Toggle Type Hint Kinds",
+        "category": "Ruby LSP RS"
+      }
+    ],
+    "configuration": {
+      "title": "Ruby LSP RS",
+      "properties": {
+        "rubyLspRs.server.path": {
+          "markdownDescription": "Path to the `ruby-lsp-rs` server executable. When empty, the extension looks for the `RUBY_LSP_RS_SERVER_PATH` environment variable, then the server bundled in the extension (`server/ruby-lsp-rs`), then `ruby-lsp-rs` on `PATH`. Relative paths are resolved against the first workspace folder. Changing this setting requires a server restart.",
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable"
+        },
+        "rubyLspRs.server.extraEnv": {
+          "markdownDescription": "Extra environment variables that will be passed to the server executable. Useful for passing e.g. `RUST_LOG` for debugging. Changing this setting requires a server restart.",
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number"
+            ]
+          },
+          "default": {},
+          "scope": "machine-overridable"
+        },
+        "rubyLspRs.rubyCommand": {
+          "markdownDescription": "Command used by the server to run Ruby, e.g. to detect the Bundler environment. Given as an array of the executable and its arguments, such as `[\"mise\", \"exec\", \"--\", \"ruby\"]`, `[\"rbenv\", \"exec\", \"ruby\"]` or `[\"asdf\", \"exec\", \"ruby\"]`. When empty, the command is detected from the workspace (`.tool-versions`, `mise.toml`, `.mise.toml` with mise, `.ruby-version` with rbenv) and falls back to `ruby` on `PATH`. Changing this setting requires a server restart.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "machine-overridable"
+        },
+        "rubyLspRs.typeChecker.enable": {
+          "markdownDescription": "Whether to enable type inference and type checking based on RBS signatures.",
+          "type": "boolean",
+          "default": true
+        },
+        "rubyLspRs.typeChecker.diagnostics.enable": {
+          "markdownDescription": "Whether to show type errors as diagnostics. Has no effect when `#rubyLspRs.typeChecker.enable#` is disabled.",
+          "type": "boolean",
+          "default": true
+        },
+        "rubyLspRs.definition.target": {
+          "markdownDescription": "Where Go to Definition (Cmd/Ctrl+Click) jumps for methods and constants, and where Go to Type Definition jumps for the classes in the type of a variable or an expression. The RBS signature is always available from Go to Declaration and from the links in the hover.",
+          "type": "string",
+          "enum": [
+            "implementation",
+            "signature",
+            "both"
+          ],
+          "enumDescriptions": [
+            "Jump to the Ruby implementation found from the inferred receiver type. Falls back to the RBS signature when there is no Ruby implementation, e.g. core methods written in C",
+            "Jump to the RBS signature",
+            "Show both the Ruby implementation and the RBS signature"
+          ],
+          "default": "implementation"
+        },
+        "rubyLspRs.inlayHints.methodReturnTypes.enable": {
+          "markdownDescription": "Whether to show inlay type hints for the return types of method definitions.",
+          "type": "boolean",
+          "default": true
+        },
+        "rubyLspRs.inlayHints.methodParameterTypes.enable": {
+          "markdownDescription": "Whether to show inlay type hints for the parameters of method definitions.",
+          "type": "boolean",
+          "default": true
+        },
+        "rubyLspRs.inlayHints.attributeTypes.enable": {
+          "markdownDescription": "Whether to show inlay type hints for attributes defined with `attr_reader`, `attr_writer` and `attr_accessor`.",
+          "type": "boolean",
+          "default": true
+        },
+        "rubyLspRs.inlayHints.variableTypes.enable": {
+          "markdownDescription": "Whether to show inlay type hints for variables.",
+          "type": "boolean",
+          "default": true
+        },
+        "rubyLspRs.inlayHints.blockParameterTypes.enable": {
+          "markdownDescription": "Whether to show inlay type hints for block parameters.",
+          "type": "boolean",
+          "default": true
+        },
+        "rubyLspRs.inlayHints.hideObviousTypes": {
+          "markdownDescription": "Whether to hide inlay type hints when the type is obvious from the right-hand side, e.g. literals and `Foo.new`.",
+          "type": "boolean",
+          "default": true
+        },
+        "rubyLspRs.inlayHints.hideUntyped": {
+          "markdownDescription": "Whether to hide inlay type hints whose type is `untyped`.",
+          "type": "boolean",
+          "default": true
+        },
+        "rubyLspRs.inlayHints.maxLength": {
+          "markdownDescription": "Maximum length for inlay type hints. Set to `null` to have an unlimited length.",
+          "type": [
+            "null",
+            "integer"
+          ],
+          "minimum": 0,
+          "default": 30
+        },
+        "rubyLspRs.inlayHints.implicitRescue.enable": {
+          "markdownDescription": "Whether to show inlay hints for the implicit `StandardError` of bare `rescue` clauses. Changing this setting requires a server restart.",
+          "type": "boolean",
+          "default": false
+        },
+        "rubyLspRs.inlayHints.implicitHashValue.enable": {
+          "markdownDescription": "Whether to show inlay hints for omitted hash values (e.g. `{ name: }`). Changing this setting requires a server restart.",
+          "type": "boolean",
+          "default": false
+        },
+        "rubyLspRs.formatter": {
+          "markdownDescription": "Which tool the server should use for formatting files. Changing this setting requires a server restart.",
+          "type": "string",
+          "enum": [
+            "auto",
+            "rubocop",
+            "rubocop_internal",
+            "syntax_tree",
+            "standard",
+            "rubyfmt",
+            "none"
+          ],
+          "enumDescriptions": [
+            "Automatically detect the formatter",
+            "RuboCop",
+            "Ruby LSP RuboCop integration",
+            "Syntax Tree",
+            "Standard",
+            "Rubyfmt",
+            "Do not use a formatter"
+          ],
+          "default": "auto"
+        },
+        "rubyLspRs.linters": {
+          "markdownDescription": "List of linter tools that the server should use for diagnostics, e.g. `[\"rubocop_internal\"]`. When `null`, linters are detected automatically. Changing this setting requires a server restart.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "default": null
+        },
+        "rubyLspRs.enabledFeatures": {
+          "markdownDescription": "Enable or disable individual language server features. The feature names are the same as `rubyLsp.enabledFeatures` of the Ruby LSP extension. Changing this setting requires a server restart.",
+          "type": "object",
+          "properties": {
+            "codeActions": {
+              "description": "Enable code actions, like RuboCop quick fixes.",
+              "type": "boolean",
+              "default": true
+            },
+            "diagnostics": {
+              "description": "Enable diagnostics, like RuboCop violations.",
+              "type": "boolean",
+              "default": true
+            },
+            "documentHighlights": {
+              "description": "Enable document highlights, which highlight the occurrences of the symbol at the cursor position.",
+              "type": "boolean",
+              "default": true
+            },
+            "documentLink": {
+              "description": "Enable document links, which generate clickable links to 'PATH' based on '# source://PATH' comments.",
+              "type": "boolean",
+              "default": true
+            },
+            "documentSymbols": {
+              "description": "Enable document symbols, which populate the file outline and breadcrumbs.",
+              "type": "boolean",
+              "default": true
+            },
+            "foldingRanges": {
+              "description": "Enable folding ranges, which populate the places where code can be folded.",
+              "type": "boolean",
+              "default": true
+            },
+            "formatting": {
+              "description": "Enable formatting.",
+              "type": "boolean",
+              "default": true
+            },
+            "hover": {
+              "description": "Enable hover, which displays a widget with extra information when hovering over code.",
+              "type": "boolean",
+              "default": true
+            },
+            "inlayHint": {
+              "description": "Enable inlay hints.",
+              "type": "boolean",
+              "default": true
+            },
+            "onTypeFormatting": {
+              "description": "Enable on type formatting.",
+              "type": "boolean",
+              "default": true
+            },
+            "selectionRanges": {
+              "description": "Enable selection ranges, which select code based on the position of the cursor(s).",
+              "type": "boolean",
+              "default": true
+            },
+            "semanticHighlighting": {
+              "description": "Enable semantic highlighting, which highlights code based on Ruby's understanding of it.",
+              "type": "boolean",
+              "default": true
+            },
+            "completion": {
+              "description": "Enable completion, which provides suggestions for code completion.",
+              "type": "boolean",
+              "default": true
+            },
+            "codeLens": {
+              "description": "Enable code lens, which generates clickable text to enrich the editor experience.",
+              "type": "boolean",
+              "default": true
+            },
+            "definition": {
+              "description": "Enable go to definition, which navigates to the definition of the symbol under the cursor.",
+              "type": "boolean",
+              "default": true
+            },
+            "workspaceSymbol": {
+              "description": "Enable workspace symbol, which allows fuzzy searching for symbols in the entire project.",
+              "type": "boolean",
+              "default": true
+            },
+            "signatureHelp": {
+              "description": "Enable signature help, which shows the parameters and documentation of the method being invoked.",
+              "type": "boolean",
+              "default": true
+            },
+            "typeHierarchy": {
+              "description": "Enable type hierarchy, which shows the supertypes and subtypes of the selected symbol.",
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "default": {
+            "codeActions": true,
+            "diagnostics": true,
+            "documentHighlights": true,
+            "documentLink": true,
+            "documentSymbols": true,
+            "foldingRanges": true,
+            "formatting": true,
+            "hover": true,
+            "inlayHint": true,
+            "onTypeFormatting": true,
+            "selectionRanges": true,
+            "semanticHighlighting": true,
+            "completion": true,
+            "codeLens": true,
+            "definition": true,
+            "workspaceSymbol": true,
+            "signatureHelp": true,
+            "typeHierarchy": true
+          }
+        },
+        "rubyLspRs.trace.server": {
+          "markdownDescription": "Trace the communication between VS Code and the language server.",
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "enumDescriptions": [
+            "No traces",
+            "Trace messages only",
+            "Verbose message traces"
+          ],
+          "default": "off",
+          "scope": "window"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "vscode:prepublish": "node esbuild.mjs --production",
+    "copy-server": "node scripts/copyServer.mjs",
+    "package": "node scripts/copyServer.mjs && vsce package --allow-missing-repository --skip-license"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "~1.90.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0"
+  }
+}

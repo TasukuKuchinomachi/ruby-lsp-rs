@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Extension (debug server)",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
+      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
+      "preLaunchTask": "npm: compile",
+      "env": {
+        "RUBY_LSP_RS_SERVER_PATH": "${workspaceFolder}/../../target/debug/ruby-lsp-rs"
+      }
+    },
+    {
+      "name": "Run Extension (release server)",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
+      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
+      "preLaunchTask": "npm: compile",
+      "env": {
+        "RUBY_LSP_RS_SERVER_PATH": "${workspaceFolder}/../../target/release/ruby-lsp-rs"
+      }
+    }
+  ]
+}
