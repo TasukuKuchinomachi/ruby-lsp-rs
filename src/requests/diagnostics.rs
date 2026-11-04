@@ -2,7 +2,7 @@ use serde_json::{Value, json};
 
 use super::support::formatter::{self, FormatterError};
 use super::{RequestContext, RequestResult, TextDocumentParams, parse_params};
-use crate::document::{Document, ParsedDocument};
+use crate::document::{Document, LanguageId, ParsedDocument};
 use crate::global_state::{GlobalState, message_type};
 use crate::requests::Outgoing;
 
@@ -30,7 +30,7 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
         Some(cached) => cached.clone(),
         None => {
             let computed = if document.is_ruby() {
-                let diagnostics = perform(global_state, outgoing, document).unwrap_or_else(|error| {
+                let mut diagnostics = perform(global_state, outgoing, document).unwrap_or_else(|error| {
                     outgoing.show_message(
                         &format!("Error running diagnostics: {}", error.message),
                         message_type::ERROR,
@@ -41,7 +41,21 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
                     );
                     syntax_diagnostics(&document.parse())
                 });
+                if !document.past_expensive_limit() {
+                    diagnostics.extend(
+                        global_state
+                            .type_checking
+                            .diagnostics(document.uri())
+                            .unwrap_or_default(),
+                    );
+                }
                 Value::Array(diagnostics)
+            } else if document.language_id() == LanguageId::Rbs {
+                global_state
+                    .type_checking
+                    .diagnostics(document.uri())
+                    .map(Value::Array)
+                    .unwrap_or(Value::Null)
             } else {
                 Value::Null
             };
