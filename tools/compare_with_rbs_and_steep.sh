@@ -104,6 +104,20 @@ compare_parser_ast "parser_ast (Steep's smoke tests)" "$repository/target/steep-
 compare_parser_ast "parser_ast (e2e/cases)" "$repository/e2e/cases"
 compare_parser_ast "parser_ast (fixtures/parser)" "$repository/fixtures/parser"
 
+compare_services() {
+  label=$1
+  kind=$2
+  shift 2
+  $ruby_command "$repository/tools/dump_steep_$kind.rb" --steep-version="$steep_version" "$@" > "$output/expected.txt"
+  cargo run --quiet --release --manifest-path "$repository/Cargo.toml" -p steep --bin "dump_steep_$kind" -- --steep-version="$steep_version" "$@" > "$output/actual.txt"
+  report "$label"
+}
+
+cd "$repository"
+for kind in hover; do
+  compare_services "steep_$kind (e2e/cases)" "$kind" e2e/cases/*/
+done
+
 echo "compared with rbs $rbs_version (Steep $steep_version)"
 rm -r "$output"
 exit $status
