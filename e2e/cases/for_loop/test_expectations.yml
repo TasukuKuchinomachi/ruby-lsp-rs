@@ -1,0 +1,23 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 9
+      end:
+        line: 2
+        character: 23
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 7
+        character: 7
+      end:
+        line: 7
+        character: 21
+    severity: ERROR
+    message: Type `::Array[::String]` does not have method `no_such_method`
+    code: Ruby::NoMethod

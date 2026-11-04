@@ -1,0 +1,22 @@
+class Inventory
+  def initialize: () -> void
+  def empty_collections: () -> untyped
+  def annotated_collections: () -> Array[Integer]
+  def constrained: () -> untyped
+  def untyped_parameters: (?) -> Integer
+  def untyped_overload: (Integer) -> Integer
+                      | (?) -> String
+  def untyped_without_parameters: (?) -> void
+  def untyped_keywords: (?) -> void
+  def call_untyped: () -> void
+  def yield_untyped: (?) -> void
+  def yield_untyped_block: () { (?) -> Integer } -> void
+  def yield_typed: () { (Integer) -> void } -> void
+  def type_arguments: () -> void
+  def generic: [T] (T) -> T
+  def forward: (?) -> void
+  def annotated_parameter: (?) -> void
+  def assigned_to_declared: () -> void
+  def propagated: (untyped) -> void
+  @items: Array[String]
+end

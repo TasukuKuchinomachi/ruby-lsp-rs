@@ -1,0 +1,103 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 8
+        character: 13
+      end:
+        line: 8
+        character: 18
+    severity: ERROR
+    message: |-
+      Cannot find compatible overloading of method `+` of type `::Integer`
+      Method types:
+        def +: (::Integer) -> ::Integer
+             | (::Float) -> ::Float
+             | (::Rational) -> ::Rational
+             | (::Complex) -> ::Complex
+    code: Ruby::UnresolvedOverloading
+  - range:
+      start:
+        line: 11
+        character: 14
+      end:
+        line: 11
+        character: 19
+    severity: ERROR
+    message: |-
+      Cannot find compatible overloading of method `-` of type `::Integer`
+      Method types:
+        def -: (::Integer) -> ::Integer
+             | (::Float) -> ::Float
+             | (::Rational) -> ::Rational
+             | (::Complex) -> ::Complex
+    code: Ruby::UnresolvedOverloading
+  - range:
+      start:
+        line: 14
+        character: 19
+      end:
+        line: 14
+        character: 24
+    severity: ERROR
+    message: |-
+      Cannot find compatible overloading of method `*` of type `::Integer`
+      Method types:
+        def *: (::Float) -> ::Float
+             | (::Rational) -> ::Rational
+             | (::Complex) -> ::Complex
+             | (::Integer) -> ::Integer
+    code: Ruby::UnresolvedOverloading
+  - range:
+      start:
+        line: 17
+        character: 14
+      end:
+        line: 17
+        character: 20
+    severity: ERROR
+    message: |-
+      Cannot find compatible overloading of method `+` of type `::Integer`
+      Method types:
+        def +: (::Integer) -> ::Integer
+             | (::Float) -> ::Float
+             | (::Rational) -> ::Rational
+             | (::Complex) -> ::Complex
+    code: Ruby::UnresolvedOverloading
+  - range:
+      start:
+        line: 20
+        character: 17
+      end:
+        line: 20
+        character: 23
+    severity: ERROR
+    message: |-
+      Cannot find compatible overloading of method `+` of type `::Integer`
+      Method types:
+        def +: (::Integer) -> ::Integer
+             | (::Float) -> ::Float
+             | (::Rational) -> ::Rational
+             | (::Complex) -> ::Complex
+    code: Ruby::UnresolvedOverloading
+  - range:
+      start:
+        line: 23
+        character: 18
+      end:
+        line: 23
+        character: 19
+    severity: ERROR
+    message: Type `(::Integer | nil)` does not have method `+`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 24
+        character: 18
+      end:
+        line: 24
+        character: 24
+    severity: ERROR
+    message: Type `(::Integer | nil)` does not have method `+`
+    code: Ruby::NoMethod

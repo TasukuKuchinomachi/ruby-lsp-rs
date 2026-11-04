@@ -1,0 +1,33 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 3
+        character: 2
+      end:
+        line: 3
+        character: 16
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 3
+        character: 19
+      end:
+        line: 3
+        character: 47
+    severity: ERROR
+    message: Redundant ignore comment
+    code: Ruby::RedundantIgnoreComment
+  - range:
+      start:
+        line: 10
+        character: 2
+      end:
+        line: 10
+        character: 16
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod

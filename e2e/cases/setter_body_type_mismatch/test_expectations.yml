@@ -1,0 +1,17 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 6
+      end:
+        line: 2
+        character: 11
+    severity: ERROR
+    message: |-
+      Setter method `name=` cannot have type `::Symbol` because declared as type `::String`
+        ::Symbol <: ::String
+          ::Object <: ::String
+            ::BasicObject <: ::String
+    code: Ruby::SetterBodyTypeMismatch

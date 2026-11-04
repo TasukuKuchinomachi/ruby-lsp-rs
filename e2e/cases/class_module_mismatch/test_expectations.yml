@@ -1,0 +1,23 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 7
+      end:
+        line: 1
+        character: 13
+    severity: ERROR
+    message: "::Widget is declared as a class in RBS"
+    code: Ruby::ClassModuleMismatch
+  - range:
+      start:
+        line: 4
+        character: 6
+      end:
+        line: 4
+        character: 12
+    severity: ERROR
+    message: "::Helper is declared as a module in RBS"
+    code: Ruby::ClassModuleMismatch

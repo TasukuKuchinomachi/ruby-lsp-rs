@@ -1,0 +1,88 @@
+---
+- file: annotation_after_multibyte_string.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 33
+      end:
+        line: 1
+        character: 39
+    severity: ERROR
+    message: 'Type annotation has a syntax error: Syntax error caused by token `pEOF`'
+    code: Ruby::AnnotationSyntaxError
+- file: empty_type.rb
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 17
+      end:
+        line: 2
+        character: 17
+    severity: ERROR
+    message: 'Type annotation has a syntax error: Failed to parse a type in annotation'
+    code: Ruby::AnnotationSyntaxError
+- file: error_in_second_annotation.rb
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 19
+      end:
+        line: 2
+        character: 25
+    severity: ERROR
+    message: 'Type annotation has a syntax error: Syntax error caused by token `pEOF`'
+    code: Ruby::AnnotationSyntaxError
+- file: method_type_with_forwarding_parameters.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 2
+      end:
+        line: 1
+        character: 37
+    severity: ERROR
+    message: 'Type annotation has a syntax error: Syntax error caused by token `pDOT3`
+      (...)'
+    code: Ruby::AnnotationSyntaxError
+- file: method_type_with_unexpected_token.rb
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 4
+      end:
+        line: 2
+        character: 42
+    severity: ERROR
+    message: 'Type annotation has a syntax error: Syntax error caused by token `pARROW`
+      (->)'
+    code: Ruby::AnnotationSyntaxError
+- file: type_followed_by_other_tokens.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 19
+      end:
+        line: 1
+        character: 33
+    severity: ERROR
+    message: 'Type annotation has a syntax error: Failed to parse a type in annotation'
+    code: Ruby::AnnotationSyntaxError
+- file: type_with_unexpected_token.rb
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 25
+      end:
+        line: 2
+        character: 26
+    severity: ERROR
+    message: 'Type annotation has a syntax error: Syntax error caused by token `pBAR`
+      (|)'
+    code: Ruby::AnnotationSyntaxError

@@ -1,0 +1,39 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 0
+      end:
+        line: 13
+        character: 3
+    severity: ERROR
+    message: |
+      UnexpectedError: a.rbs:2:20...2:35: Could not find Missing::member(RBS::NoTypeFoundError)
+        (36 more backtrace)
+    code: Ruby::UnexpectedError
+  - range:
+      start:
+        line: 15
+        character: 7
+      end:
+        line: 15
+        character: 15
+    severity: ERROR
+    message: |
+      UnexpectedError: a.rbs:2:20...2:35: Could not find Missing::member(RBS::NoTypeFoundError)
+        (54 more backtrace)
+    code: Ruby::UnexpectedError
+- file: a.rbs
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 20
+      end:
+        line: 2
+        character: 35
+    severity: ERROR
+    message: Cannot find type `Missing::member`
+    code: RBS::UnknownTypeName

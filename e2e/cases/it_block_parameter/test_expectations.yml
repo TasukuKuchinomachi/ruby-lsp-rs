@@ -1,0 +1,28 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 16
+      end:
+        line: 1
+        character: 30
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 4
+        character: 21
+      end:
+        line: 4
+        character: 31
+    severity: ERROR
+    message: |-
+      Cannot allow block body have type `::Integer` because declared as type `::String`
+        ::Integer <: ::String
+          ::Numeric <: ::String
+            ::Object <: ::String
+              ::BasicObject <: ::String
+    code: Ruby::BlockBodyTypeMismatch

@@ -1,0 +1,27 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 13
+      end:
+        line: 1
+        character: 16
+    severity: ERROR
+    message: Cannot find type `::Int`
+    code: Ruby::RBSError
+  - range:
+      start:
+        line: 4
+        character: 0
+      end:
+        line: 4
+        character: 10
+    severity: ERROR
+    message: |-
+      Cannot assign a value of type `::String` to a variable of type `::UnknownName`
+        ::String <: ::UnknownName
+          ::Object <: ::UnknownName
+            ::BasicObject <: ::UnknownName
+    code: Ruby::IncompatibleAssignment

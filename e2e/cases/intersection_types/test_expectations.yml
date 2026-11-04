@@ -1,0 +1,26 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 3
+        character: 8
+      end:
+        line: 3
+        character: 22
+    severity: ERROR
+    message: Type `(::_ByteSource & ::_ByteSink)` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 6
+        character: 0
+      end:
+        line: 6
+        character: 17
+    severity: ERROR
+    message: |-
+      Cannot assign a value of type `::Stream` to a variable of type `(::_ByteSource & ::_ByteSink)`
+        ::Stream <: (::_ByteSource & ::_ByteSink)
+          ::Stream <: ::_ByteSink
+    code: Ruby::IncompatibleAssignment

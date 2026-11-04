@@ -1,0 +1,33 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 4
+        character: 12
+      end:
+        line: 4
+        character: 22
+    severity: ERROR
+    message: |-
+      Cannot pass a value of type `{ ?:age => ::Integer }` as an argument of type `::options`
+        { ?:age => ::Integer } <: ::options
+          { ?:age => ::Integer } <: { ?:age => ::Integer, :name => ::String }
+            nil <: ::String
+    code: Ruby::ArgumentTypeMismatch
+  - range:
+      start:
+        line: 5
+        character: 12
+      end:
+        line: 5
+        character: 37
+    severity: ERROR
+    message: |-
+      Cannot pass a value of type `{ ?:age => ::String, :name => ::String }` as an argument of type `::options`
+        { ?:age => ::String, :name => ::String } <: ::options
+          { ?:age => ::String, :name => ::String } <: { ?:age => ::Integer, :name => ::String }
+            ::String <: ::Integer
+              ::Object <: ::Integer
+                ::BasicObject <: ::Integer
+    code: Ruby::ArgumentTypeMismatch

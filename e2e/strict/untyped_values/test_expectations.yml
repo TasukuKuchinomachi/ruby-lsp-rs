@@ -1,0 +1,23 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 29
+        character: 4
+      end:
+        line: 29
+        character: 18
+    severity: ERROR
+    message: Type `::Inventory` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 30
+        character: 4
+      end:
+        line: 30
+        character: 19
+    severity: WARNING
+    message: 'Cannot find the declaration of constant: `UnknownConstant`'
+    code: Ruby::UnknownConstant

@@ -1,0 +1,21 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 8
+        character: 19
+      end:
+        line: 8
+        character: 52
+    severity: ERROR
+    message: |-
+      Cannot allow block body have type `[::String, ::Integer]` because declared as type `::_KeyValue[::String, ::String]`
+        [::String, ::Integer] <: ::_KeyValue[::String, ::String]
+          () -> [::String, ::Integer] <: () -> [::String, ::String]
+            [::String, ::Integer] <: [::String, ::String]
+              ::Integer <: ::String
+                ::Numeric <: ::String
+                  ::Object <: ::String
+                    ::BasicObject <: ::String
+    code: Ruby::BlockBodyTypeMismatch

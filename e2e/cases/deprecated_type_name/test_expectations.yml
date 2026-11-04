@@ -1,0 +1,23 @@
+---
+- file: a.rbs
+  diagnostics:
+  - range:
+      start:
+        line: 8
+        character: 18
+      end:
+        line: 8
+        character: 30
+    severity: WARNING
+    message: Type `::LegacyRecord` is deprecated
+    code: RBS::DeprecatedTypeName
+  - range:
+      start:
+        line: 10
+        character: 19
+      end:
+        line: 10
+        character: 31
+    severity: WARNING
+    message: 'Type `::_LegacyShape` is deprecated: Use NewRecord instead'
+    code: RBS::DeprecatedTypeName

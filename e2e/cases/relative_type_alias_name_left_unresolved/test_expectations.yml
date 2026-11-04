@@ -1,0 +1,29 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 29
+        character: 12
+      end:
+        line: 29
+        character: 15
+    severity: ERROR
+    message: Type `(::String | ::Integer)` does not have method `foo`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 30
+        character: 13
+      end:
+        line: 30
+        character: 20
+    severity: ERROR
+    message: |-
+      Cannot pass a value of type `::Symbol` as an argument of type `Outer::member`
+        ::Symbol <: Outer::member
+          ::Symbol <: (::String | ::Integer)
+            ::Symbol <: ::String
+              ::Object <: ::String
+                ::BasicObject <: ::String
+    code: Ruby::ArgumentTypeMismatch

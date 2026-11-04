@@ -1,0 +1,13 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 0
+      end:
+        line: 1
+        character: 35
+    severity: ERROR
+    message: 'Requires 2 types, but 1 given: `[T, S] (T, S) -> [T, S]`'
+    code: Ruby::InsufficientTypeArgument

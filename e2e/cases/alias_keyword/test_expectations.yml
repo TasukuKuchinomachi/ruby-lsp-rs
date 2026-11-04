@@ -1,0 +1,23 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 6
+      end:
+        line: 1
+        character: 13
+    severity: ERROR
+    message: Cannot find implementation of method `::Greeter#greet`
+    code: Ruby::MethodDefinitionMissing
+  - range:
+      start:
+        line: 10
+        character: 18
+      end:
+        line: 10
+        character: 32
+    severity: ERROR
+    message: Type `::String` does not have method `no_such_method`
+    code: Ruby::NoMethod

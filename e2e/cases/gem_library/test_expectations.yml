@@ -1,0 +1,23 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 20
+      end:
+        line: 1
+        character: 34
+    severity: ERROR
+    message: Type `::RBS::Namespace` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 2
+        character: 17
+      end:
+        line: 2
+        character: 31
+    severity: ERROR
+    message: Type `::OptionParser` does not have method `no_such_method`
+    code: Ruby::NoMethod

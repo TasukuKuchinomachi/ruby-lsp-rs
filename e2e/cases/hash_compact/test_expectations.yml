@@ -1,0 +1,13 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 3
+        character: 10
+      end:
+        line: 3
+        character: 24
+    severity: ERROR
+    message: Type `::Hash[untyped, untyped]` does not have method `no_such_method`
+    code: Ruby::NoMethod

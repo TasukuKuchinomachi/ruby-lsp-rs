@@ -1,0 +1,16 @@
+---
+- file: a.rbs
+  diagnostics:
+  - range:
+      start:
+        line: 9
+        character: 2
+      end:
+        line: 9
+        character: 18
+    severity: ERROR
+    message: |-
+      Module self type constraint in type `::Robot` doesn't satisfy: `::Robot <: ::_Named`
+        ::Robot <: ::_Named
+          Method `name` is missing
+    code: RBS::ModuleSelfTypeError

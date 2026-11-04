@@ -1,0 +1,5 @@
+class Inventory
+  def each_untyped: () { (?) -> void } -> void
+  def anything: () -> untyped
+  def origins: () -> void
+end

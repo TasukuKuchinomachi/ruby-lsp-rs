@@ -1,0 +1,23 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 7
+        character: 4
+      end:
+        line: 7
+        character: 18
+    severity: ERROR
+    message: Type `::Special` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 10
+        character: 11
+      end:
+        line: 10
+        character: 17
+    severity: ERROR
+    message: Method `::Special.create` is not declared in RBS
+    code: Ruby::UndeclaredMethodDefinition

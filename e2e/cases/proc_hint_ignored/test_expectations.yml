@@ -1,0 +1,14 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 11
+      end:
+        line: 2
+        character: 28
+    severity: ERROR
+    message: 'The type hint given to the block is ignored: `(^(::Integer) -> ::String
+      | ^(::String, ::String) -> ::Integer)`'
+    code: Ruby::ProcHintIgnored

@@ -1,0 +1,26 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 11
+        character: 9
+      end:
+        line: 11
+        character: 25
+    severity: ERROR
+    message: |-
+      Cannot pass a value of type `::Proc` as a block-pass-argument of type `(^(::Integer) -> ::String | nil)`
+        ::Proc <: (^(::Integer) -> ::String | nil)
+          ::Proc <: ^(::Integer) -> ::String
+    code: Ruby::BlockTypeMismatch
+  - range:
+      start:
+        line: 12
+        character: 5
+      end:
+        line: 12
+        character: 8
+    severity: ERROR
+    message: The method cannot be called without a block
+    code: Ruby::RequiredBlockMissing

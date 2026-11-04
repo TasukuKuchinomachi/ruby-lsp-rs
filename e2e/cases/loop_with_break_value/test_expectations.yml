@@ -1,0 +1,35 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 2
+      end:
+        line: 2
+        character: 9
+    severity: ERROR
+    message: |-
+      Cannot break with a value of type `::Integer` because type `bot` is assumed
+        ::Integer <: bot
+    code: Ruby::BreakTypeMismatch
+  - range:
+      start:
+        line: 4
+        character: 6
+      end:
+        line: 4
+        character: 20
+    severity: ERROR
+    message: Type `bot` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 11
+        character: 14
+      end:
+        line: 11
+        character: 28
+    severity: ERROR
+    message: Type `bot` does not have method `no_such_method`
+    code: Ruby::NoMethod

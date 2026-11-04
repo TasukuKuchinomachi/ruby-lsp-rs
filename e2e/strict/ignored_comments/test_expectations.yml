@@ -1,0 +1,23 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 15
+        character: 10
+      end:
+        line: 15
+        character: 12
+    severity: WARNING
+    message: Empty array doesn't have type annotation
+    code: Ruby::UnannotatedEmptyCollection
+  - range:
+      start:
+        line: 22
+        character: 2
+      end:
+        line: 24
+        character: 18
+    severity: WARNING
+    message: Redundant ignore comment
+    code: Ruby::RedundantIgnoreComment

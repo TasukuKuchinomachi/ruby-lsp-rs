@@ -1,0 +1,15 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 3
+        character: 4
+      end:
+        line: 3
+        character: 10
+    severity: ERROR
+    message: |-
+      The setter method `name=` cannot return a value of type `nil` because declared as type `::String`
+        nil <: ::String
+    code: Ruby::SetterReturnTypeMismatch

@@ -1,0 +1,17 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 6
+      end:
+        line: 2
+        character: 9
+    severity: WARNING
+    message: |-
+      Cannot allow method body have type `::String` because declared as type `::Integer`
+        ::String <: ::Integer
+          ::Object <: ::Integer
+            ::BasicObject <: ::Integer
+    code: Ruby::MethodBodyTypeMismatch

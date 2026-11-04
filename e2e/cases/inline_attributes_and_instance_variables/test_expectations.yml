@@ -1,0 +1,53 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 11
+        character: 4
+      end:
+        line: 11
+        character: 16
+    severity: ERROR
+    message: |-
+      Cannot assign a value of type `::String` to a variable of type `::Integer`
+        ::String <: ::Integer
+          ::Object <: ::Integer
+            ::BasicObject <: ::Integer
+    code: Ruby::IncompatibleAssignment
+  - range:
+      start:
+        line: 21
+        character: 12
+      end:
+        line: 21
+        character: 26
+    severity: ERROR
+    message: Type `::String` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 22
+        character: 16
+      end:
+        line: 22
+        character: 30
+    severity: ERROR
+    message: Type `(::String | nil)` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 23
+        character: 18
+      end:
+        line: 23
+        character: 19
+    severity: ERROR
+    message: |-
+      Cannot pass a value of type `::Integer` as an argument of type `(::String | nil)`
+        ::Integer <: (::String | nil)
+          ::Integer <: ::String
+            ::Numeric <: ::String
+              ::Object <: ::String
+                ::BasicObject <: ::String
+    code: Ruby::ArgumentTypeMismatch

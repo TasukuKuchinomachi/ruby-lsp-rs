@@ -1,0 +1,23 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 4
+        character: 8
+      end:
+        line: 4
+        character: 22
+    severity: ERROR
+    message: Type `(::ArgumentError | ::TypeError)` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 13
+        character: 10
+      end:
+        line: 13
+        character: 24
+    severity: ERROR
+    message: Type `::NoMatchingPatternError` does not have method `no_such_method`
+    code: Ruby::NoMethod

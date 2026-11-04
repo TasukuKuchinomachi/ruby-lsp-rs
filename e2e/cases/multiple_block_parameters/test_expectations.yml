@@ -1,0 +1,332 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 4
+        character: 4
+      end:
+        line: 4
+        character: 18
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 5
+        character: 4
+      end:
+        line: 5
+        character: 18
+    severity: ERROR
+    message: Type `::String` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 11
+        character: 4
+      end:
+        line: 11
+        character: 18
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 12
+        character: 4
+      end:
+        line: 12
+        character: 18
+    severity: ERROR
+    message: Type `::String` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 13
+        character: 4
+      end:
+        line: 13
+        character: 18
+    severity: ERROR
+    message: Type `::Symbol` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 16
+        character: 4
+      end:
+        line: 16
+        character: 18
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 17
+        character: 4
+      end:
+        line: 17
+        character: 18
+    severity: ERROR
+    message: Type `::String` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 18
+        character: 4
+      end:
+        line: 18
+        character: 18
+    severity: ERROR
+    message: Type `::Symbol` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 19
+        character: 4
+      end:
+        line: 19
+        character: 18
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 25
+        character: 4
+      end:
+        line: 25
+        character: 18
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 26
+        character: 4
+      end:
+        line: 26
+        character: 18
+    severity: ERROR
+    message: Type `::String` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 27
+        character: 4
+      end:
+        line: 27
+        character: 18
+    severity: ERROR
+    message: Type `::Symbol` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 33
+        character: 6
+      end:
+        line: 33
+        character: 20
+    severity: ERROR
+    message: Type `::Symbol` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 34
+        character: 8
+      end:
+        line: 34
+        character: 22
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 37
+        character: 6
+      end:
+        line: 37
+        character: 20
+    severity: ERROR
+    message: Type `::Symbol` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 38
+        character: 8
+      end:
+        line: 38
+        character: 22
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 39
+        character: 7
+      end:
+        line: 39
+        character: 21
+    severity: ERROR
+    message: Type `::Array[untyped]` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 45
+        character: 8
+      end:
+        line: 45
+        character: 22
+    severity: ERROR
+    message: Type `(::String | nil)` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 46
+        character: 9
+      end:
+        line: 46
+        character: 23
+    severity: ERROR
+    message: Type `(::String | nil)` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 52
+        character: 4
+      end:
+        line: 52
+        character: 18
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 53
+        character: 4
+      end:
+        line: 53
+        character: 18
+    severity: ERROR
+    message: Type `nil` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 59
+        character: 4
+      end:
+        line: 59
+        character: 18
+    severity: ERROR
+    message: Type `(::Integer | ::Symbol)` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 60
+        character: 4
+      end:
+        line: 60
+        character: 18
+    severity: ERROR
+    message: Type `(::String | nil)` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 66
+        character: 4
+      end:
+        line: 66
+        character: 18
+    severity: ERROR
+    message: Type `::Symbol` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 67
+        character: 4
+      end:
+        line: 67
+        character: 18
+    severity: ERROR
+    message: Type `::Float` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 72
+        character: 17
+      end:
+        line: 72
+        character: 18
+    severity: ERROR
+    message: |-
+      Cannot assign a value of type `::BrokenConvertible` to an expression of type `::Integer`
+        ::BrokenConvertible <: ::Integer
+          ::Object <: ::Integer
+            ::BasicObject <: ::Integer
+    code: Ruby::IncompatibleAssignment
+  - range:
+      start:
+        line: 74
+        character: 4
+      end:
+        line: 74
+        character: 18
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 81
+        character: 4
+      end:
+        line: 81
+        character: 18
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 82
+        character: 4
+      end:
+        line: 82
+        character: 18
+    severity: ERROR
+    message: Type `::String` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 95
+        character: 4
+      end:
+        line: 95
+        character: 18
+    severity: ERROR
+    message: Type `([::Integer, ::String] | nil)` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 96
+        character: 4
+      end:
+        line: 96
+        character: 18
+    severity: ERROR
+    message: Type `nil` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 99
+        character: 20
+      end:
+        line: 99
+        character: 27
+    severity: ERROR
+    message: |-
+      Cannot pass a value of type `::Symbol` as an argument of type `T(7)`
+        ::Symbol <: T(7)
+          ::Symbol <: ::String
+            ::Object <: ::String
+              ::BasicObject <: ::String
+    code: Ruby::ArgumentTypeMismatch

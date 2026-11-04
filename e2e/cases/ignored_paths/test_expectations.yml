@@ -1,0 +1,13 @@
+---
+- file: lib/model.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 15
+      end:
+        line: 1
+        character: 29
+    severity: ERROR
+    message: Type `::String` does not have method `no_such_method`
+    code: Ruby::NoMethod

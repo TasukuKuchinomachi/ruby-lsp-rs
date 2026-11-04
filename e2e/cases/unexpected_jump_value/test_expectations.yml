@@ -1,0 +1,25 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 2
+      end:
+        line: 2
+        character: 8
+    severity: ERROR
+    message: The value given to next will be ignored
+    code: Ruby::UnexpectedJumpValue
+  - range:
+      start:
+        line: 6
+        character: 2
+      end:
+        line: 6
+        character: 10
+    severity: ERROR
+    message: |-
+      Cannot break with a value of type `::Integer` because type `nil` is assumed
+        ::Integer <: nil
+    code: Ruby::BreakTypeMismatch

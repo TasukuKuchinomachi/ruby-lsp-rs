@@ -1,0 +1,47 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 0
+      end:
+        line: 4
+        character: 3
+    severity: ERROR
+    message: |
+      UnexpectedError: undefined method 'start_with?' for an instance of Parser::AST::Node(NoMethodError)
+        (18 more backtrace)
+    code: Ruby::UnexpectedError
+  - range:
+      start:
+        line: 6
+        character: 0
+      end:
+        line: 8
+        character: 3
+    severity: ERROR
+    message: |
+      UnexpectedError: undefined method 'start_with?' for an instance of Parser::AST::Node(NoMethodError)
+        (18 more backtrace)
+    code: Ruby::UnexpectedError
+  - range:
+      start:
+        line: 6
+        character: 21
+      end:
+        line: 6
+        character: 23
+    severity: ERROR
+    message: Empty array doesn't have type annotation
+    code: Ruby::UnannotatedEmptyCollection
+  - range:
+      start:
+        line: 11
+        character: 8
+      end:
+        line: 11
+        character: 11
+    severity: ERROR
+    message: Type `::Integer` does not have method `baz`
+    code: Ruby::NoMethod
