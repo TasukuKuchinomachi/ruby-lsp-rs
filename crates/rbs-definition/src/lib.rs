@@ -1,11 +1,16 @@
 pub mod ancestor_builder;
 pub mod ast;
 pub mod collections;
+pub mod definition_builder;
 pub mod environment;
 pub mod errors;
 pub mod inline_parser;
 pub mod location;
+pub mod method_builder;
 pub mod once_map;
 pub mod parallel;
 pub mod parse;
 pub mod substitution;
+pub mod type_alias_dependency;
+pub mod type_alias_regularity;
+pub mod variance_calculator;
