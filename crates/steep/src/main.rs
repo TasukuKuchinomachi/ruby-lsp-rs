@@ -9,9 +9,9 @@ use steep::{
     expectations::{Diagnostic, Expectations, Outcome, compare},
     project::dsl,
     ruby_exception,
+    services::type_check_service::{check_project, to_expectations},
     steep_gem::detect_steep_version,
     strict::{EnabledChecks, GROUPS, StrictCheck},
-    type_check_service::{check_project, to_expectations},
 };
 use steep_interface::steep_version::SteepVersion;
 

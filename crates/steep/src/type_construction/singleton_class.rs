@@ -93,6 +93,7 @@ impl<'checker> TypeConstruction<'checker> {
             annotations: Rc::new(annotations),
             typing: self.typing.clone(),
             context: Context {
+                identity: Default::default(),
                 method_context: None,
                 block_context: None,
                 break_context: None,
@@ -124,6 +125,7 @@ impl<'checker> TypeConstruction<'checker> {
             return constr.add_typing(node, Type::Nil);
         };
         constructor.with_variable_bounds(|constructor| {
+            constructor.set_node_and_body_context(node);
             if let Some(body) = node.child_node(1) {
                 constructor.synthesize(body, None, false);
             }

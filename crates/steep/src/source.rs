@@ -2,7 +2,7 @@ pub mod type_node;
 
 use std::{ops::Range, rc::Rc};
 
-use rbs_definition::collections::HashMap;
+use rbs_definition::collections::IndexMap;
 
 use steep_interface::steep_version::SteepVersion;
 
@@ -11,16 +11,17 @@ use crate::{
     ast::node::{type_application::TypeApplication, type_assertion::TypeAssertion},
     ruby::{
         self,
-        node::{Buffer, Comment, MapKind, Node, NodeId, SourceRange},
+        node::{Buffer, Child, Comment, MapKind, Node, NodeId, SourceRange},
     },
     source::type_node::{TypeComment, TypeComments},
     strict::{Observation, StrictCheck},
 };
 
+#[derive(Clone)]
 pub struct Source {
     pub buffer: Buffer,
     pub node: Option<Rc<Node>>,
-    pub mapping: HashMap<NodeId, Vec<Annotation>>,
+    pub mapping: IndexMap<NodeId, Vec<Annotation>>,
     pub comments: Vec<Comment>,
     pub observations: Vec<Observation>,
 }
@@ -86,7 +87,7 @@ impl Source {
         let mut source = Source {
             buffer,
             node,
-            mapping: HashMap::default(),
+            mapping: IndexMap::default(),
             comments,
             observations,
         };
@@ -287,5 +288,170 @@ impl Source {
     pub fn annotations_of(&self, node: Option<&Node>) -> Vec<Annotation> {
         node.and_then(|node| self.mapping.get(&node.id).cloned())
             .unwrap_or_default()
+    }
+
+    pub fn each_block_annotation(&self, node: &Node) -> &[Annotation] {
+        self.mapping
+            .get(&node.id)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+    }
+
+    pub fn find_block_node<'node>(&self, nodes: &[&'node Rc<Node>]) -> Option<&'node Rc<Node>> {
+        nodes
+            .iter()
+            .find(|node| self.mapping.contains_key(&node.id))
+            .copied()
+    }
+
+    pub fn each_heredoc_node(&self) -> Vec<Vec<Rc<Node>>> {
+        fn visit(node: &Rc<Node>, parents: &mut Vec<Rc<Node>>, found: &mut Vec<Vec<Rc<Node>>>) {
+            if matches!(node.type_, "dstr" | "str") && node.location.kind == MapKind::Heredoc {
+                let mut nodes = vec![node.clone()];
+                nodes.extend(parents.iter().cloned());
+                found.push(nodes);
+            }
+            parents.insert(0, node.clone());
+            for child in node.child_nodes() {
+                visit(child, parents, found);
+            }
+            parents.remove(0);
+        }
+        let mut found = Vec::new();
+        if let Some(node) = &self.node {
+            visit(node, &mut Vec::new(), &mut found);
+        }
+        found
+    }
+
+    pub fn find_heredoc_nodes(&self, position: usize) -> Option<Vec<Rc<Node>>> {
+        self.each_heredoc_node().into_iter().find(|nodes| {
+            nodes[0]
+                .location
+                .heredoc_body
+                .is_some_and(|body| body.begin_pos <= position && position <= body.end_pos)
+        })
+    }
+
+    fn find_nodes_loc(
+        node: &Rc<Node>,
+        position: usize,
+        mut parents: Vec<Rc<Node>>,
+    ) -> Option<Vec<Rc<Node>>> {
+        let range = node.location.expression?;
+        if !(range.begin_pos <= position && position <= range.end_pos) {
+            return None;
+        }
+        parents.insert(0, node.clone());
+        for child in node.child_nodes() {
+            if let Some(nodes) = Source::find_nodes_loc(child, position, parents.clone()) {
+                return Some(nodes);
+            }
+        }
+        Some(parents)
+    }
+
+    pub fn find_nodes(&self, position: usize) -> Option<Vec<Rc<Node>>> {
+        let Some(node) = &self.node else {
+            return Some(Vec::new());
+        };
+        match self.find_heredoc_nodes(position) {
+            Some(heredoc_nodes) => {
+                for child in heredoc_nodes[0].child_nodes() {
+                    if let Some(nodes) =
+                        Source::find_nodes_loc(child, position, heredoc_nodes.clone())
+                    {
+                        return Some(nodes);
+                    }
+                }
+                Some(heredoc_nodes)
+            }
+            None => Source::find_nodes_loc(node, position, Vec::new()),
+        }
+    }
+
+    pub fn find_comment(&self, position: usize) -> Option<&Comment> {
+        let index = self
+            .comments
+            .partition_point(|comment| comment.location.end_pos < position);
+        self.comments
+            .get(index)
+            .filter(|comment| comment.location.begin_pos < position)
+    }
+
+    fn delete_defs(node: &Rc<Node>, allow_list: &[NodeId]) -> Rc<Node> {
+        match node.type_ {
+            "def" => {
+                if allow_list.contains(&node.id) {
+                    node.clone()
+                } else {
+                    Rc::new(Node {
+                        id: node.id,
+                        type_: "nil",
+                        children: Vec::new(),
+                        location: node.location.clone(),
+                    })
+                }
+            }
+            "defs" => {
+                if allow_list.contains(&node.id) {
+                    node.clone()
+                } else {
+                    let receiver = node.child_node(0).expect("defs has a receiver");
+                    Source::delete_defs(receiver, allow_list)
+                }
+            }
+            _ => {
+                let children: Vec<Child> = node
+                    .children
+                    .iter()
+                    .map(|child| match child {
+                        Child::Node(child) => Child::Node(Source::delete_defs(child, allow_list)),
+                        other => other.clone(),
+                    })
+                    .collect();
+                let unchanged = children.iter().zip(&node.children).all(|pair| match pair {
+                    (Child::Node(new), Child::Node(old)) => Rc::ptr_eq(new, old),
+                    _ => true,
+                });
+                if unchanged {
+                    node.clone()
+                } else {
+                    Rc::new(Node {
+                        id: node.id,
+                        type_: node.type_,
+                        children,
+                        location: node.location.clone(),
+                    })
+                }
+            }
+        }
+    }
+
+    pub fn without_unrelated_defs(&self, position: usize) -> Source {
+        let Some(node) = &self.node else {
+            return self.clone();
+        };
+        let defs: Vec<NodeId> = self
+            .find_nodes(position)
+            .unwrap_or_default()
+            .iter()
+            .filter(|node| matches!(node.type_, "def" | "defs"))
+            .map(|node| node.id)
+            .collect();
+        let node = Source::delete_defs(node, &defs);
+        let mut annotations: Vec<Annotation> = self.mapping.values().flatten().cloned().collect();
+        let mut source = Source {
+            buffer: self.buffer.clone(),
+            node: Some(node.clone()),
+            mapping: IndexMap::default(),
+            comments: self.comments.clone(),
+            observations: self.observations.clone(),
+        };
+        source.construct_mapping(&node, &mut annotations, None);
+        for annotation in annotations {
+            source.mapping.entry(node.id).or_default().push(annotation);
+        }
+        source
     }
 }

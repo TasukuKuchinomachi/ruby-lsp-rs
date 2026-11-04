@@ -525,6 +525,7 @@ impl<'checker> TypeConstruction<'checker> {
                     Some(body) => when_clause_constr
                         .update_type_env(|env| env.join(&body_envs))
                         .for_branch(body, None)
+                        .tap_node_context(body)
                         .synthesize(body, hint, false),
                     None => Pair::new(Type::Nil, when_clause_constr),
                 };

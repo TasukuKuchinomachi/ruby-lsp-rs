@@ -18,7 +18,9 @@ use steep_interface::{
 use crate::{
     annotation::Collection,
     diagnostic::ruby::{self as diagnostics, Diagnostic},
+    method_name::MethodName,
     ruby::node::{Child, Node},
+    ruby_exception,
     type_construction::{
         Pair, TypeConstruction, instance_type, is_special_lvar_name,
         missing_signature::UntypedParametersSource, or_raise, symbol_type,
@@ -31,6 +33,7 @@ use crate::{
         },
         type_env::TypeEnv,
     },
+    typing::CursorRange,
 };
 
 pub fn namespace_from_node(node: Option<&Rc<Node>>) -> Option<Namespace> {
@@ -181,6 +184,18 @@ pub struct MethodParams {
     pub forward_arg_type: Option<ForwardArgType>,
 }
 
+impl MethodParams {
+    // Why not keep the parameters before `...`: MethodParams#update of Steep builds new
+    // parameters from the forward argument type only, so they and their errors are lost.
+    fn with_forward_arg_type(forward_arg_type: ForwardArgType) -> MethodParams {
+        MethodParams {
+            params: IndexMap::default(),
+            errors: Vec::new(),
+            forward_arg_type: Some(forward_arg_type),
+        }
+    }
+}
+
 pub(super) fn arguments_node(node: &Node) -> Option<&Rc<Node>> {
     match node.type_ {
         "def" => node.child_node(1),
@@ -265,8 +280,7 @@ impl MethodParams {
                         );
                     }
                     "forward_arg" => {
-                        instance.forward_arg_type = Some(ForwardArgType::Untyped);
-                        return instance;
+                        return MethodParams::with_forward_arg_type(ForwardArgType::Untyped);
                     }
                     _ => {}
                 }
@@ -335,11 +349,10 @@ impl MethodParams {
         {
             let mut forward_params = params.clone();
             forward_params.positionals = positionals[index.min(positionals.len())..].to_vec();
-            instance.forward_arg_type = Some(ForwardArgType::Typed(Box::new((
+            return MethodParams::with_forward_arg_type(ForwardArgType::Typed(Box::new((
                 forward_params,
                 method_type.block.clone(),
             ))));
-            return instance;
         }
         let mut remaining = index < positionals.len();
         if let Some(argument) = arguments.first().cloned()
@@ -1009,6 +1022,7 @@ impl<'checker> TypeConstruction<'checker> {
             annotations: Rc::new(annotations),
             typing: self.typing.clone(),
             context: Context {
+                identity: Default::default(),
                 method_context: Some(Rc::new(method_context)),
                 block_context: None,
                 break_context: None,
@@ -1052,6 +1066,21 @@ impl<'checker> TypeConstruction<'checker> {
             Some(self.module_context().instance_type.clone()),
             self.module_context().instance_definition.clone(),
         );
+        new.set_node_and_body_context(node);
+        if let Some(method) = new
+            .context
+            .method_context
+            .as_ref()
+            .and_then(|method_context| method_context.method.as_ref())
+        {
+            let owner = method
+                .implemented_in()
+                .unwrap_or_else(|| method.defined_in())
+                .clone();
+            new.typing.update_source_index(|index| {
+                index.add_method_definition(MethodName::instance(owner, name.clone()), node)
+            });
+        }
         self.module_context()
             .defined_instance_methods
             .borrow_mut()
@@ -1066,33 +1095,31 @@ impl<'checker> TypeConstruction<'checker> {
             .clone()
             .expect("a method context");
         let return_type = self.checker.expand_alias(&method_context.return_type);
-        match &body {
-            Some(body) => {
-                if !matches!(return_type, Type::Void) {
-                    let typing = self.typing.clone();
-                    let this = self.clone();
-                    let expected_type = method_context.return_type.clone();
-                    let method_context_for_error = method_context.clone();
-                    new.with_variable_bounds(|new| {
-                        new.check(
-                            body,
-                            &return_type,
-                            steep_interface::subtyping::constraints::Constraints::empty().shared(),
-                            &mut |_, actual, result| {
-                                typing.add_error(this.method_body_error(
-                                    node,
-                                    &method_context_for_error,
-                                    &expected_type,
-                                    actual,
-                                    result,
-                                ));
-                            },
-                        )
-                    });
-                } else {
-                    new.with_variable_bounds(|new| new.synthesize(body, None, false));
-                }
-            }
+        let body_pair = match &body {
+            Some(body) => Some(if !matches!(return_type, Type::Void) {
+                let typing = self.typing.clone();
+                let this = self.clone();
+                let expected_type = method_context.return_type.clone();
+                let method_context_for_error = method_context.clone();
+                new.with_variable_bounds(|new| {
+                    new.check(
+                        body,
+                        &return_type,
+                        steep_interface::subtyping::constraints::Constraints::empty().shared(),
+                        &mut |_, actual, result| {
+                            typing.add_error(this.method_body_error(
+                                node,
+                                &method_context_for_error,
+                                &expected_type,
+                                actual,
+                                result,
+                            ));
+                        },
+                    )
+                })
+            } else {
+                new.with_variable_bounds(|new| new.synthesize(body, None, false))
+            }),
             None => {
                 if !matches!(return_type, Type::Void) {
                     let result = self.check_relation(&Type::Nil, &return_type);
@@ -1106,7 +1133,16 @@ impl<'checker> TypeConstruction<'checker> {
                         ));
                     }
                 }
+                None
             }
+        };
+        if let (Some(body), Some(body_pair), Some(end)) = (&body, &body_pair, node.location.end) {
+            self.typing.update_cursor_context(|cursor_context| {
+                cursor_context.set(
+                    CursorRange::new(body.expression().end_pos, end.begin_pos),
+                    body_pair.context(),
+                )
+            });
         }
         self.add_typing(node, symbol_type())
     }
@@ -1140,7 +1176,27 @@ impl<'checker> TypeConstruction<'checker> {
                 .borrow_mut()
                 .push(name.clone());
         }
-        let new = self.for_new_method(&name, node, Some(self_type), definition);
+        let new = self.for_new_method(&name, node, Some(self_type.clone()), definition);
+        new.set_node_and_body_context(node);
+        if let Some(method) = new
+            .context
+            .method_context
+            .as_ref()
+            .and_then(|method_context| method_context.method.as_ref())
+        {
+            let owner = method.implemented_in().cloned().unwrap_or_else(|| {
+                ruby_exception::raise_runtime_error("a method of defs has implemented_in")
+            });
+            let method_name = match &self_type {
+                Type::NameInstance { .. } => Some(MethodName::instance(owner, name.clone())),
+                Type::Singleton(_) => Some(MethodName::singleton(owner, name.clone())),
+                _ => None,
+            };
+            if let Some(method_name) = method_name {
+                new.typing
+                    .update_source_index(|index| index.add_method_definition(method_name, node));
+            }
+        }
         let arguments = node.child_node(2).cloned();
         let mut new = match &arguments {
             Some(arguments) => new.synthesize_children(arguments, &[]),
@@ -1323,6 +1379,9 @@ impl<'checker> TypeConstruction<'checker> {
         let (constant_type, constr, constant_name) =
             self.synthesize_constant_decl(None, parent.as_ref(), &name, Some(&unknown));
         if let Some(constant_name) = &constant_name {
+            self.typing.update_source_index(|index| {
+                index.add_constant_definition(constant_name.clone(), node)
+            });
             constr.check_deprecation_constant(constant_name, node, node.location.name);
         }
         let Some(value) = node.children.last().and_then(Child::node).cloned() else {
@@ -1460,6 +1519,7 @@ impl<'checker> TypeConstruction<'checker> {
             annotations: Rc::new(annotations),
             typing: self.typing.clone(),
             context: Context {
+                identity: Default::default(),
                 method_context: None,
                 block_context: None,
                 break_context: None,
@@ -1656,6 +1716,11 @@ impl<'checker> TypeConstruction<'checker> {
         } else {
             constr = constr.synthesize(&name_node, None, false).constr;
         }
+        if let Some(class_name) = &class_name {
+            self.typing.update_source_index(|index| {
+                index.add_constant_definition(class_name.clone(), &name_node)
+            });
+        }
         let mut super_name = None;
         if let Some(super_node) = &super_node {
             if super_node.type_ == "const" {
@@ -1674,6 +1739,11 @@ impl<'checker> TypeConstruction<'checker> {
                     &constant_name,
                     Some(&unknown),
                 );
+                if let Some(name) = &name {
+                    self.typing.update_source_index(|index| {
+                        index.add_constant_reference(name.clone(), super_node)
+                    });
+                }
                 super_name = name;
             } else {
                 constr.synthesize(super_node, None, false);
@@ -1683,6 +1753,7 @@ impl<'checker> TypeConstruction<'checker> {
         constructor.with_variable_bounds(|constructor| {
             let module_type = constructor.module_context().module_type.clone();
             constructor.add_typing(&name_node, module_type);
+            constructor.set_node_and_body_context(node);
             if let Some(body) = node.child_node(2) {
                 constructor.synthesize(body, None, false);
             }
@@ -1721,10 +1792,16 @@ impl<'checker> TypeConstruction<'checker> {
         } else {
             self.synthesize(&name_node, None, false);
         }
+        if let Some(module_name) = &module_name {
+            self.typing.update_source_index(|index| {
+                index.add_constant_definition(module_name.clone(), &name_node)
+            });
+        }
         let constructor = self.for_module(node, module_name.as_ref());
         constructor.with_variable_bounds(|constructor| {
             let module_type = constructor.module_context().module_type.clone();
             constructor.add_typing(&name_node, module_type);
+            constructor.set_node_and_body_context(node);
             if let Some(body) = node.child_node(1) {
                 constructor.synthesize(body, None, false);
             }

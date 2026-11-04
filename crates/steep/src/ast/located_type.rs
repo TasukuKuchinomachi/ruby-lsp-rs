@@ -152,6 +152,57 @@ fn parse_whole_type(source: &str, start_pos: usize) -> Result<LocatedType, Parsi
     }
 }
 
+pub fn parse_method_type_types(source: &str, start_pos: usize) -> Option<Vec<LocatedType>> {
+    let converter = Converter {
+        buffer: Buffer::new("", source),
+        start_pos,
+    };
+    parse::parse_method_type_node(source, |node| {
+        let mut types = Vec::new();
+        if let Node::MethodType(method_type) = node {
+            converter.function(method_type.type_(), &mut types);
+            if let Some(block) = method_type.block() {
+                converter.function(block.type_(), &mut types);
+                if let Some(self_type) = block.self_type() {
+                    types.push(converter.located(self_type));
+                }
+            }
+        }
+        types
+    })
+    .ok()
+    .flatten()
+}
+
+pub struct LocatedBounds {
+    pub upper_bound: Option<LocatedType>,
+    pub lower_bound: Option<LocatedType>,
+    pub default_type: Option<LocatedType>,
+}
+
+pub fn parse_type_parameter_bounds(source: &str, start_pos: usize) -> Option<LocatedBounds> {
+    let prefix = "class X[";
+    let wrapped = format!("{prefix}{source}] end");
+    let converter = Converter {
+        buffer: Buffer::new("", wrapped.as_str()),
+        start_pos: start_pos.checked_sub(prefix.len())?,
+    };
+    let signature = ruby_rbs::node::parse(&wrapped).ok()?;
+    let declaration = signature.declarations().iter().next()?;
+    let Node::Class(class) = declaration else {
+        return None;
+    };
+    let parameter = class.type_params().iter().next()?;
+    let Node::TypeParam(parameter) = parameter else {
+        return None;
+    };
+    Some(LocatedBounds {
+        upper_bound: parameter.upper_bound().map(|node| converter.located(node)),
+        lower_bound: parameter.lower_bound().map(|node| converter.located(node)),
+        default_type: parameter.default_type().map(|node| converter.located(node)),
+    })
+}
+
 pub fn parse_type(source: &str, start_pos: usize) -> Result<Option<LocatedType>, ParsingError> {
     if source.trim().is_empty() {
         return Ok(None);

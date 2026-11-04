@@ -244,6 +244,7 @@ impl Node {
     }
 }
 
+#[derive(Clone)]
 pub struct Comment {
     pub text: String,
     pub location: SourceRange,
@@ -255,6 +256,7 @@ impl Comment {
     }
 }
 
+#[derive(Clone)]
 pub struct Buffer {
     pub name: String,
     pub source: String,

@@ -7,7 +7,7 @@ use crate::{
     expectations,
     project::{Project, Target},
     ruby::node::{Buffer, SourceRange},
-    type_check_service::lsp_range,
+    services::type_check_service::lsp_range,
 };
 
 fn project_paths(project: &Project) -> Vec<PathBuf> {

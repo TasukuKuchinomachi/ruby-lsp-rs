@@ -10,7 +10,7 @@ use steep_interface::types::Type;
 
 use crate::{
     ast::{
-        located_type::{self, ParsingError},
+        located_type::{self, LocatedType, ParsingError},
         node::type_assertion::resolve_type_names,
     },
     ruby::node::{Node, SourceRange},
@@ -48,6 +48,19 @@ pub enum AppliedTypes {
 }
 
 impl TypeApplication {
+    pub fn rbs_types(
+        &self,
+        context: &[TypeName],
+        checker: &Checker,
+    ) -> Result<Vec<LocatedType>, ParsingError> {
+        Ok(
+            located_type::parse_types(self.type_str(), self.type_location().begin_pos)?
+                .into_iter()
+                .map(|rbs_type| resolve_type_names(rbs_type, context, checker))
+                .collect(),
+        )
+    }
+
     pub fn types(&self, context: &[TypeName], checker: &Checker) -> AppliedTypes {
         let rbs_types =
             match located_type::parse_types(self.type_str(), self.type_location().begin_pos) {

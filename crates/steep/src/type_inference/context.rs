@@ -156,8 +156,20 @@ pub enum CallContext {
     },
 }
 
+// Why not compare the contents: TypeConstruction of Steep compares contexts by identity
+// when it decides whether a statement changed the context of the code after it.
+#[derive(Clone, Default)]
+pub struct ContextIdentity(Rc<()>);
+
+impl ContextIdentity {
+    pub fn same(&self, other: &ContextIdentity) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
 #[derive(Clone)]
 pub struct Context {
+    pub identity: ContextIdentity,
     pub method_context: Option<Rc<MethodContext>>,
     pub block_context: Option<BlockContext>,
     pub break_context: Option<BreakContext>,

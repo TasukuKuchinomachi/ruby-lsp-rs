@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     fs,
     panic::{self, AssertUnwindSafe},
     path::{Path, PathBuf},
@@ -7,8 +8,10 @@ use std::{
 };
 
 use rbs_definition::{
-    ancestor_builder::AncestorBuilder, ast::TypeName, collections::HashSet,
-    definition_builder::DefinitionBuilder, parallel::run_in_parallel,
+    ast::TypeName,
+    collections::{HashMap, HashSet, IndexMap},
+    loader::RbsGem,
+    parallel::run_in_parallel,
 };
 use steep_interface::{
     steep_version::SteepVersion,
@@ -24,23 +27,25 @@ use crate::{
     environment_loader,
     expectations::{self, Expectations, Position, Range},
     ignore::{self, IgnoreRanges},
-    inline_source,
+    index::source_index::SourceIndex,
+    inline_source, locator,
     project::{Project, Target, UniquePaths},
     ruby::node::{Buffer, SourceRange},
     ruby_exception::{self, RubyException},
-    signature::{
-        diagnostic::Diagnostic as SignatureDiagnostic,
-        service::SignatureService,
-        validator::{SignatureValidation, ValidatorCache},
+    services::{
+        content_change::ContentChange,
+        signature_service::{LoadedSignatures, SignatureService, signature_target_names},
     },
+    signature::{diagnostic::Diagnostic as SignatureDiagnostic, validator::ValidatorCache},
     source::{Source, SourceError},
     strict::{EnabledChecks, Observation, StrictCheck},
-    type_construction::{Checker, CheckerTables, TypeConstruction, instance_type},
+    type_construction::{Checker, TypeConstruction, instance_type},
     type_inference::{
         constant_env::ConstantEnv,
         context::{CallContext, Context, ModuleContext, TypeVariableContext},
         type_env::TypeEnv,
     },
+    typing::CursorRange,
     typing::Typing,
 };
 
@@ -62,7 +67,7 @@ pub fn lsp_range(buffer: &Buffer, location: SourceRange) -> Range {
     }
 }
 
-fn type_check(checker: &Checker, source: &Source) -> RubyDiagnostics {
+pub fn type_check(checker: &Checker, source: &Source, cursor: Option<usize>) -> Typing {
     let annotations = checker.annotations(source, source.node.as_deref(), &None);
     let object = TypeName::parse("::Object");
     let (module_name, module_type, instance_type_) = match &annotations.self_type {
@@ -117,6 +122,7 @@ fn type_check(checker: &Checker, source: &Source) -> RubyDiagnostics {
             .insert(name.clone(), (type_.clone(), Some(type_.clone())));
     }
     let context = Context {
+        identity: Default::default(),
         method_context: None,
         block_context: None,
         break_context: None,
@@ -139,7 +145,13 @@ fn type_check(checker: &Checker, source: &Source) -> RubyDiagnostics {
         call_context: CallContext::TopLevel,
         variable_context: Rc::new(TypeVariableContext::empty()),
     };
-    let typing = Typing::new();
+    let root_context = cursor.map(|_| {
+        (
+            CursorRange::new(0, source.buffer.source.len()),
+            context.clone(),
+        )
+    });
+    let typing = Typing::with_cursor(cursor, root_context);
     let construction = TypeConstruction {
         checker,
         source,
@@ -150,17 +162,13 @@ fn type_check(checker: &Checker, source: &Source) -> RubyDiagnostics {
     if let Some(node) = &source.node {
         construction.synthesize(node, None, false);
     }
-    let mut observations = source.observations.clone();
-    observations.extend(typing.observations());
-    RubyDiagnostics {
-        errors: typing.errors(),
-        observations,
-    }
+    typing
 }
 
 pub(crate) struct RubyDiagnostics {
     pub errors: Vec<Diagnostic>,
     pub observations: Vec<Observation>,
+    pub source_index: Option<SourceIndex>,
 }
 
 impl RubyDiagnostics {
@@ -168,6 +176,7 @@ impl RubyDiagnostics {
         RubyDiagnostics {
             errors,
             observations: Vec::new(),
+            source_index: None,
         }
     }
 }
@@ -177,10 +186,18 @@ pub(crate) fn ruby_diagnostics(
     path: &str,
     text: &str,
 ) -> (Buffer, Result<RubyDiagnostics, String>) {
-    reset_fresh_variable_count();
     match Source::parse(path, text, checker.builder.steep_version) {
         Ok(source) => {
-            let result = panic::catch_unwind(AssertUnwindSafe(|| type_check(checker, &source)));
+            let result = panic::catch_unwind(AssertUnwindSafe(|| {
+                let typing = type_check(checker, &source, None);
+                let mut observations = source.observations.clone();
+                observations.extend(typing.observations());
+                RubyDiagnostics {
+                    errors: typing.errors(),
+                    observations,
+                    source_index: Some(typing.take_source_index()),
+                }
+            }));
             let buffer = Buffer::new(path, text);
             match result {
                 Ok(result) => {
@@ -201,6 +218,7 @@ pub(crate) fn ruby_diagnostics(
                         Ok(RubyDiagnostics {
                             errors,
                             observations,
+                            source_index: result.source_index,
                         }),
                     )
                 }
@@ -235,6 +253,7 @@ pub(crate) fn ruby_diagnostics(
                         error.message
                     ),
                 )],
+                source_index: None,
             }),
         ),
         Err(SourceError::Annotation(AnnotationError::Syntax(error))) => (
@@ -254,6 +273,7 @@ pub(crate) fn ruby_diagnostics(
                         "Steep reports nothing for this file because parsing this annotation raised RuntimeError outside TypeConstruction#synthesize: {message}"
                     ),
                 )],
+                source_index: None,
             }),
         ),
     }
@@ -312,7 +332,7 @@ fn source_diagnostics(
     checker: Option<&Checker>,
     library_errors: &[&SignatureDiagnostic],
     enabled_checks: &EnabledChecks,
-) -> (Buffer, Result<Vec<expectations::Diagnostic>, String>) {
+) -> (Buffer, Result<CheckedSource, String>) {
     let path_string = path.to_string_lossy().into_owned();
     let (buffer, result) = match checker {
         Some(checker) => ruby_diagnostics(checker, &path_string, text),
@@ -328,6 +348,7 @@ fn source_diagnostics(
                         target.name
                     ),
                 )],
+                source_index: None,
             }),
         ),
         None => (
@@ -385,7 +406,13 @@ fn source_diagnostics(
             code: observation.check.code(),
         });
     }
-    (buffer, Ok(diagnostics))
+    (
+        buffer,
+        Ok(CheckedSource {
+            diagnostics,
+            source_index: result.source_index,
+        }),
+    )
 }
 
 pub struct CheckResult {
@@ -410,6 +437,88 @@ struct Worker {
     validator_cache: Rc<ValidatorCache>,
 }
 
+pub fn validate_signature(
+    service: &SignatureService,
+    checker: Option<&Checker>,
+    validator_cache: Rc<ValidatorCache>,
+    path: &Path,
+) -> Result<Vec<expectations::Diagnostic>, String> {
+    let path_string = path.to_string_lossy().into_owned();
+    let diagnostics = match (checker, service.current_signatures()) {
+        (Some(checker), Some(signatures)) => ruby_exception::rescue(|| {
+            signatures.signature_validation().validate_path(
+                &checker.builder,
+                validator_cache,
+                &path_string,
+            )
+        })
+        .map_err(|exception| {
+            format!(
+                "validating signatures in {} raised {exception}, which Steep does not rescue",
+                path.display()
+            )
+        })?,
+        _ => service.error_diagnostics_for(&path_string),
+    };
+    Ok(diagnostics
+        .iter()
+        .filter_map(SignatureDiagnostic::to_expectation)
+        .collect())
+}
+
+pub struct CheckedSource {
+    pub diagnostics: Vec<expectations::Diagnostic>,
+    pub source_index: Option<SourceIndex>,
+}
+
+pub fn check_source(
+    target: &Target,
+    path: &Path,
+    text: &str,
+    checker: Option<&Checker>,
+    library_errors: &[&SignatureDiagnostic],
+    enabled_checks: &EnabledChecks,
+    inline: bool,
+) -> Result<CheckedSource, String> {
+    match source_diagnostics(target, path, text, checker, library_errors, enabled_checks) {
+        (buffer, Ok(mut checked)) => {
+            if inline {
+                checked
+                    .diagnostics
+                    .extend(inline_source::inline_diagnostics(&buffer));
+            }
+            Ok(checked)
+        }
+        (_, Err(message)) => Err(format!(
+            "type checking {} failed: {message}",
+            path.display()
+        )),
+    }
+}
+
+pub fn target_source_paths(project: &Project, target: &Target) -> Vec<PathBuf> {
+    let mut source_paths: Vec<PathBuf> = Vec::new();
+    for group in &target.groups {
+        source_paths.extend(project.source_paths(&group.source_pattern));
+    }
+    source_paths.extend(project.source_paths(&target.source_pattern));
+    let mut paths = UniquePaths::default();
+    for path in source_paths {
+        if paths.contains(&path) || !target.is_possible_source_file(&path) {
+            continue;
+        }
+        if project
+            .target_for_source_path(&path)
+            .map(|found| &found.name)
+            != Some(&target.name)
+        {
+            continue;
+        }
+        paths.push(path);
+    }
+    paths.into_paths()
+}
+
 pub fn check_project(
     project: &Project,
     enabled_checks: &EnabledChecks,
@@ -431,7 +540,7 @@ pub fn check_project(
         }
     }
     for (target_index, target) in project.targets.iter().enumerate() {
-        let mut service = match SignatureService::load(&rbs_gem, project, target, jobs) {
+        let service = match SignatureService::load(&rbs_gem, project, target, steep_version, jobs) {
             Ok(service) => service,
             Err(error) => {
                 failures.push(format!(
@@ -446,84 +555,47 @@ pub fn check_project(
             .chain(inline_source::target_inline_paths(project, target))
             .map(Work::Signature)
             .collect();
-        let mut source_paths: Vec<PathBuf> = Vec::new();
-        for group in &target.groups {
-            source_paths.extend(project.source_paths(&group.source_pattern));
-        }
-        source_paths.extend(project.source_paths(&target.source_pattern));
-        let mut seen = HashSet::default();
-        for path in source_paths {
-            if seen.contains(&path) || !target.is_possible_source_file(&path) {
-                continue;
-            }
-            if project
-                .target_for_source_path(&path)
-                .map(|found| &found.name)
-                != Some(&target.name)
-            {
-                continue;
-            }
-            seen.insert(path.clone());
-            works.push(Work::Source(path));
-        }
+        works.extend(
+            target_source_paths(project, target)
+                .into_iter()
+                .map(Work::Source),
+        );
         works.extend(
             inline_source::target_inline_paths(project, target)
                 .into_iter()
                 .map(Work::Inline),
         );
-        let one_ancestors_cache = service.take_one_ancestors_cache();
         let library_errors = service.library_errors();
-        let environment = service.environment();
-        let definition_builder = environment.map(|environment| {
-            Arc::new(DefinitionBuilder::with_ancestor_builder(
-                AncestorBuilder::with_one_ancestors_cache(environment.clone(), one_ancestors_cache),
-            ))
-        });
-        let signature_validation =
-            environment.map(|environment| SignatureValidation::new(environment));
-        let checker_tables = definition_builder.clone().map(CheckerTables::new);
+        let signatures = service.current_signatures();
+        if let Some(signatures) = signatures {
+            signatures.checker_tables();
+        }
         let new_worker = || Worker {
-            checker: definition_builder.clone().zip(checker_tables.as_ref()).map(
-                |(definition_builder, tables)| {
-                    Checker::with_tables(
-                        definition_builder,
-                        tables,
-                        target.implicitly_returns_nil,
-                        steep_version,
-                    )
-                },
-            ),
+            checker: signatures.map(|signatures| signatures.checker()),
             validator_cache: Rc::default(),
         };
-        let check_source =
-            |worker: &Worker, path: &PathBuf, inline: bool| -> Result<WorkResult, String> {
-                let text = fs::read_to_string(project.absolute_path(path))
-                    .map_err(|error| format!("{}: {error}", path.display()))?;
-                Ok(
-                    match source_diagnostics(
-                        target,
-                        path,
-                        &text,
-                        worker.checker.as_ref(),
-                        &library_errors,
-                        enabled_checks,
-                    ) {
-                        (buffer, Ok(mut diagnostics)) => {
-                            if inline {
-                                diagnostics.extend(inline_source::inline_diagnostics(&buffer));
-                            }
-                            WorkResult::File(FileDiagnostics {
-                                path: path.clone(),
-                                diagnostics,
-                            })
-                        }
-                        (_, Err(message)) => WorkResult::Failure(format!(
-                            "type checking {} failed: {message}",
-                            path.display()
-                        )),
-                    },
-                )
-            };
+        let check = |worker: &Worker, path: &PathBuf, inline: bool| -> Result<WorkResult, String> {
+            let text = fs::read_to_string(project.absolute_path(path))
+                .map_err(|error| format!("{}: {error}", path.display()))?;
+            reset_fresh_variable_count();
+            Ok(
+                match check_source(
+                    target,
+                    path,
+                    &text,
+                    worker.checker.as_ref(),
+                    &library_errors,
+                    enabled_checks,
+                    inline,
+                ) {
+                    Ok(checked) => WorkResult::File(FileDiagnostics {
+                        path: path.clone(),
+                        diagnostics: checked.diagnostics,
+                    }),
+                    Err(message) => WorkResult::Failure(message),
+                },
+            )
+        };
         // Why not free the states of the workers, the definitions and the service of the
         // last target: freeing them takes a noticeable part of the run just before the
         // process exits.
@@ -533,38 +605,22 @@ pub fn check_project(
             jobs,
             new_worker,
             |worker, work| match work {
-                Work::Signature(path) => {
-                    let path_string = path.to_string_lossy().into_owned();
-                    let signature_diagnostics = match (&worker.checker, &signature_validation) {
-                        (Some(checker), Some(signature_validation)) => {
-                            match ruby_exception::rescue(|| {
-                                signature_validation.validate_path(
-                                    &checker.builder,
-                                    worker.validator_cache.clone(),
-                                    &path_string,
-                                )
-                            }) {
-                                Ok(diagnostics) => diagnostics,
-                                Err(exception) => {
-                                    return Ok(WorkResult::Failure(format!(
-                                        "validating signatures in {} raised {exception}, which Steep does not rescue",
-                                        path.display()
-                                    )));
-                                }
-                            }
-                        }
-                        _ => service.error_diagnostics_for(&path_string),
-                    };
-                    Ok(WorkResult::File(FileDiagnostics {
-                        path: path.clone(),
-                        diagnostics: signature_diagnostics
-                            .iter()
-                            .filter_map(SignatureDiagnostic::to_expectation)
-                            .collect(),
-                    }))
-                }
-                Work::Source(path) => check_source(worker, path, false),
-                Work::Inline(path) => check_source(worker, path, true),
+                Work::Signature(path) => Ok(
+                    match validate_signature(
+                        &service,
+                        worker.checker.as_ref(),
+                        worker.validator_cache.clone(),
+                        path,
+                    ) {
+                        Ok(diagnostics) => WorkResult::File(FileDiagnostics {
+                            path: path.clone(),
+                            diagnostics,
+                        }),
+                        Err(message) => WorkResult::Failure(message),
+                    },
+                ),
+                Work::Source(path) => check(worker, path, false),
+                Work::Inline(path) => check(worker, path, true),
             },
             last_target,
         );
@@ -575,7 +631,6 @@ pub fn check_project(
             }
         }
         if last_target {
-            std::mem::forget(definition_builder);
             std::mem::forget(service);
         }
     }
@@ -603,4 +658,279 @@ pub fn to_expectations(result: &CheckResult) -> Expectations {
             .extend(file.diagnostics.iter().cloned());
     }
     expectations
+}
+
+pub struct SourceFile {
+    pub path: PathBuf,
+    pub content: String,
+    pub diagnostics: Option<Vec<expectations::Diagnostic>>,
+    pub source_index: Option<SourceIndex>,
+}
+
+impl SourceFile {
+    fn no_data(path: PathBuf, content: String) -> SourceFile {
+        SourceFile {
+            path,
+            content,
+            diagnostics: None,
+            source_index: None,
+        }
+    }
+}
+
+pub struct TypeCheckedSource {
+    pub target_name: String,
+    pub checker: Rc<Checker>,
+    pub source: Source,
+    pub typing: Typing,
+}
+
+struct CachedChecker {
+    signatures: Arc<LoadedSignatures>,
+    checker: Rc<Checker>,
+}
+
+pub struct TypeCheckService {
+    pub project: Project,
+    pub enabled_checks: EnabledChecks,
+    pub signature_services: IndexMap<String, SignatureService>,
+    pub source_files: IndexMap<PathBuf, SourceFile>,
+    pub signature_validation_diagnostics:
+        IndexMap<String, IndexMap<PathBuf, Vec<expectations::Diagnostic>>>,
+    checkers: RefCell<HashMap<String, CachedChecker>>,
+    validator_cache: Rc<ValidatorCache>,
+}
+
+impl TypeCheckService {
+    pub fn load(
+        project: Project,
+        rbs_gem: &RbsGem,
+        steep_version: SteepVersion,
+        enabled_checks: EnabledChecks,
+        jobs: usize,
+    ) -> Result<TypeCheckService, String> {
+        let mut signature_services = IndexMap::default();
+        let mut signature_validation_diagnostics = IndexMap::default();
+        for target in &project.targets {
+            signature_services.insert(
+                target.name.clone(),
+                SignatureService::load(rbs_gem, &project, target, steep_version, jobs)?,
+            );
+            signature_validation_diagnostics.insert(target.name.clone(), IndexMap::default());
+        }
+        Ok(TypeCheckService {
+            project,
+            enabled_checks,
+            signature_services,
+            source_files: IndexMap::default(),
+            signature_validation_diagnostics,
+            checkers: RefCell::default(),
+            validator_cache: Rc::default(),
+        })
+    }
+
+    pub fn project_paths(&self) -> Vec<PathBuf> {
+        let mut paths = UniquePaths::default();
+        for target in &self.project.targets {
+            for path in self.project.each_path_in_target(target) {
+                paths.push(path);
+            }
+        }
+        paths.into_paths()
+    }
+
+    pub fn load_files(&mut self) -> Result<(), String> {
+        let mut changes = Vec::new();
+        for path in self.project_paths() {
+            let absolute_path = self.project.absolute_path(&path);
+            let content = fs::read_to_string(&absolute_path)
+                .map_err(|error| format!("{}: {error}", absolute_path.display()))?;
+            changes.push((path, vec![ContentChange::string(content)]));
+        }
+        self.update(&changes)
+    }
+
+    pub fn source_target(&self, path: &Path) -> Option<&Target> {
+        self.project
+            .target_for_inline_source_path(path)
+            .or_else(|| self.project.target_for_source_path(path))
+            .or_else(|| {
+                path.extension()
+                    .is_some_and(|extension| extension == "rb")
+                    .then(|| self.project.targets.first())
+                    .flatten()
+            })
+    }
+
+    pub fn is_source_file(&self, path: &Path) -> bool {
+        self.source_files.contains_key(path) || self.source_target(path).is_some()
+    }
+
+    pub fn signature_file_targets(&self, path: &Path) -> Vec<String> {
+        self.signature_services
+            .iter()
+            .filter(|(_, service)| {
+                service.files.contains_key(path)
+                    || service
+                        .env_rbs_paths()
+                        .contains(&self.project.absolute_path(path))
+            })
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
+    pub fn update(&mut self, changes: &[(PathBuf, Vec<ContentChange>)]) -> Result<(), String> {
+        let mut signature_changes: IndexMap<String, Vec<(PathBuf, Vec<ContentChange>)>> =
+            IndexMap::default();
+        for (path, path_changes) in changes {
+            for target_name in signature_target_names(&self.project, path) {
+                signature_changes
+                    .entry(target_name)
+                    .or_default()
+                    .push((path.clone(), path_changes.clone()));
+            }
+        }
+        for (target_name, target_changes) in signature_changes {
+            if let Some(service) = self.signature_services.get_mut(&target_name) {
+                service.update(&self.project, &target_changes)?;
+            }
+        }
+        for (path, path_changes) in changes {
+            if !self.is_source_file(path) {
+                continue;
+            }
+            let old_content = self
+                .source_files
+                .get(path)
+                .map(|file| file.content.clone())
+                .unwrap_or_default();
+            let content = path_changes
+                .iter()
+                .fold(old_content, |text, change| change.apply_to(&text));
+            match self.source_files.get_mut(path) {
+                Some(file) => file.content = content,
+                None => {
+                    self.source_files
+                        .insert(path.clone(), SourceFile::no_data(path.clone(), content));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn checker(&self, target_name: &str) -> Option<Rc<Checker>> {
+        let signatures = self
+            .signature_services
+            .get(target_name)?
+            .current_signatures()?;
+        let mut checkers = self.checkers.borrow_mut();
+        if let Some(cached) = checkers.get(target_name)
+            && Arc::ptr_eq(&cached.signatures, signatures)
+        {
+            return Some(cached.checker.clone());
+        }
+        let checker = Rc::new(signatures.checker());
+        checkers.insert(
+            target_name.to_string(),
+            CachedChecker {
+                signatures: signatures.clone(),
+                checker: checker.clone(),
+            },
+        );
+        Some(checker)
+    }
+
+    pub fn typecheck_source(
+        &mut self,
+        path: &Path,
+    ) -> Result<Option<Vec<expectations::Diagnostic>>, String> {
+        let Some(target) = self.source_target(path).cloned() else {
+            return Ok(None);
+        };
+        let Some(file) = self.source_files.get(path) else {
+            return Ok(None);
+        };
+        let content = file.content.clone();
+        let checker = self.checker(&target.name);
+        let service = &self.signature_services[&target.name];
+        let library_errors = service.library_errors();
+        let inline = self.project.target_for_inline_source_path(path).is_some();
+        let checked = check_source(
+            &target,
+            path,
+            &content,
+            checker.as_deref(),
+            &library_errors,
+            &self.enabled_checks,
+            inline,
+        )?;
+        let file = self
+            .source_files
+            .get_mut(path)
+            .expect("the source file is loaded");
+        file.diagnostics = Some(checked.diagnostics.clone());
+        file.source_index = checked.source_index;
+        Ok(Some(checked.diagnostics))
+    }
+
+    pub fn validate_signature(
+        &mut self,
+        path: &Path,
+        target_name: &str,
+    ) -> Result<Vec<expectations::Diagnostic>, String> {
+        let checker = self.checker(target_name);
+        let service = self
+            .signature_services
+            .get(target_name)
+            .ok_or_else(|| format!("no target named {target_name}"))?;
+        let diagnostics = validate_signature(
+            service,
+            checker.as_deref(),
+            self.validator_cache.clone(),
+            path,
+        )?;
+        self.signature_validation_diagnostics
+            .entry(target_name.to_string())
+            .or_default()
+            .insert(path.to_path_buf(), diagnostics.clone());
+        Ok(diagnostics)
+    }
+
+    pub fn type_check_at(&self, path: &Path, position: usize) -> Option<TypeCheckedSource> {
+        let target = self.source_target(path)?;
+        let file = self.source_files.get(path)?;
+        let checker = self.checker(&target.name)?;
+        let path_string = path.to_string_lossy().into_owned();
+        let source = Source::parse(&path_string, &file.content, checker.builder.steep_version)
+            .ok()?
+            .without_unrelated_defs(position);
+        let typing = panic::catch_unwind(AssertUnwindSafe(|| {
+            type_check(&checker, &source, Some(position))
+        }))
+        .ok()?;
+        Some(TypeCheckedSource {
+            target_name: target.name.clone(),
+            checker,
+            source,
+            typing,
+        })
+    }
+}
+
+impl TypeCheckService {
+    pub fn inline_type_name_at(
+        &self,
+        path: &Path,
+        position: usize,
+    ) -> Option<(TypeName, SourceRange)> {
+        let target = self.project.target_for_inline_source_path(path)?;
+        let file = self.signature_services.get(&target.name)?.files.get(path)?;
+        let checker = self.checker(&target.name)?;
+        locator::inline_type_name_at(
+            &path.to_string_lossy(),
+            file.content(),
+            position,
+            &checker.type_name_resolver,
+        )
+    }
 }

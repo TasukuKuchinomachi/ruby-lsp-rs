@@ -40,12 +40,12 @@ use crate::{
     strict::{Observation, StrictCheck},
     type_inference::{
         constant_env::{ConstantResolver, ConstantTables, ResolverContext, nesting_names},
-        context::{BreakContext, Context, ModuleContext},
+        context::{BreakContext, Context, ContextIdentity, ModuleContext},
         logic_type_interpreter::{self, LogicTypeInterpreter},
         method_call::{MethodCall, MethodCallKind},
         type_env::{SPECIAL_LVAR_NAMES, TypeEnv},
     },
-    typing::Typing,
+    typing::{CursorRange, Typing},
 };
 
 pub struct Checker {
@@ -318,7 +318,10 @@ impl<'checker> TypeConstruction<'checker> {
 
     pub fn with_context(&self, context: Context) -> TypeConstruction<'checker> {
         TypeConstruction {
-            context,
+            context: Context {
+                identity: ContextIdentity::default(),
+                ..context
+            },
             ..self.clone()
         }
     }
@@ -563,6 +566,29 @@ impl<'checker> TypeConstruction<'checker> {
         self.with_context(context)
     }
 
+    pub fn set_node_and_body_context(&self, node: &Node) {
+        self.typing.update_cursor_context(|cursor_context| {
+            cursor_context.set_node_context(node, &self.context);
+            cursor_context.set_body_context(node, &self.context);
+        });
+    }
+
+    pub fn set_body_context(&self, node: &Node) {
+        self.typing.update_cursor_context(|cursor_context| {
+            cursor_context.set_body_context(node, &self.context)
+        });
+    }
+
+    pub fn tap_node_context(self, node: &Node) -> TypeConstruction<'checker> {
+        self.set_node_context(node, &self.context);
+        self
+    }
+
+    pub fn set_node_context(&self, node: &Node, context: &Context) {
+        self.typing
+            .update_cursor_context(|cursor_context| cursor_context.set_node_context(node, context));
+    }
+
     pub fn save_typing(&self) -> TypeConstruction<'checker> {
         self.typing.save();
         self.with_new_typing(self.typing.parent().expect("a child typing has a parent"))
@@ -708,6 +734,9 @@ impl<'checker> TypeConstruction<'checker> {
                     None,
                 );
                 if let Some(name) = &name {
+                    self.typing.update_source_index(|index| {
+                        index.add_constant_reference(name.clone(), node)
+                    });
                     constr.check_deprecation_constant(name, node, node.location.expression);
                 }
                 Pair::new(type_, constr)
@@ -924,10 +953,25 @@ impl<'checker> TypeConstruction<'checker> {
         let Some((last, middle)) = children.split_last() else {
             return self.add_typing(node, Type::Nil);
         };
+        let end_pos = node.expression().end_pos;
         let mut pair = Pair::new(Type::Nil, self.clone());
         for child in middle {
             let next = pair.constr.synthesize(child, None, false);
-            pair = pair.plus(next);
+            let new_pair = pair.clone().plus(next);
+            if !new_pair
+                .constr
+                .context
+                .identity
+                .same(&pair.constr.context.identity)
+            {
+                self.typing.update_cursor_context(|cursor_context| {
+                    cursor_context.set(
+                        CursorRange::new(child.expression().end_pos, end_pos),
+                        &new_pair.constr.context,
+                    )
+                });
+            }
+            pair = new_pair;
         }
         let last_pair = pair.constr.synthesize(last, hint, condition);
         let last_pair = pair.plus(last_pair);
@@ -1288,12 +1332,14 @@ impl<'checker> TypeConstruction<'checker> {
             constr
                 .update_type_env(|_| truthy.env.clone())
                 .for_branch(clause, None)
+                .tap_node_context(clause)
                 .synthesize(clause, hint, false)
         });
         let false_pair = false_clause.as_ref().map(|clause| {
             constr
                 .update_type_env(|_| falsy.env.clone())
                 .for_branch(clause, None)
+                .tap_node_context(clause)
                 .synthesize(clause, hint, false)
         });
         let mut envs = Vec::new();
@@ -1411,6 +1457,7 @@ impl<'checker> TypeConstruction<'checker> {
         let right_pair = left_pair
             .constr
             .update_type_env(|_| first.env.clone())
+            .tap_node_context(&right)
             .for_branch(&right, None)
             .synthesize(&right, right_hint.as_ref(), true);
         let (right_truthy, right_falsy) = right_pair.constr.evaluate_condition(Some(&right));
@@ -1568,7 +1615,8 @@ impl<'checker> TypeConstruction<'checker> {
                 Some(body) => {
                     let for_loop = condition_constr
                         .update_type_env(Self::pinned)
-                        .for_branch(body, Some(Some(break_context)));
+                        .for_branch(body, Some(Some(break_context)))
+                        .tap_node_context(body);
                     let body_env = for_loop
                         .synthesize(body, None, false)
                         .context()
@@ -1597,6 +1645,7 @@ impl<'checker> TypeConstruction<'checker> {
                 let body_constr = constr
                     .update_type_env(|_| body_env)
                     .for_branch(body, Some(Some(break_context)))
+                    .tap_node_context(body)
                     .synthesize(body, None, false)
                     .constr;
                 let body_type_env = body_constr.context.type_env.clone();
@@ -1674,7 +1723,9 @@ impl<'checker> TypeConstruction<'checker> {
                         env.assign_local_variables(&assignments)
                     });
             let pair = match &resbody_body {
-                Some(resbody_body) => resbody_construction.synthesize(resbody_body, hint, false),
+                Some(resbody_body) => resbody_construction
+                    .tap_node_context(resbody_body)
+                    .synthesize(resbody_body, hint, false),
                 None => Pair::new(Type::Nil, body_constr.clone()),
             };
             resbody_operands.push((
@@ -1913,6 +1964,9 @@ impl<'checker> TypeConstruction<'checker> {
                                 variable_name.clone(),
                                 variable_type.clone(),
                             )]))
+                        });
+                        self.typing.update_cursor_context(|cursor_context| {
+                            cursor_context.set_body_context(node, &body_constr.context)
                         });
                         let body_env = body_constr
                             .synthesize(body, None, false)

@@ -25,6 +25,7 @@ use crate::{
         multiple_assignment::MultipleAssignment,
         type_env::SPECIAL_LVAR_NAMES,
     },
+    typing::CursorRange,
 };
 
 type ParameterTypes = IndexMap<Option<String>, Type>;
@@ -481,6 +482,7 @@ impl<'checker> TypeConstruction<'checker> {
             annotations: Rc::new(self.merge_block_annotations(block_annotations)),
             typing: self.typing.clone(),
             context: Context {
+                identity: Default::default(),
                 method_context: self.context.method_context.clone(),
                 block_context: Some(block_context),
                 break_context: Some(break_context),
@@ -508,7 +510,8 @@ impl<'checker> TypeConstruction<'checker> {
             .as_ref()
             .and_then(|context| context.body_type.clone());
         let hint = annotated_body_type.as_ref().or(block_type_hint);
-        let mut body_type = self.synthesize(block_body, hint, false).type_;
+        let body_pair = self.synthesize(block_body, hint, false);
+        let mut body_type = body_pair.type_.clone();
         if let Some(annotated_body_type) = annotated_body_type {
             if let Some(result) = self.no_subtyping(&body_type, &annotated_body_type) {
                 self.add_error(diagnostics::block_body_type_mismatch(
@@ -520,6 +523,13 @@ impl<'checker> TypeConstruction<'checker> {
             }
             body_type = annotated_body_type;
         }
+        let end = node.location.end.expect("a block has the end keyword");
+        self.typing.update_cursor_context(|cursor_context| {
+            cursor_context.set(
+                CursorRange::new(block_body.expression().end_pos, end.begin_pos),
+                body_pair.context(),
+            )
+        });
         body_type
     }
 
@@ -541,6 +551,7 @@ impl<'checker> TypeConstruction<'checker> {
             None,
             None,
         );
+        block_constr.set_body_context(node);
         for param in block_params.params() {
             for param in param.each_param() {
                 block_constr = block_constr
@@ -655,6 +666,7 @@ impl<'checker> TypeConstruction<'checker> {
             None,
             self_hint.as_ref(),
         );
+        block_constr.set_body_context(node);
 
         for param in params.each_single_param() {
             block_constr = block_constr

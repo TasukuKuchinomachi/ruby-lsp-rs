@@ -80,6 +80,7 @@ fn method_declaration(method_name: &str, definition: &TypeDefinition) -> MethodD
         annotations,
         attribute,
         method_type: (*definition.type_).clone(),
+        definition: definition.clone(),
     }
 }
 
@@ -791,6 +792,7 @@ impl<'checker> TypeConstruction<'checker> {
                     );
                     let mut block_constr =
                         block_constr.with_new_typing(block_constr.typing.new_child());
+                    block_constr.set_body_context(node);
 
                     for (param, type_) in &pairs {
                         match param {
