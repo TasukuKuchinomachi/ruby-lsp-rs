@@ -1,0 +1,355 @@
+module SubtypingFixture
+  class Producer[out T]
+    def get: () -> T
+  end
+
+  class Consumer[in T]
+    def put: (T) -> void
+  end
+
+  class Box[T]
+    def get: () -> T
+    def set: (T) -> void
+  end
+
+  class StringBox < Box[String]
+  end
+
+  module Labeled
+    def label: () -> String
+  end
+
+  class LabeledBox[T] < Box[T]
+    include Labeled
+    include _Named
+    extend Labeled
+  end
+
+  class IntegerAlias = Integer
+
+  class Grower[T]
+    def grow: () -> Grower[Array[T]]
+  end
+
+  interface _Grow[T]
+    def grow: () -> _Grow[Array[T]]
+  end
+
+  interface _Named
+    def name: () -> String
+  end
+
+  interface _NameAndAge
+    def name: () -> String
+    def age: () -> Integer
+  end
+
+  class Person
+    def name: () -> String
+    def age: () -> String
+    private def secret: () -> void
+  end
+
+  interface _Secret
+    def secret: () -> void
+  end
+
+  interface _IsA
+    def is_a?: (Module) -> bool
+  end
+
+  interface _Each[T]
+    def each: () { (T) -> void } -> void
+  end
+
+  interface _Mono
+    def call: (Integer) -> Integer
+  end
+
+  interface _StringToString
+    def call: (String) -> String
+  end
+
+  interface _Overloaded
+    def call: (Integer) -> Integer
+            | (String) -> String
+  end
+
+  interface _GenericIdentity
+    def call: [X] (X) -> X
+  end
+
+  interface _BoundedIdentity
+    def call: [X < Numeric] (X) -> X
+  end
+
+  interface _StringBoundedIdentity
+    def call: [X < String] (X) -> X
+  end
+
+  interface _OtherGenericIdentity
+    def call: [Z] (Z) -> Z
+  end
+
+  interface _OtherBoundedIdentity
+    def call: [Z < Integer] (Z) -> Z
+  end
+
+  interface _GenericPair
+    def call: [X, Y] (X) -> Y
+  end
+
+  interface _GenericToArray
+    def call: [X] (X) -> Array[X]
+  end
+
+  interface _GenericWithBlock
+    def call: [X] () { (Integer) -> X } -> X
+  end
+
+  interface _Rest
+    def call: (*Integer) -> void
+  end
+
+  interface _RestAndRequired
+    def call: (Integer, *Integer) -> void
+  end
+
+  interface _Optional
+    def call: (?Integer) -> void
+  end
+
+  interface _Required
+    def call: (Integer) -> void
+  end
+
+  interface _TwoRequired
+    def call: (Integer, Integer) -> void
+  end
+
+  interface _RequiredString
+    def call: (String) -> void
+  end
+
+  interface _Keyword
+    def call: (name: String) -> void
+  end
+
+  interface _OptionalKeyword
+    def call: (?name: String) -> void
+  end
+
+  interface _RestKeyword
+    def call: (**String) -> void
+  end
+
+  interface _UntypedParameters
+    def call: (?) -> void
+  end
+
+  interface _WithBlock
+    def call: () { (Integer) -> void } -> void
+  end
+
+  interface _WithOptionalBlock
+    def call: () ?{ (Integer) -> void } -> void
+  end
+
+  interface _WithStringBlock
+    def call: () { (String) -> void } -> void
+  end
+
+  interface _WithNumericBlock
+    def call: () { (Numeric) -> void } -> void
+  end
+
+  interface _WithRestBlock
+    def call: () { (*Integer) -> void } -> void
+  end
+
+  interface _WithSelfBlock
+    def call: () { () [self: String] -> void } -> void
+  end
+
+  interface _WithObjectSelfBlock
+    def call: () { () [self: Object] -> void } -> void
+  end
+
+  interface _WithTopSelfBlock
+    def call: () { () [self: top] -> void } -> void
+  end
+
+  interface _WithoutBlock
+    def call: () -> void
+  end
+
+  type pair = [Integer, String]
+  type name_record = { name: String }
+  type optional_age_record = { name: String, ?age: Integer }
+  type nested = Integer | Array[nested]
+
+  class Relations[Bounded < Integer, Unbounded]
+    def same_class: (Integer) -> Integer
+    def class_alias: (IntegerAlias) -> Integer
+    def untyped_sub: (untyped) -> Integer
+    def untyped_super: (Integer) -> untyped
+    def void_super: (Integer) -> void
+    def top_super: (Integer) -> top
+    def bot_sub: (bot) -> Integer
+    def bool_super: (true) -> bool
+    def bool_super_failure: (Integer) -> bool
+    def bool_sub: (bool) -> Object
+    def bool_sub_failure: (bool) -> TrueClass
+    def logic_sub: (Integer) -> _IsA
+    def instance_sub: (instance) -> Relations[Bounded, Unbounded]
+    def instance_super: (Relations[Bounded, Unbounded]) -> instance
+    def instance_super_failure: (Object) -> instance
+    def class_sub: (class) -> singleton(Relations)
+    def class_super: (singleton(Relations)) -> class
+    def self_sub: (self) -> Object
+    def self_sub_failure: (self) -> String
+    def alias_sub: (pair) -> Array[Integer | String]
+    def alias_super: ([Integer, String]) -> pair
+    def recursive_alias: (Array[Array[Integer]]) -> nested
+    def recursive_alias_failure: (Array[String]) -> nested
+    def bounded_variable: (Bounded) -> Numeric
+    def bounded_variable_failure: (Bounded) -> String
+    def unbounded_variable: (Unbounded) -> Object
+    def same_variable: (Unbounded) -> Unbounded
+    def union_sub: (Integer | String) -> Object
+    def union_sub_failure: (Integer | String) -> Integer
+    def union_super: (Integer) -> (String | Integer)
+    def union_super_failure: (Integer) -> (String | Symbol)
+    def intersection_sub: (_Named & Person) -> _Named
+    def intersection_sub_failure: (_Named & _Secret) -> String
+    def intersection_super: (Person) -> (_Named & Object)
+    def intersection_super_failure: (Person) -> (_Named & String)
+    def intersection_and_union: (Integer & Comparable) -> (String | Comparable)
+    def intersection_and_union_failure: (_Named & _Secret) -> (String | Symbol)
+    def ancestors: (Integer) -> Comparable
+    def ancestors_failure: (String) -> Integer
+    def superclass_with_args: (StringBox) -> Box[String]
+    def superclass_with_args_failure: (StringBox) -> Box[Integer]
+    def module_args: (LabeledBox[Integer]) -> Labeled
+    def included_interface: (LabeledBox[Integer]) -> _Named
+    def singleton_ancestors: (singleton(Integer)) -> singleton(Numeric)
+    def singleton_to_class: (singleton(Integer)) -> Class
+    def singleton_extended: (singleton(LabeledBox)) -> Labeled
+    def singleton_failure: (singleton(Integer)) -> singleton(String)
+    def interface_to_class: (_Named) -> Person
+    def covariant: (Producer[Integer]) -> Producer[Numeric]
+    def covariant_failure: (Producer[Numeric]) -> Producer[Integer]
+    def contravariant: (Consumer[Numeric]) -> Consumer[Integer]
+    def contravariant_failure: (Consumer[Integer]) -> Consumer[Numeric]
+    def invariant: (Box[Integer]) -> Box[Integer]
+    def invariant_failure: (Box[Integer]) -> Box[Numeric]
+    def interface: (Person) -> _Named
+    def interface_args: (Array[Integer]) -> _Each[Integer]
+    def interface_args_failure: (Array[Integer]) -> _Each[String]
+    def interface_missing_method: (Person) -> _Secret
+    def interface_incompatible_method: (Person) -> _NameAndAge
+    def interface_from_interface: (_NameAndAge) -> _Named
+    def interface_without_shape: (top) -> _Named
+    def logic_type: (Integer) -> _IsA
+    def loop_abort: (Grower[Integer]) -> _Grow[Integer]
+    def method_mono: (_Mono) -> _Mono
+    def method_mono_failure: (_Mono) -> _StringToString
+    def method_overloaded: (_Overloaded) -> _StringToString
+    def method_overloaded_super: (_Mono) -> _Overloaded
+    def method_generic_sub: (_GenericIdentity) -> _Mono
+    def method_generic_sub_bounded: (_BoundedIdentity) -> _Mono
+    def method_generic_sub_bounded_failure: (_StringBoundedIdentity) -> _Mono
+    def method_generic_sub_unsatisfied: (_GenericToArray) -> _Mono
+    def method_generic_sub_params_failure: (_GenericIdentity) -> _TwoRequired
+    def method_generic_sub_block_failure: (_GenericIdentity) -> _WithBlock
+    def method_generic_sub_with_block: (_GenericWithBlock) -> _WithStringBlock
+    def method_generic_super: (_Mono) -> _GenericIdentity
+    def method_generic_super_params_failure: (_TwoRequired) -> _GenericIdentity
+    def method_generic_same_arity: (_GenericIdentity) -> _OtherGenericIdentity
+    def method_generic_same_arity_bounds: (_BoundedIdentity) -> _OtherBoundedIdentity
+    def method_generic_same_arity_sub_bound: (_BoundedIdentity) -> _OtherGenericIdentity
+    def method_generic_same_arity_super_bound: (_GenericIdentity) -> _OtherBoundedIdentity
+    def method_generic_different_arity: (_GenericPair) -> _GenericIdentity
+    def params_rest: (_Rest) -> _TwoRequired
+    def params_rest_to_rest: (_RestAndRequired) -> _Rest
+    def params_rest_failure: (_Required) -> _Rest
+    def params_optional: (_Optional) -> _Required
+    def params_required_to_optional: (_Required) -> _Optional
+    def params_arity_failure: (_Required) -> _TwoRequired
+    def params_more_required_failure: (_TwoRequired) -> _Required
+    def params_type_failure: (_RequiredString) -> _Required
+    def params_keyword: (_Keyword) -> _Keyword
+    def params_keyword_optional: (_OptionalKeyword) -> _Keyword
+    def params_keyword_required_failure: (_Keyword) -> _OptionalKeyword
+    def params_keyword_rest: (_RestKeyword) -> _Keyword
+    def params_keyword_missing_failure: (_Required) -> _Keyword
+    def params_untyped: (_UntypedParameters) -> _Required
+    def block_same: (_WithBlock) -> _WithBlock
+    def block_parameter: (_WithNumericBlock) -> _WithBlock
+    def block_parameter_failure: (_WithBlock) -> _WithNumericBlock
+    def block_optional_sub: (_WithOptionalBlock) -> _WithoutBlock
+    def block_required_sub_failure: (_WithBlock) -> _WithoutBlock
+    def block_optional_failure: (_WithOptionalBlock) -> _WithBlock
+    def block_rest: (_WithRestBlock) -> _WithBlock
+    def block_self: (_WithSelfBlock) -> _WithObjectSelfBlock
+    def block_self_failure: (_WithObjectSelfBlock) -> _WithSelfBlock
+    def block_self_top: (_WithTopSelfBlock) -> _WithBlock
+    def block_self_mismatch: (_WithBlock) -> _WithSelfBlock
+    def proc: (^(Numeric) -> Integer) -> ^(Integer) -> Numeric
+    def proc_failure: (^(Integer) -> Integer) -> ^(Numeric) -> Integer
+    def proc_return_failure: (^() -> Numeric) -> ^() -> Integer
+    def proc_with_block: (^() { (Numeric) -> void } -> void) -> ^() { (Integer) -> void } -> void
+    def proc_with_block_failure: (^() { (Integer) -> void } -> void) -> ^() { (Numeric) -> void } -> void
+    def proc_block_mismatch: (^() { () -> void } -> void) -> ^() -> void
+    def proc_self: (^() [self: Object] -> void) -> ^() [self: String] -> void
+    def proc_self_failure: (^() -> void) -> ^() [self: String] -> void
+    def proc_self_top: (^() [self: top] -> void) -> ^() -> void
+    def proc_class: (^() -> void) -> Proc
+    def proc_interface: (^(Integer) -> void) -> _Required
+    def tuple: ([Integer, String]) -> [Numeric, String]
+    def tuple_failure: ([Integer, String]) -> [String, String]
+    def tuple_size_failure: ([Integer, String]) -> [Integer]
+    def tuple_array: ([Integer, String]) -> Array[Integer | String]
+    def tuple_array_failure: ([Integer, String]) -> Array[Integer]
+    def tuple_object: ([Integer, String]) -> Object
+    def tuple_interface: ([Integer, String]) -> _Each[Integer | String]
+    def tuple_interface_failure: ([Integer, String]) -> _Named
+    def record: ({ name: String, age: Integer }) -> { name: String, age: Numeric }
+    def record_optional: ({ name: String }) -> optional_age_record
+    def record_missing_required: ({ age: Integer }) -> { age: Integer, name: String? }
+    def record_missing_required_failure: ({ age: Integer }) -> { age: Integer, name: String }
+    def record_extra_key_failure: ({ name: String, age: Integer }) -> name_record
+    def record_hash: ({ name: String }) -> Hash[:name, String]
+    def record_interface: ({ name: String }) -> _Each[[Symbol, String]]
+    def record_interface_failure: ({ name: String }) -> _Named
+    def true_literal_super: (TrueClass) -> true
+    def false_literal_super: (FalseClass) -> false
+    def literal_super_failure: (Integer) -> 1
+    def literal_same: (1) -> 1
+    def literal_sub: (1) -> Integer
+    def literal_sub_failure: (:name) -> String
+    def nil_super: (NilClass) -> nil
+    def nil_sub_failure: (nil) -> NilClass
+    def unknown_pair: (nil) -> Integer
+  end
+
+  class VariableRelations[Bounded < Integer, Unbounded]
+    def lower_bound: [X] (Integer) -> X
+    def upper_bound: [X] (X) -> Integer
+    def bounded_unknown: [X < Numeric] (Integer) -> X
+    def bounded_unknown_failure: [X < String] (Integer) -> X
+    def array: [X] (Array[Integer]) -> Array[X]
+    def contravariant: [X] (^(X) -> void) -> ^(Integer) -> void
+    def unsatisfiable: [X] ([X, String]) -> [Integer, X]
+    def hole_order: [X] (Integer) -> (Array[X] | String | X)
+    def hole_order_intersection: [X] (_Named & Array[X] & X) -> Integer
+    def two_variables: [X, Y] ([X, Integer]) -> [String, Y]
+    def unknowns_in_both_bounds: [X, Y] ([X, Array[Y]]) -> [Array[Y], X]
+    def unknowns_in_lower_bounds: [X, Y] ([X, Y]) -> [Y, X]
+    def invariant_level: [X] ([Box[Array[untyped]], X]) -> [Box[X], Object]
+    def unknown_with_rigid: [X] (Bounded) -> X
+    def generic_method_constraints: [X] (_GenericIdentity) -> _Mono
+    def no_constraint: [X] (Integer) -> Integer
+    def unknown_proc: [X] (^(Integer) -> X) -> ^(Integer) -> String
+  end
+end

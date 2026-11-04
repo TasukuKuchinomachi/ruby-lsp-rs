@@ -63,6 +63,7 @@ for kind in $kinds; do
 done
 
 compare "steep_shapes --implicitly-returns-nil (core + fixtures/shapes)" steep_shapes --implicitly-returns-nil "$repository/fixtures/shapes"
+compare "steep_subtyping (core + fixtures/subtyping)" steep_subtyping "$repository/fixtures/subtyping"
 
 echo "compared with rbs $rbs_version (Steep $steep_version)"
 rm -r "$output"
