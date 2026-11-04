@@ -452,6 +452,7 @@ dependencies = [
  "pretty_assertions",
  "prism-child-nodes",
  "rayon",
+ "rbs-definition",
  "ruby-environment",
  "ruby-file-glob",
  "ruby-prism",
@@ -459,6 +460,8 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "steep",
+ "steep-interface",
  "thiserror",
  "walkdir",
 ]

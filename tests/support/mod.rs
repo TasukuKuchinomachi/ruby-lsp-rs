@@ -38,7 +38,13 @@ pub struct TestServer {
 
 pub fn with_server(source: Option<&str>, uri: &str, options: TestOptions) -> TestServer {
     let (server_connection, client) = Connection::memory();
-    let mut server = Server::new(server_connection, ServerOptions { test_mode: true });
+    let mut server = Server::new(
+        server_connection,
+        ServerOptions {
+            test_mode: true,
+            ..ServerOptions::default()
+        },
+    );
     let initialization_options = options
         .initialization_options
         .clone()
@@ -71,7 +77,13 @@ pub fn with_server(source: Option<&str>, uri: &str, options: TestOptions) -> Tes
 
 pub fn uninitialized_server(queued_messages: Vec<Message>) -> TestServer {
     let (server_connection, client) = Connection::memory();
-    let server = Server::new(server_connection, ServerOptions { test_mode: true });
+    let server = Server::new(
+        server_connection,
+        ServerOptions {
+            test_mode: true,
+            ..ServerOptions::default()
+        },
+    );
     let index = server.global_state().index.clone();
     for message in queued_messages {
         client.sender.send(message).unwrap();

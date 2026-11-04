@@ -13,9 +13,12 @@ use crate::global_state::{GlobalState, message_type};
 use crate::indexer::{Index, indexing};
 use crate::requests::{self, AUTOMATIC_REQUESTS, Outgoing, RequestContext, RequestError};
 use crate::store::Store;
+use crate::type_checking::worker::{Command as TypeCheckCommand, Event as TypeCheckEvent, LoadRequest};
+use crate::type_checking::{self, ServiceStatus, TypeCheckClient};
 
 pub const RUBY_LSP_VERSION: &str = "0.26.11";
 const INDEXING_PROGRESS_TOKEN: &str = "indexing-progress";
+const TYPE_CHECKER_PROGRESS_TOKEN: &str = "type-checker-progress";
 
 pub mod file_change_type {
     pub const CREATED: u8 = 1;
@@ -26,6 +29,7 @@ pub mod file_change_type {
 #[derive(Debug, Clone, Default)]
 pub struct ServerOptions {
     pub test_mode: bool,
+    pub rbs_gem_directory: Option<PathBuf>,
 }
 
 type IndexingOutcome = Result<Index, String>;
@@ -45,6 +49,7 @@ pub struct Server {
     next_outgoing_request_id: i32,
     shutdown_requested: bool,
     initialized: bool,
+    type_checker_events: Receiver<TypeCheckEvent>,
 }
 
 impl Server {
@@ -65,6 +70,7 @@ impl Server {
             next_outgoing_request_id: 1,
             shutdown_requested: false,
             initialized: false,
+            type_checker_events: crossbeam_channel::never(),
         }
     }
 
@@ -95,6 +101,11 @@ impl Server {
                             self.finish_initial_indexing(outcome);
                         }
                     },
+                    recv(self.type_checker_events) -> event => {
+                        if let Ok(event) = event {
+                            self.handle_type_checker_event(event);
+                        }
+                    },
                 }
             }
 
@@ -103,6 +114,9 @@ impl Server {
             }
             while let Ok(outcome) = self.indexing_receiver.try_recv() {
                 self.finish_initial_indexing(outcome);
+            }
+            while let Ok(event) = self.type_checker_events.try_recv() {
+                self.handle_type_checker_event(event);
             }
 
             let Some(message) = self.pending_messages.pop_front() else {
@@ -559,6 +573,75 @@ impl Server {
         self.perform_initial_indexing();
         self.check_formatter_is_available();
         self.initialized = true;
+        self.start_type_checker();
+    }
+
+    fn start_type_checker(&mut self) {
+        let can_start = !self.options.test_mode || self.options.rbs_gem_directory.is_some();
+        if !can_start
+            || !self.global_state.type_checking.settings.enabled
+            || self.global_state.type_checking.client.is_some()
+        {
+            return;
+        }
+        let (client, events) = TypeCheckClient::start();
+        let ruby_environment = &self.global_state.ruby_environment;
+        let ruby = ruby_environment
+            .rubylibprefix
+            .as_deref()
+            .and_then(|prefix| {
+                Path::new(prefix)
+                    .parent()?
+                    .parent()
+                    .map(|prefix| prefix.join("bin/ruby"))
+            })
+            .filter(|ruby| ruby.is_file());
+        let locked_rbs_directory = ruby_environment
+            .locked_gems
+            .iter()
+            .find(|gem| gem.name == "rbs" && gem.version == steep::environment_loader::RBS_VERSION)
+            .map(|gem| PathBuf::from(&gem.full_gem_path));
+        client.send(TypeCheckCommand::Load(LoadRequest {
+            workspace_path: PathBuf::from(self.global_state.workspace_path()),
+            encoding: self.global_state.encoding,
+            rbs_gem_directory: self.options.rbs_gem_directory.clone(),
+            ruby,
+            locked_rbs_directory,
+        }));
+        self.type_checker_events = events;
+        self.global_state.type_checking.client = Some(client);
+        self.global_state.type_checking.status = ServiceStatus::Loading;
+        for (uri, document) in self.store.iter_mut() {
+            if matches!(document.language_id(), LanguageId::Ruby | LanguageId::Rbs) {
+                self.global_state.type_checking.notify_text(uri, document.source());
+            }
+        }
+    }
+
+    fn handle_type_checker_event(&mut self, event: TypeCheckEvent) {
+        match event {
+            TypeCheckEvent::Loading => {
+                self.global_state.type_checking.status = ServiceStatus::Loading;
+                self.begin_progress(TYPE_CHECKER_PROGRESS_TOKEN, "Ruby LSP: loading RBS signatures");
+            }
+            TypeCheckEvent::Loaded { message } => {
+                self.global_state.type_checking.status = ServiceStatus::Loaded;
+                self.end_progress(TYPE_CHECKER_PROGRESS_TOKEN);
+                self.outgoing.log(&message);
+                self.refresh_type_information();
+            }
+            TypeCheckEvent::LoadFailed { message } => {
+                self.global_state.type_checking.status = ServiceStatus::Failed;
+                self.end_progress(TYPE_CHECKER_PROGRESS_TOKEN);
+                self.outgoing.log_message(
+                    &format!("Failed to load the RBS signatures: {message}"),
+                    message_type::ERROR,
+                );
+                self.refresh_type_information();
+            }
+            TypeCheckEvent::SignaturesChanged => self.refresh_type_information(),
+            TypeCheckEvent::Log { message, message_type } => self.outgoing.log_message(&message, message_type),
+        }
     }
 
     fn refresh_type_information(&mut self) {
@@ -585,6 +668,9 @@ impl Server {
             return;
         }
         self.refresh_type_information();
+        if self.initialized {
+            self.start_type_checker();
+        }
     }
 
     fn check_formatter_is_available(&mut self) {
@@ -714,6 +800,9 @@ impl Server {
         let source = text_document["text"].as_str().unwrap_or_default().to_string();
         let version = text_document["version"].as_i64().unwrap_or(0) as i32;
         let document = self.store.set(uri, source, version, language_id);
+        if matches!(language_id, LanguageId::Ruby | LanguageId::Rbs) {
+            self.global_state.type_checking.notify_text(uri, document.source());
+        }
 
         if document.past_expensive_limit() && crate::uri::scheme(uri) == "file" {
             let path = crate::uri::to_path(uri).unwrap_or_default();
@@ -731,6 +820,7 @@ impl Server {
             return;
         };
         self.store.delete(uri);
+        self.global_state.type_checking.notify_closed(uri);
         self.outgoing.notify(
             "textDocument/publishDiagnostics",
             json!({ "uri": uri, "diagnostics": [] }),
@@ -748,6 +838,11 @@ impl Server {
                 &format!("Error processing textDocument/didChange: {error}"),
                 message_type::ERROR,
             );
+        }
+        if let Some(document) = self.store.get_open(uri)
+            && matches!(document.language_id(), LanguageId::Ruby | LanguageId::Rbs)
+        {
+            self.global_state.type_checking.notify_text(uri, document.source());
         }
     }
 
@@ -769,9 +864,23 @@ impl Server {
             if Path::new(&file_path).is_dir() {
                 continue;
             }
+            let is_open = self.store.contains(uri);
             if file_path.ends_with(".rb") {
                 let change_type = change["type"].as_u64().unwrap_or(0) as u8;
                 self.handle_ruby_file_change(&file_path, change_type);
+                if !is_open {
+                    self.global_state
+                        .type_checking
+                        .notify_file_changed_on_disk(Path::new(&file_path));
+                }
+                continue;
+            }
+            if type_checking::is_signature_related_file(Path::new(&file_path)) {
+                if !is_open || type_checking::is_project_configuration_file(Path::new(&file_path)) {
+                    self.global_state
+                        .type_checking
+                        .notify_file_changed_on_disk(Path::new(&file_path));
+                }
                 continue;
             }
             let file_name = Path::new(&file_path)
