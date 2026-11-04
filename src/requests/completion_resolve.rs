@@ -5,6 +5,7 @@ use super::support::static_docs::{GUESSED_TYPES_URL, keyword_documentation, keyw
 use super::{RequestContext, RequestResult};
 use crate::indexer::{EntryId, EntryKind};
 use crate::listeners::completion::completion_item_kind;
+use crate::type_checking;
 
 pub const MAX_DOCUMENTATION_ENTRIES: usize = 10;
 
@@ -55,6 +56,22 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
         label.push_str(&format!("\n\nGuessed receiver: {guessed_type}"));
         format!("[Learn more about guessed types]({GUESSED_TYPES_URL})")
     });
+
+    if is_truthy(&data["type_checker"]) {
+        if !entries.is_empty() {
+            let index_markdown = markdown_from_index_entries(
+                &mut index,
+                &label,
+                &entries,
+                Some(MAX_DOCUMENTATION_ENTRIES),
+                extra_links.as_deref(),
+            );
+            let type_markdown = item["documentation"]["value"].as_str().map(str::to_string);
+            let value = type_checking::merge_hover(type_markdown, Some(index_markdown));
+            item["documentation"] = json!({ "kind": "markdown", "value": value });
+        }
+        return Ok(item);
+    }
 
     if item.get("kind").and_then(Value::as_u64) != Some(u64::from(completion_item_kind::FILE)) {
         let value = markdown_from_index_entries(
