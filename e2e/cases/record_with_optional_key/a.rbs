@@ -1,0 +1,5 @@
+type options = { name: String, ?age: Integer }
+
+class Form
+  def submit: (options) -> void
+end

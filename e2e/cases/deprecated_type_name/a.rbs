@@ -1,0 +1,11 @@
+%a{deprecated} class LegacyRecord
+end
+
+%a{deprecated: Use NewRecord instead} interface _LegacyShape
+end
+
+class Repository
+  def find: () -> LegacyRecord
+
+  def shape: () -> _LegacyShape
+end

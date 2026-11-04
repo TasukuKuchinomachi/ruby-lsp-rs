@@ -1,0 +1,7 @@
+class Circle
+  def radius: () -> Integer
+
+  def area: () -> Float
+
+  def label: () -> String
+end

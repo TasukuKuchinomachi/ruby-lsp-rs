@@ -1,0 +1,5 @@
+class Finder
+  def lookup: (String?) -> Integer
+
+  def strict: (String?) -> Integer
+end

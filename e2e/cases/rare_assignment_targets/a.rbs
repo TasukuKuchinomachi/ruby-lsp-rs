@@ -1,0 +1,7 @@
+class Point
+  attr_accessor x: Integer
+
+  attr_accessor y: Integer
+end
+
+LIMIT: Integer

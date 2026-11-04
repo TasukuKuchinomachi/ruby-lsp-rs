@@ -1,0 +1,3 @@
+class Coordinates
+  def to_ary: () -> Integer
+end

@@ -1,0 +1,14 @@
+module Shapes
+  class Circle
+    def radius: () -> Integer
+  end
+
+  class Square
+    def side: () -> Integer
+  end
+
+  module Nested
+    class Leaf
+    end
+  end
+end

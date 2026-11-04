@@ -1,0 +1,16 @@
+class Foo
+  def bar: () -> String
+  def self.make: () -> Foo
+end
+
+module Mixin
+  def baz: () -> void
+end
+
+class Bar
+  include Mixin
+end
+
+class Baz
+  def name: () -> String
+end

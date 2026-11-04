@@ -1,0 +1,5 @@
+class Sample
+  def run: () -> Integer
+
+  def declared_only: () -> void
+end

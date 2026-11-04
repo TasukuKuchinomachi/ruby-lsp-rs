@@ -1,0 +1,13 @@
+target :application do
+  check "app"
+  signature "sig/application"
+
+  configure_code_diagnostics(Steep::Diagnostic::Ruby.all_error)
+end
+
+target :test do
+  check "test"
+  signature "sig/application", "sig/test"
+
+  configure_code_diagnostics(Steep::Diagnostic::Ruby.all_error)
+end

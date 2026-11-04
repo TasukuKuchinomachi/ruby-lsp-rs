@@ -1,0 +1,13 @@
+D = Steep::Diagnostic
+
+target :test do
+  check "*.rb"
+  signature "*.rbs"
+
+  configure_code_diagnostics(D::Ruby.strict) do |hash|
+    hash[D::Ruby::NoMethod] = :information
+    hash[D::Ruby::UnknownConstant] = nil
+    hash[D::Ruby::IncompatibleAssignment] = :warning
+    hash[D::Ruby::MethodBodyTypeMismatch] = :hint
+  end
+end

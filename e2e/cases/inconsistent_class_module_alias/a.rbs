@@ -1,0 +1,3 @@
+class KernelAlias = Kernel
+
+module ObjectAlias = Object

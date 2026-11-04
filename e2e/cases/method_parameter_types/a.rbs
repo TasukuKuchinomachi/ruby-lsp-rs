@@ -1,0 +1,3 @@
+class Signature
+  def all_kinds: (Integer, ?String, *Symbol, name: String, ?age: Integer, **bool) { (Integer) -> void } -> void
+end

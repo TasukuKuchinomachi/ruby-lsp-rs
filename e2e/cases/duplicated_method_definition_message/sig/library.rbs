@@ -1,0 +1,11 @@
+class Foo
+  def bar: () -> String
+end
+
+module Mixin
+  def baz: () -> void
+end
+
+class Baz
+  attr_reader name: String
+end

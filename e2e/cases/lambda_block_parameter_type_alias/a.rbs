@@ -1,0 +1,5 @@
+type callback = ^(Integer) -> void
+
+type optional_callback = ^(Integer) -> void | nil
+
+type not_proc = Integer

@@ -1,0 +1,17 @@
+target :enabled do
+  check "enabled.rb"
+  signature "*.rbs"
+
+  implicitly_returns_nil! true
+
+  configure_code_diagnostics(Steep::Diagnostic::Ruby.all_error)
+end
+
+target :disabled do
+  check "disabled.rb"
+  signature "*.rbs"
+
+  implicitly_returns_nil! false
+
+  configure_code_diagnostics(Steep::Diagnostic::Ruby.all_error)
+end

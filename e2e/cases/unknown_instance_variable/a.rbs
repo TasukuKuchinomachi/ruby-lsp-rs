@@ -1,0 +1,5 @@
+class Account
+  @name: String
+
+  def rename: (String) -> void
+end

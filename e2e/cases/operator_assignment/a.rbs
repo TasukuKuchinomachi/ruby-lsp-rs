@@ -1,0 +1,10 @@
+$total: Integer
+
+class Counter
+  @count: Integer
+  @@instances: Integer
+
+  attr_accessor size: Integer
+
+  def increment: () -> void
+end

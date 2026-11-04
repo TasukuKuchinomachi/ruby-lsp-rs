@@ -1,0 +1,6 @@
+class Pair
+  @left: Integer
+  @right: String
+
+  def assign: ([Integer, String]) -> void
+end

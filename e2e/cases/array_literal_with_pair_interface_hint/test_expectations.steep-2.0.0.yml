@@ -1,0 +1,44 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 18
+      end:
+        line: 2
+        character: 51
+    severity: ERROR
+    message: |-
+      Cannot allow block body have type `::Array[(::String | ::Integer)]` because declared as type `::_KeyValue[K(1), V(2)]`
+        ::Array[(::String | ::Integer)] <: ::_KeyValue[K(1), V(2)]
+          () -> ::Array[(::String | ::Integer)] <: () -> [K(1), V(2)]
+            ::Array[(::String | ::Integer)] <: [K(1), V(2)]
+    code: Ruby::BlockBodyTypeMismatch
+  - range:
+      start:
+        line: 6
+        character: 16
+      end:
+        line: 6
+        character: 56
+    severity: ERROR
+    message: |-
+      Cannot allow block body have type `::Array[(::Symbol | ::Integer)]` because declared as type `([::Symbol, ::Integer] & ::_KeyValue[::Symbol, ::Integer])`
+        ::Array[(::Symbol | ::Integer)] <: ([::Symbol, ::Integer] & ::_KeyValue[::Symbol, ::Integer])
+          ::Array[(::Symbol | ::Integer)] <: [::Symbol, ::Integer]
+    code: Ruby::BlockBodyTypeMismatch
+  - range:
+      start:
+        line: 8
+        character: 19
+      end:
+        line: 8
+        character: 52
+    severity: ERROR
+    message: |-
+      Cannot allow block body have type `::Array[(::String | ::Integer)]` because declared as type `::_KeyValue[::String, ::String]`
+        ::Array[(::String | ::Integer)] <: ::_KeyValue[::String, ::String]
+          () -> ::Array[(::String | ::Integer)] <: () -> [::String, ::String]
+            ::Array[(::String | ::Integer)] <: [::String, ::String]
+    code: Ruby::BlockBodyTypeMismatch

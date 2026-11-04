@@ -1,0 +1,15 @@
+interface _ByteSource
+  def read: () -> String
+end
+
+interface _ByteSink
+  def write: (String) -> void
+end
+
+class Stream
+  def read: () -> String
+end
+
+class Pipe
+  def channel: () -> (_ByteSource & _ByteSink)
+end

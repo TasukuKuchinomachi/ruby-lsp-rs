@@ -1,0 +1,9 @@
+class Relay
+  def target: (*Integer, **String) ?{ () -> void } -> void
+
+  def positional: (*Integer) -> void
+
+  def keywords: (**String) -> void
+
+  def block: () { () -> void } -> void
+end
