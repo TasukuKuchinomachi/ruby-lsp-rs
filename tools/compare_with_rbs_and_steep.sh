@@ -109,7 +109,7 @@ compare_services() {
   kind=$2
   shift 2
   $ruby_command "$repository/tools/dump_steep_$kind.rb" --steep-version="$steep_version" "$@" > "$output/expected.txt"
-  cargo run --quiet --release --manifest-path "$repository/Cargo.toml" -p steep --bin "dump_steep_$kind" -- --steep-version="$steep_version" "$@" > "$output/actual.txt"
+  RBS_GEM_DIRECTORY="$rbs_gem" cargo run --quiet --release --manifest-path "$repository/Cargo.toml" -p steep --bin "dump_steep_$kind" -- --steep-version="$steep_version" "$@" > "$output/actual.txt"
   report "$label"
 }
 
