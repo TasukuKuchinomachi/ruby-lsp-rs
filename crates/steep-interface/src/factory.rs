@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::{cell::RefCell, sync::Arc};
 
 use rbs_definition::{
     ast::{self, TypeName, TypeNameKind},
@@ -13,8 +13,8 @@ use crate::{
     types::{RecordElement, Type},
 };
 
-pub struct Factory<'environment> {
-    environment: &'environment Environment,
+pub struct Factory {
+    environment: Arc<Environment>,
     type_cache: RefCell<HashMap<ast::Type, Type>>,
 }
 
@@ -133,8 +133,8 @@ fn cache_key(type_: &ast::Type) -> ast::Type {
     }
 }
 
-impl<'environment> Factory<'environment> {
-    pub fn new(environment: &'environment Environment) -> Factory<'environment> {
+impl Factory {
+    pub fn new(environment: Arc<Environment>) -> Factory {
         Factory {
             environment,
             type_cache: RefCell::default(),

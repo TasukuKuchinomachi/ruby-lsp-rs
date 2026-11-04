@@ -4,7 +4,6 @@ use rbs_definition::{
     ancestor_builder::Ancestor,
     ast::{ClassOrModule, Namespace, TypeName},
     collections::{HashMap, IndexMap},
-    environment::Environment,
 };
 use steep_interface::{builder::Builder, types::Type};
 
@@ -387,8 +386,4 @@ impl ConstantEnv {
 
 pub fn root_namespace() -> Namespace {
     Namespace::root()
-}
-
-pub fn environment_of<'builder>(builder: &'builder Builder) -> &'builder Environment {
-    builder.definition_builder.ancestor_builder.environment()
 }

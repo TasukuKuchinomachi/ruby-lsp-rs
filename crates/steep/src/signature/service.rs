@@ -1,6 +1,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use rbs_definition::{
@@ -24,7 +25,7 @@ use crate::{
 pub enum SignatureStatus {
     SyntaxError(Vec<Diagnostic>),
     AncestorError(Vec<Diagnostic>),
-    Loaded(Box<Environment>),
+    Loaded(Arc<Environment>),
 }
 
 pub struct SignatureService {
@@ -158,7 +159,7 @@ impl SignatureService {
         if paths.is_empty() && inline_paths.is_empty() {
             return Ok(service(match library_error {
                 Some(diagnostic) => SignatureStatus::SyntaxError(vec![diagnostic]),
-                None => SignatureStatus::Loaded(Box::new(environment.resolve_type_names(jobs)?)),
+                None => SignatureStatus::Loaded(Arc::new(environment.resolve_type_names(jobs)?)),
             }));
         }
 
@@ -206,8 +207,8 @@ impl SignatureService {
         }
 
         let unresolved_environment = environment;
-        let environment = unresolved_environment.resolve_type_names(jobs)?;
-        let builder = AncestorBuilder::new(&environment);
+        let environment = Arc::new(unresolved_environment.resolve_type_names(jobs)?);
+        let builder = AncestorBuilder::new(environment.clone());
         let class_names: Vec<&TypeName> = environment.class_declarations.keys().collect();
         let mut errors: Vec<RbsError> = map_in_parallel(&class_names, jobs, |type_name| {
             [
@@ -234,7 +235,7 @@ impl SignatureService {
         Ok(SignatureService {
             one_ancestors_cache: Some(one_ancestors_cache),
             _unresolved_environment: Some(unresolved_environment),
-            ..service(SignatureStatus::Loaded(Box::new(environment)))
+            ..service(SignatureStatus::Loaded(environment))
         })
     }
 
@@ -242,7 +243,7 @@ impl SignatureService {
         self.one_ancestors_cache.take().unwrap_or_default()
     }
 
-    pub fn environment(&self) -> Option<&Environment> {
+    pub fn environment(&self) -> Option<&Arc<Environment>> {
         match &self.status {
             SignatureStatus::Loaded(environment) => Some(environment),
             SignatureStatus::SyntaxError(_) | SignatureStatus::AncestorError(_) => None,

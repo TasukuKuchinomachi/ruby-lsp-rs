@@ -48,9 +48,9 @@ pub struct ValidatorCache {
     type_alias_regularity: RefCell<Option<Rc<TypeAliasRegularity>>>,
 }
 
-pub struct Validator<'builder, 'environment> {
-    builder: &'builder Builder<'environment>,
-    check: Check<'builder, 'environment>,
+pub struct Validator<'builder> {
+    builder: &'builder Builder,
+    check: Check<'builder>,
     errors: RefCell<Vec<Diagnostic>>,
     contexts: RefCell<Vec<ValidationContext>>,
     cache: Rc<ValidatorCache>,
@@ -220,15 +220,15 @@ impl SignatureValidation {
     }
 }
 
-impl<'builder, 'environment> Validator<'builder, 'environment> {
-    pub fn new(builder: &'builder Builder<'environment>) -> Validator<'builder, 'environment> {
+impl<'builder> Validator<'builder> {
+    pub fn new(builder: &'builder Builder) -> Validator<'builder> {
         Validator::with_cache(builder, Rc::default())
     }
 
     pub fn with_cache(
-        builder: &'builder Builder<'environment>,
+        builder: &'builder Builder,
         cache: Rc<ValidatorCache>,
-    ) -> Validator<'builder, 'environment> {
+    ) -> Validator<'builder> {
         Validator {
             builder,
             check: builder.subtyping(),
@@ -238,11 +238,11 @@ impl<'builder, 'environment> Validator<'builder, 'environment> {
         }
     }
 
-    fn environment(&self) -> &'environment Environment {
+    fn environment(&self) -> &'builder Environment {
         self.builder.definition_builder.environment()
     }
 
-    fn definition_builder(&self) -> &DefinitionBuilder<'environment> {
+    fn definition_builder(&self) -> &DefinitionBuilder {
         &self.builder.definition_builder
     }
 
@@ -323,7 +323,7 @@ impl<'builder, 'environment> Validator<'builder, 'environment> {
         resolver.resolve(name, &[]).unwrap_or_else(|| name.clone())
     }
 
-    fn declared_type_parameters(&self, type_: &ast::Type) -> Option<&'environment [TypeParameter]> {
+    fn declared_type_parameters(&self, type_: &ast::Type) -> Option<&'builder [TypeParameter]> {
         let environment = self.environment();
         let name = match type_ {
             ast::Type::ClassInstance { name, .. }

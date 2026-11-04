@@ -405,8 +405,8 @@ enum WorkResult {
     Failure(String),
 }
 
-struct Worker<'environment> {
-    checker: Option<Checker<'environment>>,
+struct Worker {
+    checker: Option<Checker>,
     validator_cache: Rc<ValidatorCache>,
 }
 
@@ -476,29 +476,23 @@ pub fn check_project(
         let environment = service.environment();
         let definition_builder = environment.map(|environment| {
             Arc::new(DefinitionBuilder::with_ancestor_builder(
-                AncestorBuilder::with_one_ancestors_cache(environment, one_ancestors_cache),
+                AncestorBuilder::with_one_ancestors_cache(environment.clone(), one_ancestors_cache),
             ))
         });
-        let signature_validation = environment.map(SignatureValidation::new);
-        let checker_tables =
-            environment
-                .zip(definition_builder.clone())
-                .map(|(environment, definition_builder)| {
-                    CheckerTables::new(environment, definition_builder)
-                });
+        let signature_validation =
+            environment.map(|environment| SignatureValidation::new(environment));
+        let checker_tables = definition_builder.clone().map(CheckerTables::new);
         let new_worker = || Worker {
-            checker: environment
-                .zip(definition_builder.clone())
-                .zip(checker_tables.as_ref())
-                .map(|((environment, definition_builder), tables)| {
+            checker: definition_builder.clone().zip(checker_tables.as_ref()).map(
+                |(definition_builder, tables)| {
                     Checker::with_tables(
-                        environment,
                         definition_builder,
                         tables,
                         target.implicitly_returns_nil,
                         steep_version,
                     )
-                }),
+                },
+            ),
             validator_cache: Rc::default(),
         };
         let check_source =

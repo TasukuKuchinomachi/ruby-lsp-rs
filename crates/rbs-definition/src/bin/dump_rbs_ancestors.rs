@@ -1,4 +1,4 @@
-use std::{env, path::PathBuf, process::ExitCode};
+use std::{env, path::PathBuf, process::ExitCode, sync::Arc};
 
 use rbs_definition::{
     ancestor_builder::{Ancestor, AncestorBuilder, Ancestors, OneAncestors},
@@ -47,8 +47,8 @@ fn ancestors(ancestors: &Ancestors) -> String {
         .join(" < ")
 }
 
-fn dump(environment: &Environment) -> Result<String, String> {
-    let builder = AncestorBuilder::new(environment);
+fn dump(environment: Arc<Environment>) -> Result<String, String> {
+    let builder = AncestorBuilder::new(environment.clone());
     let mut output = String::new();
     let mut class_names: Vec<_> = environment.class_declarations.keys().collect();
     class_names.sort_by_key(|name| name.to_string());
@@ -96,7 +96,7 @@ fn main() -> ExitCode {
         &PathBuf::from(&directory),
         &env::args().skip(2).map(PathBuf::from).collect::<Vec<_>>(),
     )
-    .and_then(|environment| dump(&environment))
+    .and_then(|environment| dump(Arc::new(environment)))
     {
         Ok(output) => {
             print!("{output}");

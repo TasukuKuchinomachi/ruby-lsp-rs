@@ -1,4 +1,4 @@
-use std::{env, fmt::Write, path::PathBuf, process::ExitCode};
+use std::{env, fmt::Write, path::PathBuf, process::ExitCode, sync::Arc};
 
 use rbs_definition::{
     ast::Visibility,
@@ -83,8 +83,8 @@ fn dump_definition(output: &mut String, definition: &Definition) {
     }
 }
 
-fn dump(environment: &Environment) -> Result<String, String> {
-    let builder = DefinitionBuilder::new(environment);
+fn dump(environment: Arc<Environment>) -> Result<String, String> {
+    let builder = DefinitionBuilder::new(environment.clone());
     let mut output = String::new();
     let mut class_names: Vec<_> = environment.class_declarations.keys().collect();
     class_names.sort_by_key(|name| name.to_string());
@@ -108,7 +108,8 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
     let directories: Vec<PathBuf> = env::args().skip(2).map(PathBuf::from).collect();
-    match load(&PathBuf::from(&directory), &directories).and_then(|environment| dump(&environment))
+    match load(&PathBuf::from(&directory), &directories)
+        .and_then(|environment| dump(Arc::new(environment)))
     {
         Ok(output) => {
             print!("{output}");

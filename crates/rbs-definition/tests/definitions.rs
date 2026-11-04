@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use rbs_definition::{
     ancestor_builder::AncestorBuilder, ast::TypeName, definition_builder::DefinitionBuilder,
@@ -9,18 +12,19 @@ fn tests_directory() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests")
 }
 
-fn environment() -> Environment {
+fn environment() -> Arc<Environment> {
     load(
         &tests_directory().join("minimal_rbs_gem"),
         &[tests_directory().join("signatures")],
     )
+    .map(Arc::new)
     .expect("the signatures load")
 }
 
 #[test]
 fn builds_instance_ancestors_with_type_arguments_of_mixins() {
     let environment = environment();
-    let builder = AncestorBuilder::new(&environment);
+    let builder = AncestorBuilder::new(environment.clone());
     let ancestors = builder
         .instance_ancestors(&TypeName::parse("::StringBox"))
         .expect("the ancestors are built");
@@ -45,7 +49,7 @@ fn builds_instance_ancestors_with_type_arguments_of_mixins() {
 #[test]
 fn builds_overloading_methods_with_the_super_method() {
     let environment = environment();
-    let builder = DefinitionBuilder::new(&environment);
+    let builder = DefinitionBuilder::new(environment.clone());
     let definition = builder
         .build_instance(&TypeName::parse("::StringBox"))
         .expect("the definition is built");

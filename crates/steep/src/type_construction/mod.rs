@@ -48,8 +48,8 @@ use crate::{
     typing::Typing,
 };
 
-pub struct Checker<'environment> {
-    pub builder: Builder<'environment>,
+pub struct Checker {
+    pub builder: Builder,
     pub constant_resolver: Rc<ConstantResolver>,
     pub type_name_resolver: Arc<TypeNameResolver>,
 }
@@ -60,26 +60,22 @@ pub struct CheckerTables {
 }
 
 impl CheckerTables {
-    pub fn new<'environment>(
-        environment: &'environment Environment,
-        definition_builder: Arc<DefinitionBuilder<'environment>>,
-    ) -> CheckerTables {
-        let builder = Builder::with_definition_builder(environment, definition_builder);
+    pub fn new(definition_builder: Arc<DefinitionBuilder>) -> CheckerTables {
+        let builder = Builder::with_definition_builder(definition_builder);
         CheckerTables {
             constant_tables: Arc::new(ConstantTables::new(&builder)),
-            type_name_resolver: Arc::new(TypeNameResolver::new(environment)),
+            type_name_resolver: Arc::new(TypeNameResolver::new(builder.environment())),
         }
     }
 }
 
-impl<'environment> Checker<'environment> {
+impl Checker {
     pub fn new(
-        environment: &'environment Environment,
+        environment: Arc<Environment>,
         implicitly_returns_nil: bool,
         steep_version: SteepVersion,
-    ) -> Checker<'environment> {
+    ) -> Checker {
         Checker::with_definition_builder(
-            environment,
             Arc::new(DefinitionBuilder::new(environment)),
             implicitly_returns_nil,
             steep_version,
@@ -87,14 +83,12 @@ impl<'environment> Checker<'environment> {
     }
 
     pub fn with_definition_builder(
-        environment: &'environment Environment,
-        definition_builder: Arc<DefinitionBuilder<'environment>>,
+        definition_builder: Arc<DefinitionBuilder>,
         implicitly_returns_nil: bool,
         steep_version: SteepVersion,
-    ) -> Checker<'environment> {
-        let tables = CheckerTables::new(environment, definition_builder.clone());
+    ) -> Checker {
+        let tables = CheckerTables::new(definition_builder.clone());
         Checker::with_tables(
-            environment,
             definition_builder,
             &tables,
             implicitly_returns_nil,
@@ -105,13 +99,12 @@ impl<'environment> Checker<'environment> {
     // Why not build the tables for each checker: every thread builds a checker, and
     // the tables of a large project take a noticeable time to build.
     pub fn with_tables(
-        environment: &'environment Environment,
-        definition_builder: Arc<DefinitionBuilder<'environment>>,
+        definition_builder: Arc<DefinitionBuilder>,
         tables: &CheckerTables,
         implicitly_returns_nil: bool,
         steep_version: SteepVersion,
-    ) -> Checker<'environment> {
-        let mut builder = Builder::with_definition_builder(environment, definition_builder);
+    ) -> Checker {
+        let mut builder = Builder::with_definition_builder(definition_builder);
         builder.implicitly_returns_nil = implicitly_returns_nil;
         builder.steep_version = steep_version;
         Checker {
@@ -248,7 +241,7 @@ pub fn symbol_type() -> Type {
 
 #[derive(Clone)]
 pub struct TypeConstruction<'checker> {
-    pub checker: &'checker Checker<'checker>,
+    pub checker: &'checker Checker,
     pub source: &'checker Source,
     pub annotations: Rc<Collection>,
     pub typing: Typing,
@@ -346,7 +339,7 @@ impl<'checker> TypeConstruction<'checker> {
         self.with_context(context)
     }
 
-    pub fn builder(&self) -> &'checker Builder<'checker> {
+    pub fn builder(&self) -> &'checker Builder {
         &self.checker.builder
     }
 

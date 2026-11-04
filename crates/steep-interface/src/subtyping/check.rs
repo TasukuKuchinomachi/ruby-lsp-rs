@@ -38,8 +38,8 @@ pub struct CheckState {
     assumptions: RefCell<Option<Vec<Relation<Type>>>>,
 }
 
-pub struct Check<'builder, 'environment> {
-    pub builder: &'builder Builder<'environment>,
+pub struct Check<'builder> {
+    pub builder: &'builder Builder,
     state: Rc<CheckState>,
 }
 
@@ -118,15 +118,12 @@ fn method_failure(error: FailureError, relation: impl Into<AnyRelation>) -> Rc<S
     SubtypingResult::failure(relation, error)
 }
 
-impl<'builder, 'environment> Check<'builder, 'environment> {
-    pub fn new(builder: &'builder Builder<'environment>) -> Check<'builder, 'environment> {
+impl<'builder> Check<'builder> {
+    pub fn new(builder: &'builder Builder) -> Check<'builder> {
         Check::with_state(builder, Rc::default())
     }
 
-    pub fn with_state(
-        builder: &'builder Builder<'environment>,
-        state: Rc<CheckState>,
-    ) -> Check<'builder, 'environment> {
+    pub fn with_state(builder: &'builder Builder, state: Rc<CheckState>) -> Check<'builder> {
         Check { builder, state }
     }
 

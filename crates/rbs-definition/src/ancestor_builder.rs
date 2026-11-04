@@ -139,8 +139,8 @@ pub struct OneAncestorsCache(
     OnceMap<(OneAncestorsKind, TypeName), Result<Arc<OneAncestors>, RbsError>>,
 );
 
-pub struct AncestorBuilder<'environment> {
-    environment: &'environment Environment,
+pub struct AncestorBuilder {
+    environment: Arc<Environment>,
     one_ancestors_cache: OneAncestorsCache,
     instance_ancestors_cache: Mutex<HashMap<TypeName, Arc<Ancestors>>>,
     singleton_ancestors_cache: Mutex<HashMap<TypeName, Arc<Ancestors>>>,
@@ -217,15 +217,15 @@ pub fn check_type_application_in(
     check_type_application(type_name, args, params, location)
 }
 
-impl<'environment> AncestorBuilder<'environment> {
-    pub fn new(environment: &'environment Environment) -> AncestorBuilder<'environment> {
+impl AncestorBuilder {
+    pub fn new(environment: Arc<Environment>) -> AncestorBuilder {
         AncestorBuilder::with_one_ancestors_cache(environment, OneAncestorsCache::default())
     }
 
     pub fn with_one_ancestors_cache(
-        environment: &'environment Environment,
+        environment: Arc<Environment>,
         one_ancestors_cache: OneAncestorsCache,
-    ) -> AncestorBuilder<'environment> {
+    ) -> AncestorBuilder {
         AncestorBuilder {
             environment,
             one_ancestors_cache,
@@ -235,11 +235,15 @@ impl<'environment> AncestorBuilder<'environment> {
         }
     }
 
-    pub fn environment(&self) -> &'environment Environment {
-        self.environment
+    pub fn environment(&self) -> &Environment {
+        &self.environment
     }
 
-    fn class_entry(&self, name: &TypeName) -> Result<&'environment ClassEntry, RbsError> {
+    pub fn shared_environment(&self) -> &Arc<Environment> {
+        &self.environment
+    }
+
+    fn class_entry(&self, name: &TypeName) -> Result<&ClassEntry, RbsError> {
         self.environment
             .class_declarations
             .get(name)
@@ -308,16 +312,16 @@ impl<'environment> AncestorBuilder<'environment> {
         let super_name = normalized;
         if let Some(super_class) = primary.super_class() {
             let normalized = self
-                .environment
+                .environment()
                 .normalize_type_name(&super_class.name)
                 .unwrap_or_else(|| super_class.name.clone());
             let is_class = self
-                .environment
+                .environment()
                 .class_declarations
                 .get(&normalized)
                 .is_some_and(|entry| entry.kind == ClassOrModule::Class)
                 || self
-                    .environment
+                    .environment()
                     .class_alias_declarations
                     .get(&normalized)
                     .is_some_and(|alias| alias.declaration.kind == ClassOrModule::Class);
@@ -355,7 +359,7 @@ impl<'environment> AncestorBuilder<'environment> {
                         let super_args = match primary.super_class() {
                             Some(super_class) => {
                                 check_type_application_in(
-                                    self.environment,
+                                    &self.environment,
                                     &super_class.name,
                                     &super_class.args,
                                     super_class.location.as_ref(),
@@ -407,13 +411,13 @@ impl<'environment> AncestorBuilder<'environment> {
                     }
                     for (name, args, location) in module_self_types {
                         let normalized = self
-                            .environment
+                            .environment()
                             .normalize_type_name(&name)
                             .unwrap_or_else(|| name.clone());
                         let found = match normalized.kind() {
                             TypeNameKind::Class => self.environment.is_module_name(&normalized),
                             TypeNameKind::Interface => self
-                                .environment
+                                .environment()
                                 .interface_declarations
                                 .contains_key(&normalized),
                             TypeNameKind::Alias => false,
@@ -425,7 +429,7 @@ impl<'environment> AncestorBuilder<'environment> {
                             });
                         }
                         check_type_application_in(
-                            self.environment,
+                            &self.environment,
                             &name,
                             &args,
                             location.as_ref(),
@@ -530,7 +534,7 @@ impl<'environment> AncestorBuilder<'environment> {
     ) -> Result<Arc<OneAncestors>, RbsError> {
         self.cached_one_ancestors(OneAncestorsKind::Interface, type_name, || {
             let entry = self
-                .environment
+                .environment()
                 .interface_declarations
                 .get(type_name)
                 .ok_or_else(|| {
@@ -589,7 +593,7 @@ impl<'environment> AncestorBuilder<'environment> {
     fn check_mixin(&self, type_name: &TypeName, mixin: &Mixin) -> Result<(), RbsError> {
         if mixin.name.is_class()
             && self
-                .environment
+                .environment()
                 .class_declarations
                 .get(&mixin.name)
                 .is_some_and(|entry| entry.kind == ClassOrModule::Class)
@@ -607,7 +611,7 @@ impl<'environment> AncestorBuilder<'environment> {
     fn check_mixin_found(&self, mixin: &Mixin) -> Result<(), RbsError> {
         let found = self.environment.is_module_name(&mixin.name)
             || self
-                .environment
+                .environment()
                 .interface_declarations
                 .contains_key(&mixin.name);
         if found {
@@ -620,7 +624,7 @@ impl<'environment> AncestorBuilder<'environment> {
         }
     }
 
-    fn module_entry(&self, name: &TypeName) -> Result<&'environment ClassEntry, RbsError> {
+    fn module_entry(&self, name: &TypeName) -> Result<&ClassEntry, RbsError> {
         self.environment
             .module_class_entry(name)
             .filter(|entry| entry.kind == ClassOrModule::Module)
@@ -761,7 +765,7 @@ impl<'environment> AncestorBuilder<'environment> {
         args: &[Type],
         location: Option<&Location>,
     ) -> Result<Vec<Ancestor>, RbsError> {
-        check_type_application_in(self.environment, &ancestors.type_name, args, location)?;
+        check_type_application_in(&self.environment, &ancestors.type_name, args, location)?;
         let substitution = Substitution::build(&ancestors.params, args);
         Ok(ancestors
             .ancestors
@@ -939,7 +943,7 @@ impl<'environment> AncestorBuilder<'environment> {
             return Ok(ancestors.clone());
         }
         let entry = self
-            .environment
+            .environment()
             .interface_declarations
             .get(type_name)
             .ok_or_else(|| {

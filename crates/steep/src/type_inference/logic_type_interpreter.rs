@@ -54,7 +54,7 @@ const TRUE: Type = Type::Literal(Literal::Bool(true));
 const FALSE: Type = Type::Literal(Literal::Bool(false));
 
 pub struct LogicTypeInterpreter<'checker> {
-    pub checker: &'checker Checker<'checker>,
+    pub checker: &'checker Checker,
     pub typing: Typing,
     pub config: Config,
 }
@@ -73,7 +73,7 @@ fn union_or_bot(types: Vec<Type>) -> Type {
 
 impl<'checker> LogicTypeInterpreter<'checker> {
     pub fn new(
-        checker: &'checker Checker<'checker>,
+        checker: &'checker Checker,
         typing: Typing,
         config: Config,
     ) -> LogicTypeInterpreter<'checker> {

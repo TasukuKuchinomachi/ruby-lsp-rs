@@ -238,10 +238,9 @@ struct InterfaceMethods {
     methods: Arc<Methods>,
 }
 
-pub struct DefinitionBuilder<'environment> {
-    environment: &'environment Environment,
-    pub ancestor_builder: AncestorBuilder<'environment>,
-    method_builder: MethodBuilder<'environment>,
+pub struct DefinitionBuilder {
+    pub ancestor_builder: AncestorBuilder,
+    method_builder: MethodBuilder,
     instance_cache: OnceMap<TypeName, Result<Arc<Definition>, RbsError>>,
     singleton0_cache: OnceMap<TypeName, Result<Arc<Definition>, RbsError>>,
     singleton_cache: OnceMap<TypeName, Result<Arc<Definition>, RbsError>>,
@@ -276,17 +275,14 @@ fn attribute_method_type(attribute: &Attribute, attribute_type: Type, setter: bo
     }
 }
 
-impl<'environment> DefinitionBuilder<'environment> {
-    pub fn new(environment: &'environment Environment) -> DefinitionBuilder<'environment> {
+impl DefinitionBuilder {
+    pub fn new(environment: Arc<Environment>) -> DefinitionBuilder {
         DefinitionBuilder::with_ancestor_builder(AncestorBuilder::new(environment))
     }
 
-    pub fn with_ancestor_builder(
-        ancestor_builder: AncestorBuilder<'environment>,
-    ) -> DefinitionBuilder<'environment> {
-        let environment = ancestor_builder.environment();
+    pub fn with_ancestor_builder(ancestor_builder: AncestorBuilder) -> DefinitionBuilder {
+        let environment = ancestor_builder.shared_environment().clone();
         DefinitionBuilder {
-            environment,
             ancestor_builder,
             method_builder: MethodBuilder::new(environment),
             instance_cache: OnceMap::default(),
@@ -296,8 +292,8 @@ impl<'environment> DefinitionBuilder<'environment> {
         }
     }
 
-    pub fn environment(&self) -> &'environment Environment {
-        self.environment
+    pub fn environment(&self) -> &Environment {
+        self.ancestor_builder.environment()
     }
 
     pub fn ensure_namespace(
@@ -305,7 +301,7 @@ impl<'environment> DefinitionBuilder<'environment> {
         namespace: &Namespace,
         location: Option<&Location>,
     ) -> Result<(), RbsError> {
-        self.environment.ensure_namespace(namespace, location)
+        self.environment().ensure_namespace(namespace, location)
     }
 
     pub fn validate_type_name(
@@ -315,10 +311,10 @@ impl<'environment> DefinitionBuilder<'environment> {
     ) -> Result<(), RbsError> {
         let name = name.absolute();
         let normalized = self
-            .environment
+            .environment()
             .normalize_type_name(&name)
             .unwrap_or_else(|| name.clone());
-        if self.environment.is_type_name(&normalized) {
+        if self.environment().is_type_name(&normalized) {
             return Ok(());
         }
         Err(RbsError::NoTypeFound {
@@ -352,7 +348,7 @@ impl<'environment> DefinitionBuilder<'environment> {
         let parameters: &[TypeParameter] = match name.kind() {
             TypeNameKind::Interface => {
                 &self
-                    .environment
+                    .environment()
                     .interface_declarations
                     .get(name)
                     .ok_or_else(|| format!("Unknown interface name: {name}"))?
@@ -361,7 +357,7 @@ impl<'environment> DefinitionBuilder<'environment> {
             }
             TypeNameKind::Alias => {
                 &self
-                    .environment
+                    .environment()
                     .type_alias_declarations
                     .get(name)
                     .ok_or_else(|| format!("Unknown alias name: {name}"))?
@@ -369,7 +365,7 @@ impl<'environment> DefinitionBuilder<'environment> {
                     .type_parameters
             }
             TypeNameKind::Class => self
-                .environment
+                .environment()
                 .class_declarations
                 .get(name)
                 .ok_or_else(|| format!("Unknown module name: {name}"))?
@@ -417,7 +413,7 @@ impl<'environment> DefinitionBuilder<'environment> {
         super_class_location: Option<&Location>,
     ) -> Result<(), RbsError> {
         let type_params = &definition.type_parameters;
-        let calculator = VarianceCalculator::new(self.environment);
+        let calculator = VarianceCalculator::new(self.environment());
         let parameter_names: Vec<String> = type_params
             .iter()
             .map(|parameter| parameter.name.clone())
@@ -492,7 +488,7 @@ impl<'environment> DefinitionBuilder<'environment> {
     pub fn build_interface(&self, type_name: &TypeName) -> Result<Arc<Definition>, RbsError> {
         cached(&self.interface_cache, type_name, || {
             let entry = self
-                .environment
+                .environment()
                 .interface_declarations
                 .get(type_name)
                 .ok_or_else(|| format!("Unknown name for build_interface: {type_name}"))?;
@@ -642,7 +638,7 @@ impl<'environment> DefinitionBuilder<'environment> {
             }
         }
 
-        let entry = &self.environment.class_declarations[type_name];
+        let entry = &self.environment().class_declarations[type_name];
         for declaration in entry.declarations() {
             let declaration_substitution = match entry.align_parameters(declaration) {
                 Some(align) => substitution.compose(&align),
@@ -716,10 +712,10 @@ impl<'environment> DefinitionBuilder<'environment> {
     }
 
     pub fn build_instance(&self, type_name: &TypeName) -> Result<Arc<Definition>, RbsError> {
-        let type_name = self.environment.normalize_module_name(type_name);
+        let type_name = self.environment().normalize_module_name(type_name);
         cached(&self.instance_cache, &type_name.clone(), || {
             let entry = self
-                .environment
+                .environment()
                 .class_declarations
                 .get(&type_name)
                 .ok_or_else(|| format!("Unknown name for build_instance: {type_name}"))?;
@@ -793,7 +789,7 @@ impl<'environment> DefinitionBuilder<'environment> {
     fn build_singleton0(&self, type_name: &TypeName) -> Result<Arc<Definition>, RbsError> {
         cached(&self.singleton0_cache, type_name, || {
             let entry = self
-                .environment
+                .environment()
                 .class_declarations
                 .get(type_name)
                 .ok_or_else(|| format!("Unknown name for build_singleton0: {type_name}"))?;
@@ -902,10 +898,10 @@ impl<'environment> DefinitionBuilder<'environment> {
     }
 
     pub fn build_singleton(&self, type_name: &TypeName) -> Result<Arc<Definition>, RbsError> {
-        let type_name = self.environment.normalize_module_name(type_name);
+        let type_name = self.environment().normalize_module_name(type_name);
         cached(&self.singleton_cache, &type_name.clone(), || {
             let entry = self
-                .environment
+                .environment()
                 .class_declarations
                 .get(&type_name)
                 .ok_or_else(|| format!("Unknown name for build_singleton: {type_name}"))?;
@@ -1065,7 +1061,7 @@ impl<'environment> DefinitionBuilder<'environment> {
             let interface_substitution = match interface {
                 Ancestor::Instance { name, args, .. } if !args.is_empty() => {
                     self.validate_types_presence(args)?;
-                    let parameters = &self.environment.interface_declarations[name]
+                    let parameters = &self.environment().interface_declarations[name]
                         .declaration
                         .type_parameters;
                     match application(parameters, args) {

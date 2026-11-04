@@ -1,5 +1,5 @@
 use rbs_definition::errors::RbsError;
-use std::{env, fmt::Write, path::PathBuf, process::ExitCode};
+use std::{env, fmt::Write, path::PathBuf, process::ExitCode, sync::Arc};
 
 use rbs_definition::{ast::TypeName, environment::Environment, loader::load};
 use steep_interface::{
@@ -108,8 +108,8 @@ fn dump_relation(
     Ok(())
 }
 
-fn dump_all(environment: &Environment) -> Result<String, RbsError> {
-    let builder = Builder::new(environment);
+fn dump_all(environment: &Arc<Environment>) -> Result<String, RbsError> {
+    let builder = Builder::new(environment.clone());
     let checker = Check::new(&builder);
     let mut output = String::new();
 
@@ -186,7 +186,7 @@ fn main() -> ExitCode {
     };
     let directories: Vec<PathBuf> = arguments.iter().skip(1).map(PathBuf::from).collect();
     match load(&PathBuf::from(directory), &directories)
-        .and_then(|environment| dump_all(&environment).map_err(|error| error.to_string()))
+        .and_then(|environment| dump_all(&Arc::new(environment)).map_err(|error| error.to_string()))
     {
         Ok(output) => {
             print!("{output}");

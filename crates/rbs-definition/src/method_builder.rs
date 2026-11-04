@@ -168,8 +168,8 @@ impl Methods {
     }
 }
 
-pub struct MethodBuilder<'environment> {
-    environment: &'environment Environment,
+pub struct MethodBuilder {
+    environment: Arc<Environment>,
     instance_methods: OnceMap<TypeName, Result<Arc<Methods>, RbsError>>,
     singleton_methods: OnceMap<TypeName, Result<Arc<Methods>, RbsError>>,
     interface_methods: OnceMap<TypeName, Result<Arc<Methods>, RbsError>>,
@@ -183,8 +183,8 @@ fn cached(
     cache.get_or_init(type_name, || build().map(Arc::new))
 }
 
-impl<'environment> MethodBuilder<'environment> {
-    pub fn new(environment: &'environment Environment) -> MethodBuilder<'environment> {
+impl MethodBuilder {
+    pub fn new(environment: Arc<Environment>) -> MethodBuilder {
         MethodBuilder {
             environment,
             instance_methods: OnceMap::default(),

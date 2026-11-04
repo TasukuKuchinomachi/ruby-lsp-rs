@@ -1,4 +1,4 @@
-use std::{env, fmt::Write, path::PathBuf, process::ExitCode};
+use std::{env, fmt::Write, path::PathBuf, process::ExitCode, sync::Arc};
 
 use rbs_definition::{ast::TypeName, collections::HashMap, environment::Environment, loader::load};
 use steep_interface::{
@@ -62,11 +62,11 @@ fn dump(output: &mut String, builder: &Builder, header: &str, type_: &Type, conf
 }
 
 fn dump_all(
-    environment: &Environment,
+    environment: &Arc<Environment>,
     implicitly_returns_nil: bool,
     steep_version: SteepVersion,
 ) -> String {
-    let mut builder = Builder::new(environment);
+    let mut builder = Builder::new(environment.clone());
     builder.implicitly_returns_nil = implicitly_returns_nil;
     builder.steep_version = steep_version;
     let mut output = String::new();
@@ -175,7 +175,11 @@ fn main() -> ExitCode {
         Ok(environment) => {
             print!(
                 "{}",
-                dump_all(&environment, implicitly_returns_nil, steep_version)
+                dump_all(
+                    &Arc::new(environment),
+                    implicitly_returns_nil,
+                    steep_version
+                )
             );
             ExitCode::SUCCESS
         }

@@ -425,10 +425,9 @@ impl Config {
     }
 }
 
-pub struct Builder<'environment> {
-    environment: &'environment Environment,
-    pub definition_builder: Arc<DefinitionBuilder<'environment>>,
-    pub factory: Factory<'environment>,
+pub struct Builder {
+    pub definition_builder: Arc<DefinitionBuilder>,
+    pub factory: Factory,
     pub implicitly_returns_nil: bool,
     pub steep_version: SteepVersion,
     object_shape_cache: RefCell<HashMap<TypeName, Rc<RawShape>>>,
@@ -599,17 +598,17 @@ fn replace_kernel_class(
     }
 }
 
-impl<'environment> Builder<'environment> {
-    pub fn new(environment: &'environment Environment) -> Builder<'environment> {
-        Builder::with_definition_builder(environment, Arc::new(DefinitionBuilder::new(environment)))
+impl Builder {
+    pub fn new(environment: Arc<Environment>) -> Builder {
+        Builder::with_definition_builder(Arc::new(DefinitionBuilder::new(environment)))
     }
 
-    pub fn with_definition_builder(
-        environment: &'environment Environment,
-        definition_builder: Arc<DefinitionBuilder<'environment>>,
-    ) -> Builder<'environment> {
+    pub fn with_definition_builder(definition_builder: Arc<DefinitionBuilder>) -> Builder {
+        let environment = definition_builder
+            .ancestor_builder
+            .shared_environment()
+            .clone();
         Builder {
-            environment,
             definition_builder,
             factory: Factory::new(environment),
             implicitly_returns_nil: false,
@@ -621,7 +620,11 @@ impl<'environment> Builder<'environment> {
         }
     }
 
-    pub fn subtyping(&self) -> Check<'_, 'environment> {
+    pub fn environment(&self) -> &Environment {
+        self.definition_builder.environment()
+    }
+
+    pub fn subtyping(&self) -> Check<'_> {
         Check::with_state(self, self.subtyping.clone())
     }
 
@@ -732,14 +735,14 @@ impl<'environment> Builder<'environment> {
             return Substitution::empty();
         }
         let variables: Vec<String> = if name.is_class() {
-            self.environment.class_declarations[&self.environment.normalize_module_name(name)]
+            self.environment().class_declarations[&self.environment().normalize_module_name(name)]
                 .primary_declaration()
                 .type_parameters()
                 .iter()
                 .map(|parameter| parameter.name.clone())
                 .collect()
         } else {
-            self.environment.interface_declarations[name]
+            self.environment().interface_declarations[name]
                 .declaration
                 .type_parameters
                 .iter()
