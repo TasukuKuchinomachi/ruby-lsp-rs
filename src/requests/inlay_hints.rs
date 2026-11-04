@@ -32,8 +32,13 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
     let parsed = document.parse();
     let mut listener = InlayHints::new(&parsed, hints_configuration);
     listener.visit(&parsed.ast());
-    let hints = to_result(listener.into_response())?;
+    let mut hints = to_result(listener.into_response())?;
     drop(parsed);
+    if document.is_ruby()
+        && let Value::Array(hints) = &mut hints
+    {
+        hints.extend(context.global_state.type_checking.inlay_hints(document.uri()));
+    }
 
     let hints = document.cache_set(CACHE_KEY, hints);
     let filtered: Vec<Value> = hints
