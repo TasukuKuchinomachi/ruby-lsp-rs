@@ -487,6 +487,7 @@ impl Server {
         set("definitionProvider", json!(enabled.is_enabled("definition")));
         set("declarationProvider", json!(true));
         set("typeDefinitionProvider", json!(true));
+        set("implementationProvider", json!(true));
         set(
             "workspaceSymbolProvider",
             json!(enabled.is_enabled("workspaceSymbol") && !has_type_checker),

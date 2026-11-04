@@ -19,6 +19,7 @@ pub mod folding_ranges;
 pub mod formatting;
 pub mod go_to_relevant_file;
 pub mod hover;
+pub mod implementation;
 pub mod inlay_hints;
 pub mod on_type_formatting;
 pub mod prepare_rename;
@@ -200,6 +201,7 @@ pub fn handler_for(method: &str) -> Option<RequestHandler> {
         "textDocument/definition" => definition::handle,
         "textDocument/declaration" => declaration::handle,
         "textDocument/typeDefinition" => type_definition::handle,
+        "textDocument/implementation" => implementation::handle,
         "textDocument/prepareTypeHierarchy" => prepare_type_hierarchy::handle,
         "textDocument/rename" => rename::handle,
         "textDocument/prepareRename" => prepare_rename::handle,
