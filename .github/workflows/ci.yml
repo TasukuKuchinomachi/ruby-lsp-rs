@@ -1,0 +1,54 @@
+name: CI
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+      - name: Install rbs 4.2.0 for the core signatures
+        run: |
+          gem install rbs --version 4.2.0 --no-document
+          echo "RBS_GEM_DIRECTORY=$(ruby -e 'gem "rbs", "4.2.0"; print Gem.loaded_specs["rbs"].full_gem_path')" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+
+  steep:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        steep-version: ["2.0.0", "2.1.0"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+      - name: Install rbs 4.2.0 and Steep ${{ matrix.steep-version }}
+        run: |
+          gem install rbs --version 4.2.0 --no-document
+          gem install steep --version ${{ matrix.steep-version }} --no-document
+          echo "RBS_GEM_DIRECTORY=$(ruby -e 'gem "rbs", "4.2.0"; print Gem.loaded_specs["rbs"].full_gem_path')" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+      - name: Run the smoke tests of Steep ${{ matrix.steep-version }} and the end-to-end cases
+        run: tools/run_smoke_tests.sh --steep-version=${{ matrix.steep-version }}
+      - name: Compare with the rbs gem and Steep ${{ matrix.steep-version }}
+        run: tools/compare_with_rbs_and_steep.sh --steep-version=${{ matrix.steep-version }}
