@@ -114,8 +114,9 @@ compare_services() {
 }
 
 cd "$repository"
-for kind in hover; do
+for kind in hover completion signature_help goto; do
   compare_services "steep_$kind (e2e/cases)" "$kind" e2e/cases/*/
+  compare_services "steep_$kind (fixtures/services)" "$kind" fixtures/services
 done
 
 echo "compared with rbs $rbs_version (Steep $steep_version)"
