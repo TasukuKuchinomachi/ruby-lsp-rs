@@ -55,11 +55,24 @@ cargo build --release
 | --- | --- | --- |
 | `enabled` | `true` | 型検査を使う機能すべて |
 | `diagnostics.enabled` | `true` | 型エラーの診断 |
+| `inferMoreThanSteep` | `false` | Steep より多く型を推論する（下記） |
 | `definition.target` | `"implementation"` | 定義へ移動の飛び先。`"signature"` で RBS、`"both"` で両方 |
 | `inlayHints.methodReturnTypes` など | `true` | 種類ごとの型の inlay hint |
 | `inlayHints.hideObviousTypes` | `true` | `Foo.new` やリテラルのように型が明らかなものは表示しない |
 | `inlayHints.hideUntyped` | `true` | `untyped` は表示しない |
 | `inlayHints.maxLength` | `30` | hint の最大長（`null` で無制限） |
+
+### `inferMoreThanSteep`
+
+有効にすると、hover・inlay hint・補完の receiver・signature help・型定義へ移動で使う型を、Steep の推論に次の規則を足して求めます。診断は常に `steep check` と同じで、この設定では変わりません。
+
+| 規則 | Steep | この設定 |
+| --- | --- | --- |
+| `self` を返すメソッド（`freeze` など）を受けた配列・hash のリテラル | 呼び出しの hint を受けない（`{ key:, label: }.freeze` は `Hash[Symbol, ...]`） | 呼び出しの hint で型を付ける（record を返すメソッドなら record、tuple なら tuple） |
+| `proc { ... }` | `Proc` | block の引数と戻り値の型を持つ proc 型（`^(untyped) -> Integer` など） |
+| `$1` などの番号付きの参照 | `String?` | `String` |
+| 引数の無い block の中の `it` | Steep 2.0 ではメソッド呼び出し | Steep 2.0 でも block の引数（Steep 2.1 は元から block の引数） |
+| RBS に宣言の無い instance 変数 | `untyped` | 同じファイルの同じクラスで代入された値の型の union（`nil` だけのときは `untyped`） |
 
 ## CLI
 

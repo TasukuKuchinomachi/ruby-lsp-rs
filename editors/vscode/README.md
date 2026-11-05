@@ -24,6 +24,7 @@ steep-vscode や Shopify Ruby LSP と同時に有効にすると hover や診断
 | `rubyLspRs.server.path` | 同梱のサーバー | サーバーのパス |
 | `rubyLspRs.typeChecker.enable` | `true` | 型推論・型検査 |
 | `rubyLspRs.typeChecker.diagnostics.enable` | `true` | 型エラーの診断 |
+| `rubyLspRs.typeChecker.inferMoreThanSteep` | `false` | Steep より多く型を推論する。hover・inlay hint・補完などの型だけが変わり、診断は `steep check` と同じまま（規則はリポジトリの README を参照） |
 | `rubyLspRs.definition.target` | `"implementation"` | 定義へ移動の飛び先。`"signature"` で RBS、`"both"` で両方 |
 | `rubyLspRs.inlayHints.methodReturnTypes.enable` | `true` | `def` の戻り値の型 |
 | `rubyLspRs.inlayHints.methodParameterTypes.enable` | `true` | `def` の引数の型 |

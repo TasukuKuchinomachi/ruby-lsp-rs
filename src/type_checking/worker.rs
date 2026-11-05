@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 use steep::annotations_helper::deprecated_type_name;
 use steep::environment_loader;
 use steep::expectations;
+use steep::inference::{Inference, InferenceRules};
 use steep::project::dsl;
 use steep::ruby::node::SourceRange;
 use steep::services::completion_provider::{CompletionError, CompletionItem, ConstantKind, rbs, ruby::Ruby};
@@ -22,7 +23,7 @@ use steep::services::content_change::ContentChange;
 use steep::services::goto_service::{GotoLocation, GotoService, each_type_name};
 use steep::services::hover_provider::content_for;
 use steep::services::signature_help_provider::{SignatureHelpError, SignatureHelpProvider};
-use steep::services::type_check_service::{TypeCheckService, type_check};
+use steep::services::type_check_service::{TypeCheckService, type_check_inferring};
 use steep::source::Source;
 use steep::steep_gem;
 use steep::steep_version::SteepVersion;
@@ -148,6 +149,7 @@ pub enum Command {
         path: PathBuf,
     },
     ProjectConfigurationChanged,
+    SetInferMoreThanSteep(bool),
     Query {
         query: Query,
         reply: Sender<Option<Answer>>,
@@ -180,6 +182,7 @@ struct Worker {
     rebuild_deadline: Option<Instant>,
     unchecked_paths: VecDeque<PathBuf>,
     last_signature_help: Option<(u32, Value)>,
+    inference_rules: InferenceRules,
 }
 
 pub fn spawn(commands: Receiver<Command>, events: Sender<Event>) {
@@ -198,6 +201,7 @@ pub fn spawn(commands: Receiver<Command>, events: Sender<Event>) {
                 rebuild_deadline: None,
                 unchecked_paths: VecDeque::new(),
                 last_signature_help: None,
+                inference_rules: InferenceRules::STEEP,
             };
             worker.run(&commands);
         });
@@ -329,6 +333,16 @@ impl Worker {
                     self.rebuild_deadline = Some(Instant::now() + SIGNATURE_RELOAD_DELAY);
                 }
             }
+            Command::SetInferMoreThanSteep(enabled) => {
+                self.inference_rules = if enabled {
+                    InferenceRules::more_than_steep()
+                } else {
+                    InferenceRules::STEEP
+                };
+                if let Some(loaded) = &mut self.loaded {
+                    loaded.service.inference_rules = self.inference_rules;
+                }
+            }
             Command::Query { query, reply } => {
                 self.flush_signature_changes();
                 let answer = catch_unwind(AssertUnwindSafe(|| self.answer(&query))).unwrap_or_else(|payload| {
@@ -363,7 +377,8 @@ impl Worker {
         let outcome = catch_unwind(AssertUnwindSafe(|| load_service(&request, &self.events)))
             .unwrap_or_else(|payload| Err(panic_message(&*payload)));
         match outcome {
-            Ok(loaded) => {
+            Ok(mut loaded) => {
+                loaded.service.inference_rules = self.inference_rules;
                 let target_count = loaded.service.project.targets.len();
                 let message = format!(
                     "Loaded the signatures of {target_count} target{} as Steep {} does in {:.2}s",
@@ -894,7 +909,8 @@ impl Worker {
         ) else {
             return Vec::new();
         };
-        let typing = type_check(&checker, &source, None);
+        let (source, inference) = Inference::prepare(&checker, service.inference_rules, source);
+        let typing = type_check_inferring(&checker, &source, None, &inference);
         let hints = inlay_hints::collect(&checker, &source, &typing);
         let text = normalized_text(&file.content);
         let line_index = LineIndex::new(text.as_bytes(), loaded.encoding);

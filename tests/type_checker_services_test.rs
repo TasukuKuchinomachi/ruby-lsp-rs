@@ -701,3 +701,81 @@ fn turns_the_type_checker_features_off_with_the_settings() {
     assert!(server.hover_markdown(&uri, 17, 17).starts_with("```ruby\ngreeting()"));
     assert_eq!(server.inlay_hints(&uri), Vec::<Value>::new());
 }
+
+const INFERENCE_SOURCE: &str =
+    "class Tally\n  def initialize\n    @count = 1\n  end\n\n  def count\n    @count\n  end\nend\n\nmatched = $1\n";
+
+fn variable_type_hints(server: &mut TypeCheckedServer, uri: &str) -> Vec<Value> {
+    server
+        .inlay_hints(uri)
+        .iter()
+        .filter(|hint| hint["position"] == position(10, 7))
+        .map(|hint| hint["label"].clone())
+        .collect()
+}
+
+fn completion_labels(server: &mut TypeCheckedServer, uri: &str) -> Vec<String> {
+    server.change(uri, 2, &INFERENCE_SOURCE.replace("    @count\n", "    @count.\n"));
+    let labels = server
+        .completion_items(uri, 6, 11)
+        .iter()
+        .filter_map(|item| item["label"].as_str().map(str::to_string))
+        .collect();
+    server.change(uri, 3, INFERENCE_SOURCE);
+    labels
+}
+
+#[test]
+fn types_as_steep_does_unless_inferring_more_than_steep_is_enabled() {
+    let mut server = start_server();
+    let uri = server.open_with_source("lib/inference.rb", INFERENCE_SOURCE);
+    assert_eq!(server.hover_markdown(&uri, 6, 5), "```rbs\nuntyped\n```\n");
+    assert_eq!(
+        variable_type_hints(&mut server, &uri),
+        vec![json!(": (::String | nil)")]
+    );
+    assert!(completion_labels(&mut server, &uri).is_empty());
+}
+
+#[test]
+fn infers_more_than_steep_with_the_initialization_option_and_keeps_the_diagnostics() {
+    let mut steep_server = start_server();
+    let uri = steep_server.open_with_source("lib/inference.rb", INFERENCE_SOURCE);
+    let steep_diagnostics = steep_server.type_diagnostics(&uri);
+    assert!(!steep_diagnostics.is_empty());
+
+    let mut server = start_server_in(
+        &workspace_path(),
+        json!({ "typeChecker": { "inferMoreThanSteep": true } }),
+    );
+    let uri = server.open_with_source("lib/inference.rb", INFERENCE_SOURCE);
+    assert_eq!(server.hover_markdown(&uri, 6, 5), "```rbs\n::Integer\n```\n");
+    assert_eq!(variable_type_hints(&mut server, &uri), vec![json!(": ::String")]);
+    assert!(
+        completion_labels(&mut server, &uri).contains(&"to_s".to_string()),
+        "the receiver of the completion is an Integer"
+    );
+    assert_eq!(server.type_diagnostics(&uri), steep_diagnostics);
+}
+
+#[test]
+fn switches_inferring_more_than_steep_with_the_configuration() {
+    let mut server = start_server();
+    let uri = server.open_with_source("lib/inference.rb", INFERENCE_SOURCE);
+    let steep_diagnostics = server.type_diagnostics(&uri);
+    assert_eq!(server.hover_markdown(&uri, 6, 5), "```rbs\nuntyped\n```\n");
+
+    server.configure(json!({ "inferMoreThanSteep": true }));
+    server.wait_for_request("workspace/inlayHint/refresh");
+    assert_eq!(server.hover_markdown(&uri, 6, 5), "```rbs\n::Integer\n```\n");
+    assert_eq!(variable_type_hints(&mut server, &uri), vec![json!(": ::String")]);
+    assert_eq!(server.type_diagnostics(&uri), steep_diagnostics);
+
+    server.configure(json!({ "inferMoreThanSteep": false }));
+    server.wait_for_request("workspace/inlayHint/refresh");
+    assert_eq!(server.hover_markdown(&uri, 6, 5), "```rbs\nuntyped\n```\n");
+    assert_eq!(
+        variable_type_hints(&mut server, &uri),
+        vec![json!(": (::String | nil)")]
+    );
+}

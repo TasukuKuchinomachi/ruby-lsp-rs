@@ -611,6 +611,7 @@ impl Server {
         }));
         self.type_checker_events = events;
         self.global_state.type_checking.client = Some(client);
+        self.global_state.type_checking.notify_inference();
         self.global_state.type_checking.status = ServiceStatus::Loading;
         for (uri, document) in self.store.iter_mut() {
             if matches!(document.language_id(), LanguageId::Ruby | LanguageId::Rbs) {
@@ -667,6 +668,9 @@ impl Server {
         self.global_state.type_checking.settings.merge(configuration);
         if self.global_state.type_checking.settings == previous_settings {
             return;
+        }
+        if self.global_state.type_checking.settings.infer_more_than_steep != previous_settings.infer_more_than_steep {
+            self.global_state.type_checking.notify_inference();
         }
         self.refresh_type_information();
         if self.initialized {

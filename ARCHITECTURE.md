@@ -69,6 +69,14 @@ The server uses the services of `crates/steep` as Steep's language server uses t
   completion lists the type checker's items first and drops ruby-lsp's items with a guessed receiver or the same label,
   and definition prefers the implementations the type checker found, then its signatures, then ruby-lsp's name based
   results, following `typeChecker.definition.target`.
+- `typeChecker.inferMoreThanSteep` (off by default) sends `Command::SetInferMoreThanSteep`, which sets
+  `TypeCheckService::inference_rules`. Hover, completion, signature help, goto and inlay hints then type check with the
+  rules of `crates/steep/src/inference.rs` on top of Steep's typing, while `TypeCheckService::typecheck_source`, which
+  gives the diagnostics, always type checks as Steep does. A file is therefore checked once for its diagnostics and once
+  more for each query, as before; only the types of the queries change. Each rule is applied in one named place
+  (`type_construction/inference_rules.rs`, and the rewrite of `it` blocks for Steep 2.0 in `inference.rs`) and records the
+  node it applied to in `Typing`. `crates/steep/tests/inference_rules.rs` checks the end-to-end cases and the fixtures
+  with both modes: the diagnostics are identical, and every node typed differently is explained by a rule.
 
 ## Adding a request
 

@@ -89,6 +89,11 @@
           "type": "boolean",
           "default": true
         },
+        "rubyLspRs.typeChecker.inferMoreThanSteep": {
+          "markdownDescription": "Whether to infer more types than Steep does for hover, inlay hints, completion, signature help and type definitions: a collection literal receiving a method returning `self` (such as `freeze`) gets the hint of the call, `proc { }` is a proc type, `$1` is a `String`, `it` is a block parameter also under Steep 2.0, and an instance variable without an RBS declaration is typed from the values assigned to it. Diagnostics stay the same as `steep check`.",
+          "type": "boolean",
+          "default": false
+        },
         "rubyLspRs.definition.target": {
           "markdownDescription": "Where Go to Definition (Cmd/Ctrl+Click) jumps for methods and constants, and where Go to Type Definition jumps for the classes in the type of a variable or an expression. The RBS signature is always available from Go to Declaration and from the links in the hover.",
           "type": "string",

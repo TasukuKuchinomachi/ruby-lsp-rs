@@ -100,6 +100,7 @@ pub struct TypeCheckerSettings {
     pub diagnostics_enabled: bool,
     pub inlay_hints: InlayHintSettings,
     pub definition_target: DefinitionTarget,
+    pub infer_more_than_steep: bool,
 }
 
 impl Default for TypeCheckerSettings {
@@ -107,6 +108,7 @@ impl Default for TypeCheckerSettings {
         TypeCheckerSettings {
             enabled: true,
             diagnostics_enabled: true,
+            infer_more_than_steep: false,
             inlay_hints: InlayHintSettings::default(),
             definition_target: DefinitionTarget::default(),
         }
@@ -119,6 +121,7 @@ impl TypeCheckerSettings {
             return;
         };
         merge_boolean(&mut self.enabled, object.get("enabled"));
+        merge_boolean(&mut self.infer_more_than_steep, object.get("inferMoreThanSteep"));
         let diagnostics = configuration["diagnostics"].as_object();
         merge_boolean(
             &mut self.diagnostics_enabled,
@@ -189,6 +192,12 @@ impl TypeCheckingState {
             return None;
         }
         self.client.as_ref()?.query(query)
+    }
+
+    pub fn notify_inference(&self) {
+        if let Some(client) = &self.client {
+            client.send(Command::SetInferMoreThanSteep(self.settings.infer_more_than_steep));
+        }
     }
 
     pub fn notify_text(&self, uri: &str, text: &str) {
@@ -422,6 +431,10 @@ mod tests {
         assert!(settings.inlay_hints.method_return_types);
         assert!(!settings.inlay_hints.hide_untyped);
         assert_eq!(settings.inlay_hints.maximum_length, None);
+        assert!(!settings.infer_more_than_steep);
+
+        settings.merge(&json!({ "inferMoreThanSteep": true }));
+        assert!(settings.infer_more_than_steep);
 
         settings.merge(&json!({ "inlayHints": { "maxLength": 12 } }));
         assert!(!settings.enabled);
