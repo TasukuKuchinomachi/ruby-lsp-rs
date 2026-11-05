@@ -643,7 +643,9 @@ impl<'checker> TypeConstruction<'checker> {
                 let name = node.child_symbol(0).unwrap_or_default();
                 match self.context.type_env.get(name) {
                     Some(type_) => self.add_typing(node, type_),
-                    None => self.fallback_to_any(node, None),
+                    None => self
+                        .assigned_instance_variable_type(node, name)
+                        .unwrap_or_else(|| self.fallback_to_any(node, None)),
                 }
             }
             "gvasgn" => {
@@ -1079,7 +1081,10 @@ impl<'checker> TypeConstruction<'checker> {
                     ));
                 }
             }
-            None => self.add_error(diagnostics::unknown_instance_variable(node, name)),
+            None => {
+                self.add_error(diagnostics::unknown_instance_variable(node, name));
+                self.collect_instance_variable_assignment(name, &rhs_type);
+            }
         }
         self.add_typing(node, rhs_type)
     }

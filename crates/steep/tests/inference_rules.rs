@@ -482,3 +482,19 @@ fn it_is_the_block_parameter_also_under_steep_2_0() {
         ],
     );
 }
+
+#[test]
+fn an_instance_variable_without_a_declaration_is_typed_from_its_assignments() {
+    for (text, inferred_type) in [
+        ("@count + 1", "::Integer"),
+        ("@label", "(nil | ::String)"),
+        ("@cache", "::Array[::Integer]"),
+    ] {
+        assert_types(
+            "instance_variable_from_assignments.rb",
+            text,
+            InferenceRule::InstanceVariableFromAssignments,
+            same_in_both_versions("untyped", inferred_type),
+        );
+    }
+}

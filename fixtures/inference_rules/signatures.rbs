@@ -5,3 +5,15 @@ class Settings
 
   def pair: () -> [Integer, String]
 end
+
+class Counter
+  def initialize: () -> void
+
+  def increment: () -> Integer
+
+  def rename: () -> String
+
+  def label: () -> String?
+
+  def self.cache: () -> Array[Integer]
+end

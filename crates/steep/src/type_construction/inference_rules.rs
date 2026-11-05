@@ -4,7 +4,10 @@ use rbs_definition::ast::{Callable, Type as RbsType, TypeName};
 use steep_interface::types::Type;
 
 use super::{Pair, TypeConstruction, instance_type, is_instance_of};
-use crate::{inference::InferenceRule, ruby::node::Node};
+use crate::{
+    inference::{InferenceRule, InstanceVariableOwner},
+    ruby::node::Node,
+};
 
 impl<'checker> TypeConstruction<'checker> {
     fn infers(&self, rule: InferenceRule) -> bool {
@@ -109,6 +112,34 @@ impl<'checker> TypeConstruction<'checker> {
             return self.add_typing(node, string);
         }
         self.add_typing(node, Type::union(vec![string, Type::Nil]))
+    }
+
+    fn instance_variable_owner(&self) -> Option<InstanceVariableOwner> {
+        InstanceVariableOwner::new(&self.module_context().nesting, self.self_type())
+    }
+
+    pub(super) fn assigned_instance_variable_type(
+        &self,
+        node: &Rc<Node>,
+        name: &str,
+    ) -> Option<Pair<'checker>> {
+        if !self.infers(InferenceRule::InstanceVariableFromAssignments) {
+            return None;
+        }
+        let assignments = self.inference.instance_variable_assignments.as_ref()?;
+        let type_ = assignments.type_of(&self.instance_variable_owner()?, name)?;
+        self.record_inference_rule(node, InferenceRule::InstanceVariableFromAssignments);
+        Some(self.add_typing(node, type_))
+    }
+
+    pub(super) fn collect_instance_variable_assignment(&self, name: &str, type_: &Type) {
+        if !self.inference.collects_instance_variable_assignments {
+            return;
+        }
+        if let Some(owner) = self.instance_variable_owner() {
+            self.typing
+                .add_instance_variable_assignment(owner, name.to_string(), type_.clone());
+        }
     }
 }
 

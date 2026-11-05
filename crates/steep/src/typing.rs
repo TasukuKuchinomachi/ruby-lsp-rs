@@ -6,7 +6,7 @@ use steep_interface::types::Type;
 use crate::{
     diagnostic::ruby::Diagnostic,
     index::source_index::SourceIndex,
-    inference::InferenceRule,
+    inference::{InferenceRule, InstanceVariableOwner},
     ruby::node::{Node, NodeId, SourceRange},
     ruby_exception::{self, RubyException},
     strict::Observation,
@@ -185,6 +185,7 @@ struct TypingData {
     root_context: Option<(CursorRange, Context)>,
     source_index: SourceIndex,
     inference_rule_applications: Vec<(NodeId, InferenceRule)>,
+    instance_variable_assignments: Vec<(InstanceVariableOwner, String, Type)>,
 }
 
 #[derive(Clone, Default)]
@@ -375,6 +376,22 @@ impl Typing {
         self.data.borrow().inference_rule_applications.clone()
     }
 
+    pub fn add_instance_variable_assignment(
+        &self,
+        owner: InstanceVariableOwner,
+        name: String,
+        type_: Type,
+    ) {
+        self.data
+            .borrow_mut()
+            .instance_variable_assignments
+            .push((owner, name, type_));
+    }
+
+    pub fn instance_variable_assignments(&self) -> Vec<(InstanceVariableOwner, String, Type)> {
+        self.data.borrow().instance_variable_assignments.clone()
+    }
+
     pub fn parent(&self) -> Option<Typing> {
         self.parent.as_deref().cloned()
     }
@@ -434,6 +451,9 @@ impl Typing {
         }
         for (node, rule) in &data.inference_rule_applications {
             parent.add_inference_rule_application(*node, *rule);
+        }
+        for (owner, name, type_) in &data.instance_variable_assignments {
+            parent.add_instance_variable_assignment(owner.clone(), name.clone(), type_.clone());
         }
         let mut parent_data = parent.data.borrow_mut();
         parent_data

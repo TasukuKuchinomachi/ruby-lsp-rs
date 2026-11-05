@@ -1,11 +1,14 @@
 use std::rc::Rc;
 
-use steep_interface::steep_version::SteepVersion;
+use rbs_definition::collections::HashMap;
+use steep_interface::{steep_version::SteepVersion, types::Type};
 
 use crate::{
     ruby::node::{Child, Location, MapKind, Node, NodeId},
+    services::type_check_service::type_check_inferring,
     source::Source,
     type_construction::Checker,
+    type_inference::constant_env::ResolverContext,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -14,14 +17,16 @@ pub enum InferenceRule {
     ProcTypeFromBlock,
     NumberedReferenceAsString,
     ItAsBlockParameter,
+    InstanceVariableFromAssignments,
 }
 
 impl InferenceRule {
-    pub const ALL: [InferenceRule; 4] = [
+    pub const ALL: [InferenceRule; 5] = [
         InferenceRule::CollectionLiteralWithHintOfSelfReturningCall,
         InferenceRule::ProcTypeFromBlock,
         InferenceRule::NumberedReferenceAsString,
         InferenceRule::ItAsBlockParameter,
+        InferenceRule::InstanceVariableFromAssignments,
     ];
 
     fn bit(self) -> u8 {
@@ -64,8 +69,64 @@ impl InferenceRules {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct InstanceVariableOwner {
+    nesting: Vec<String>,
+    singleton: bool,
+}
+
+impl InstanceVariableOwner {
+    pub fn new(nesting: &ResolverContext, self_type: &Type) -> Option<InstanceVariableOwner> {
+        let singleton = match self_type {
+            Type::NameInstance { .. } => false,
+            Type::Singleton(_) => true,
+            _ => return None,
+        };
+        let mut names = Vec::new();
+        let mut current = nesting.clone();
+        while let Some(nesting) = current {
+            names.push(
+                nesting
+                    .name
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
+            );
+            current = nesting.parent.clone();
+        }
+        Some(InstanceVariableOwner {
+            nesting: names,
+            singleton,
+        })
+    }
+}
+
+#[derive(Default)]
+pub struct InstanceVariableAssignments {
+    types: HashMap<(InstanceVariableOwner, String), Vec<Type>>,
+}
+
+impl InstanceVariableAssignments {
+    fn add(&mut self, owner: InstanceVariableOwner, name: String, type_: Type) {
+        let types = self.types.entry((owner, name)).or_default();
+        if !types.contains(&type_) {
+            types.push(type_);
+        }
+    }
+
+    pub fn type_of(&self, owner: &InstanceVariableOwner, name: &str) -> Option<Type> {
+        let types = self.types.get(&(owner.clone(), name.to_string()))?;
+        match Type::union(types.clone()) {
+            Type::Nil | Type::Bot => None,
+            type_ => Some(type_),
+        }
+    }
+}
+
 pub struct Inference {
     pub rules: InferenceRules,
+    pub(crate) instance_variable_assignments: Option<Rc<InstanceVariableAssignments>>,
+    pub(crate) collects_instance_variable_assignments: bool,
     pub(crate) it_block_parameter_nodes: Vec<NodeId>,
 }
 
@@ -73,6 +134,8 @@ impl Inference {
     pub fn steep() -> Inference {
         Inference {
             rules: InferenceRules::STEEP,
+            instance_variable_assignments: None,
+            collects_instance_variable_assignments: false,
             it_block_parameter_nodes: Vec::new(),
         }
     }
@@ -95,6 +158,20 @@ impl Inference {
         } else {
             source
         };
+        if rules.contains(InferenceRule::InstanceVariableFromAssignments) {
+            let collecting = Inference {
+                rules: rules.without(InferenceRule::InstanceVariableFromAssignments),
+                instance_variable_assignments: None,
+                collects_instance_variable_assignments: true,
+                it_block_parameter_nodes: Vec::new(),
+            };
+            let typing = type_check_inferring(checker, &source, None, &collecting);
+            let mut assignments = InstanceVariableAssignments::default();
+            for (owner, name, type_) in typing.instance_variable_assignments() {
+                assignments.add(owner, name, type_);
+            }
+            inference.instance_variable_assignments = Some(Rc::new(assignments));
+        }
         (source, inference)
     }
 }
