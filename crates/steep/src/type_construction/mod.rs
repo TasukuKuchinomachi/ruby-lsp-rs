@@ -3,6 +3,7 @@ mod block;
 mod case_when;
 pub mod definition;
 mod deprecation;
+mod inference_rules;
 mod missing_signature;
 mod multiple_assignment;
 pub mod send;
@@ -34,6 +35,7 @@ use steep_interface::{
 use crate::{
     annotation::Collection,
     diagnostic::ruby::{self as diagnostics, Diagnostic},
+    inference::Inference,
     ruby::node::{Child, Node},
     ruby_exception::{self, RubyException},
     source::Source,
@@ -246,6 +248,7 @@ pub struct TypeConstruction<'checker> {
     pub annotations: Rc<Collection>,
     pub typing: Typing,
     pub context: Context,
+    pub inference: &'checker Inference,
 }
 
 #[derive(Clone)]

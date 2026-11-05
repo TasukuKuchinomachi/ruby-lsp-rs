@@ -1019,6 +1019,7 @@ impl<'checker> TypeConstruction<'checker> {
         TypeConstruction {
             checker: self.checker,
             source: self.source,
+            inference: self.inference,
             annotations: Rc::new(annotations),
             typing: self.typing.clone(),
             context: Context {
@@ -1516,6 +1517,7 @@ impl<'checker> TypeConstruction<'checker> {
         TypeConstruction {
             checker: self.checker,
             source: self.source,
+            inference: self.inference,
             annotations: Rc::new(annotations),
             typing: self.typing.clone(),
             context: Context {

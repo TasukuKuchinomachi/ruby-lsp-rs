@@ -20,6 +20,7 @@ use steep_interface::{
 use crate::{
     annotation::AnnotationError,
     annotations_helper,
+    inference::InferenceRules,
     locator::{self, RubyResult},
     ruby::node::{Child, Node, SourceRange},
     services::{
@@ -28,7 +29,7 @@ use crate::{
             type_name::{Prefix, TypeNameCompletion},
         },
         hover_provider::constant_declaration,
-        type_check_service::{TypeCheckService, type_check},
+        type_check_service::{TypeCheckService, type_check_around},
     },
     source::{Source, SourceError},
     type_construction::{Checker, send::method_declarations},
@@ -40,6 +41,7 @@ pub struct Ruby {
     path: PathBuf,
     checker: Rc<Checker>,
     source_text: String,
+    inference_rules: InferenceRules,
 }
 
 pub struct TypeChecked {
@@ -198,6 +200,7 @@ impl Ruby {
             path: path.to_path_buf(),
             checker,
             source_text: file.content.clone(),
+            inference_rules: service.inference_rules,
         })
     }
 
@@ -215,9 +218,8 @@ impl Ruby {
                 return Err(runtime_error());
             }
         };
-        let source = source.without_unrelated_defs(position);
-        let typing = panic::catch_unwind(AssertUnwindSafe(|| {
-            type_check(&self.checker, &source, Some(position))
+        let (source, typing) = panic::catch_unwind(AssertUnwindSafe(|| {
+            type_check_around(&self.checker, source, position, self.inference_rules)
         }))
         .map_err(|_| runtime_error())?;
         Ok(TypeChecked { source, typing })

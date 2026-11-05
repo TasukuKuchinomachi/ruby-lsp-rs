@@ -6,6 +6,7 @@ pub mod environment_loader;
 pub mod expectations;
 pub mod ignore;
 pub mod index;
+pub mod inference;
 pub mod inline_source;
 pub mod locator;
 pub mod method_name;

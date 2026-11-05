@@ -241,7 +241,7 @@ impl<'checker> TypeConstruction<'checker> {
                     .collect();
                 match &receiver {
                     Some(receiver) => {
-                        let pair = self.synthesize(receiver, None, false);
+                        let pair = self.synthesize_receiver(receiver, &method_name, hint);
                         receiver_type = pair.type_;
                         constr = pair.constr;
                     }

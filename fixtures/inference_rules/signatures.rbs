@@ -1,0 +1,7 @@
+class Settings
+  ENTRIES: Array[{ name: String }]
+
+  def label: () -> { key: Symbol, label: String }
+
+  def pair: () -> [Integer, String]
+end

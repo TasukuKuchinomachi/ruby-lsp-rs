@@ -479,6 +479,7 @@ impl<'checker> TypeConstruction<'checker> {
         TypeConstruction {
             checker: self.checker,
             source: self.source,
+            inference: self.inference,
             annotations: Rc::new(self.merge_block_annotations(block_annotations)),
             typing: self.typing.clone(),
             context: Context {

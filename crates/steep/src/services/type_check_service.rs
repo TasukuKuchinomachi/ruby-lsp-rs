@@ -28,6 +28,7 @@ use crate::{
     expectations::{self, Expectations, Position, Range},
     ignore::{self, IgnoreRanges},
     index::source_index::SourceIndex,
+    inference::{Inference, InferenceRules},
     inline_source, locator,
     project::{CollectionConfiguration, Project, Target, UniquePaths},
     ruby::node::{Buffer, SourceRange},
@@ -68,6 +69,15 @@ pub fn lsp_range(buffer: &Buffer, location: SourceRange) -> Range {
 }
 
 pub fn type_check(checker: &Checker, source: &Source, cursor: Option<usize>) -> Typing {
+    type_check_inferring(checker, source, cursor, &Inference::steep())
+}
+
+pub fn type_check_inferring(
+    checker: &Checker,
+    source: &Source,
+    cursor: Option<usize>,
+    inference: &Inference,
+) -> Typing {
     let annotations = checker.annotations(source, source.node.as_deref(), &None);
     let object = TypeName::parse("::Object");
     let (module_name, module_type, instance_type_) = match &annotations.self_type {
@@ -158,11 +168,24 @@ pub fn type_check(checker: &Checker, source: &Source, cursor: Option<usize>) -> 
         annotations: Rc::new(annotations),
         typing: typing.clone(),
         context,
+        inference,
     };
     if let Some(node) = &source.node {
         construction.synthesize(node, None, false);
     }
     typing
+}
+
+pub fn type_check_around(
+    checker: &Checker,
+    source: Source,
+    position: usize,
+    rules: InferenceRules,
+) -> (Source, Typing) {
+    let (source, inference) = Inference::prepare(checker, rules, source);
+    let source = source.without_unrelated_defs(position);
+    let typing = type_check_inferring(checker, &source, Some(position), &inference);
+    (source, typing)
 }
 
 pub(crate) struct RubyDiagnostics {
@@ -697,6 +720,7 @@ pub struct TypeCheckService {
     pub source_files: IndexMap<PathBuf, SourceFile>,
     pub signature_validation_diagnostics:
         IndexMap<String, IndexMap<PathBuf, Vec<expectations::Diagnostic>>>,
+    pub inference_rules: InferenceRules,
     checkers: RefCell<HashMap<String, CachedChecker>>,
     validator_cache: Rc<ValidatorCache>,
 }
@@ -724,6 +748,7 @@ impl TypeCheckService {
             signature_services,
             source_files: IndexMap::default(),
             signature_validation_diagnostics,
+            inference_rules: InferenceRules::STEEP,
             checkers: RefCell::default(),
             validator_cache: Rc::default(),
         })
@@ -921,11 +946,10 @@ impl TypeCheckService {
         let file = self.source_files.get(path)?;
         let checker = self.checker(&target.name)?;
         let path_string = path.to_string_lossy().into_owned();
-        let source = Source::parse(&path_string, &file.content, checker.builder.steep_version)
-            .ok()?
-            .without_unrelated_defs(position);
-        let typing = panic::catch_unwind(AssertUnwindSafe(|| {
-            type_check(&checker, &source, Some(position))
+        let source =
+            Source::parse(&path_string, &file.content, checker.builder.steep_version).ok()?;
+        let (source, typing) = panic::catch_unwind(AssertUnwindSafe(|| {
+            type_check_around(&checker, source, position, self.inference_rules)
         }))
         .ok()?;
         Some(TypeCheckedSource {

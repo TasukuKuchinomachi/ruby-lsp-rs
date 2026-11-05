@@ -6,6 +6,7 @@ use steep_interface::types::Type;
 use crate::{
     diagnostic::ruby::Diagnostic,
     index::source_index::SourceIndex,
+    inference::InferenceRule,
     ruby::node::{Node, NodeId, SourceRange},
     ruby_exception::{self, RubyException},
     strict::Observation,
@@ -183,6 +184,7 @@ struct TypingData {
     cursor_context: CursorContext,
     root_context: Option<(CursorRange, Context)>,
     source_index: SourceIndex,
+    inference_rule_applications: Vec<(NodeId, InferenceRule)>,
 }
 
 #[derive(Clone, Default)]
@@ -362,6 +364,17 @@ impl Typing {
         self.parent.as_ref().and_then(|parent| parent.call_of(node))
     }
 
+    pub fn add_inference_rule_application(&self, node: NodeId, rule: InferenceRule) {
+        let mut data = self.data.borrow_mut();
+        if !data.inference_rule_applications.contains(&(node, rule)) {
+            data.inference_rule_applications.push((node, rule));
+        }
+    }
+
+    pub fn inference_rule_applications(&self) -> Vec<(NodeId, InferenceRule)> {
+        self.data.borrow().inference_rule_applications.clone()
+    }
+
     pub fn parent(&self) -> Option<Typing> {
         self.parent.as_deref().cloned()
     }
@@ -418,6 +431,9 @@ impl Typing {
         }
         for (node, call) in &data.method_calls {
             parent.add_call(*node, call.clone());
+        }
+        for (node, rule) in &data.inference_rule_applications {
+            parent.add_inference_rule_application(*node, *rule);
         }
         let mut parent_data = parent.data.borrow_mut();
         parent_data

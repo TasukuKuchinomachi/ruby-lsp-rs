@@ -9,8 +9,9 @@ use steep_interface::{builder::Config, factory::method_type_1};
 
 use crate::{
     annotation::AnnotationError,
+    inference::InferenceRules,
     ruby::node::{Child, Node},
-    services::type_check_service::{TypeCheckService, type_check},
+    services::type_check_service::{TypeCheckService, type_check_around},
     source::Source,
     type_construction::{Checker, send::method_declarations},
     type_inference::method_call::MethodCallKind,
@@ -107,7 +108,9 @@ fn private_send(node: &Node) -> Result<bool, SignatureHelpError> {
 
 pub struct SignatureHelpProvider {
     source: Source,
+    unpruned_source: Source,
     checker: Rc<Checker>,
+    inference_rules: InferenceRules,
 }
 
 fn nth_from_end(nodes: &[Rc<Node>], index: usize) -> Result<&Rc<Node>, SignatureHelpError> {
@@ -198,15 +201,24 @@ impl SignatureHelpProvider {
             crate::source::SourceError::Annotation(AnnotationError::Unexpected { .. }) => {
                 runtime_error("RuntimeError")
             }
-        })?
-        .without_unrelated_defs(position);
-        Ok(Some(SignatureHelpProvider { source, checker }))
+        })?;
+        Ok(Some(SignatureHelpProvider {
+            source: source.without_unrelated_defs(position),
+            unpruned_source: source,
+            checker,
+            inference_rules: service.inference_rules,
+        }))
     }
 
     fn type_check(&self, position: usize) -> Result<Typing, SignatureHelpError> {
-        let source = self.source.without_unrelated_defs(position);
         panic::catch_unwind(AssertUnwindSafe(|| {
-            type_check(&self.checker, &source, Some(position))
+            type_check_around(
+                &self.checker,
+                self.unpruned_source.clone(),
+                position,
+                self.inference_rules,
+            )
+            .1
         }))
         .map_err(|_| runtime_error("RuntimeError"))
     }
