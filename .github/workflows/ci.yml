@@ -42,10 +42,12 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.4"
-      - name: Install rbs 4.2.0 and Steep ${{ matrix.steep-version }}
+      - name: Install prism 1.9.0 as the ruby-prism crate, rbs 4.2.0 and Steep ${{ matrix.steep-version }}
         run: |
-          gem install rbs --version 4.2.0 --no-document
-          gem install steep --version ${{ matrix.steep-version }} --no-document
+          gem install prism --version 1.9.0 --no-document
+          gem install rbs --version 4.2.0 --no-document --conservative
+          gem install steep --version ${{ matrix.steep-version }} --no-document --conservative
+          ruby -e 'require "prism"; abort "prism #{Prism::VERSION} is loaded instead of 1.9.0" unless Prism::VERSION == "1.9.0"'
           echo "RBS_GEM_DIRECTORY=$(ruby -e 'gem "rbs", "4.2.0"; print Gem.loaded_specs["rbs"].full_gem_path')" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
       - name: Run the smoke tests of Steep ${{ matrix.steep-version }} and the end-to-end cases
