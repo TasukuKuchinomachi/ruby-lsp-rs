@@ -461,3 +461,24 @@ fn a_numbered_reference_is_a_string() {
         same_in_both_versions("(::String | nil)", "::String"),
     );
 }
+
+#[test]
+fn it_is_the_block_parameter_also_under_steep_2_0() {
+    assert_types(
+        "it_as_block_parameter.rb",
+        "[1, 2].map { it * 2 }",
+        InferenceRule::ItAsBlockParameter,
+        [
+            (
+                SteepVersion::Version2_0_0,
+                "::Array[untyped]",
+                "::Array[::Integer]",
+            ),
+            (
+                SteepVersion::Version2_1_0,
+                "::Array[::Integer]",
+                "::Array[::Integer]",
+            ),
+        ],
+    );
+}

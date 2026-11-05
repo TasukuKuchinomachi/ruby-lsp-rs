@@ -28,7 +28,7 @@ use crate::{
     expectations::{self, Expectations, Position, Range},
     ignore::{self, IgnoreRanges},
     index::source_index::SourceIndex,
-    inference::{Inference, InferenceRules},
+    inference::{Inference, InferenceRule, InferenceRules},
     inline_source, locator,
     project::{CollectionConfiguration, Project, Target, UniquePaths},
     ruby::node::{Buffer, SourceRange},
@@ -162,6 +162,9 @@ pub fn type_check_inferring(
         )
     });
     let typing = Typing::with_cursor(cursor, root_context);
+    for node in &inference.it_block_parameter_nodes {
+        typing.add_inference_rule_application(*node, InferenceRule::ItAsBlockParameter);
+    }
     let construction = TypeConstruction {
         checker,
         source,
