@@ -38,6 +38,12 @@ pub struct CheckState {
     assumptions: RefCell<Option<Vec<Relation<Type>>>>,
 }
 
+impl CheckState {
+    pub(crate) fn forget_fresh_variables(&self) {
+        self.cache.forget_fresh_variables();
+    }
+}
+
 pub struct Check<'builder> {
     pub builder: &'builder Builder,
     state: Rc<CheckState>,

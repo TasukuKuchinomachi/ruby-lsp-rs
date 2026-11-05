@@ -299,6 +299,14 @@ pub fn reset_fresh_variable_count() {
     FRESH_VARIABLE_COUNT.with(|count| count.set(0));
 }
 
+pub fn is_fresh_variable_name(name: &str) -> bool {
+    name.strip_suffix(')')
+        .and_then(|rest| rest.rsplit_once('('))
+        .is_some_and(|(_, count)| {
+            !count.is_empty() && count.bytes().all(|byte| byte.is_ascii_digit())
+        })
+}
+
 pub(crate) fn hash_of(value: &impl Hash) -> u64 {
     let mut hasher = DefaultHasher::new();
     value.hash(&mut hasher);
@@ -382,6 +390,12 @@ fn level_with_children(children: Vec<&Type>) -> Result<Vec<usize>, RbsError> {
 }
 
 impl Type {
+    pub fn mentions_fresh_variable(&self) -> bool {
+        self.free_variables()
+            .iter()
+            .any(|name| is_fresh_variable_name(name))
+    }
+
     pub fn free_variables(&self) -> Vec<String> {
         let mut variables = Vec::new();
         self.collect_free_variables(&mut variables);

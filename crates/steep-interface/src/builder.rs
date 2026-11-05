@@ -13,7 +13,7 @@ use crate::{
     steep_version::SteepVersion,
     substitution::Substitution,
     subtyping::check::{Check, CheckState},
-    types::{Logic, Type, literal_back_type},
+    types::{Logic, Type, literal_back_type, reset_fresh_variable_count},
 };
 
 #[derive(Clone, Debug)]
@@ -626,6 +626,14 @@ impl Builder {
 
     pub fn subtyping(&self) -> Check<'_> {
         Check::with_state(self, self.subtyping.clone())
+    }
+
+    pub fn restart_fresh_variable_count(&self) {
+        reset_fresh_variable_count();
+        self.union_shape_cache
+            .borrow_mut()
+            .retain(|type_, _| !type_.mentions_fresh_variable());
+        self.subtyping.forget_fresh_variables();
     }
 
     fn add_implicitly_returns_nil(

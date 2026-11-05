@@ -603,7 +603,10 @@ pub fn check_project(
         let check = |worker: &Worker, path: &PathBuf, inline: bool| -> Result<WorkResult, String> {
             let text = fs::read_to_string(project.absolute_path(path))
                 .map_err(|error| format!("{}: {error}", path.display()))?;
-            reset_fresh_variable_count();
+            match &worker.checker {
+                Some(checker) => checker.builder.restart_fresh_variable_count(),
+                None => reset_fresh_variable_count(),
+            }
             Ok(
                 match check_source(
                     target,
