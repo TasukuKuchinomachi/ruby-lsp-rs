@@ -451,3 +451,13 @@ fn proc_is_typed_with_the_parameters_and_the_body_of_its_block() {
         same_in_both_versions("untyped", "::Integer"),
     );
 }
+
+#[test]
+fn a_numbered_reference_is_a_string() {
+    assert_types(
+        "numbered_reference_as_string.rb",
+        "$1",
+        InferenceRule::NumberedReferenceAsString,
+        same_in_both_versions("(::String | nil)", "::String"),
+    );
+}

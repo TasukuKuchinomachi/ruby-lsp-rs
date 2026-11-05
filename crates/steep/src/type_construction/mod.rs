@@ -899,10 +899,7 @@ impl<'checker> TypeConstruction<'checker> {
             }
             "regopt" => self.add_typing(node, Type::Any),
             "back_ref" => self.synthesize(&node.updated(Some("gvar"), None, None), hint, false),
-            "nth_ref" => self.add_typing(
-                node,
-                Type::union(vec![instance_type("::String", Vec::new()), Type::Nil]),
-            ),
+            "nth_ref" => self.synthesize_numbered_reference(node),
             "while" | "until" | "while_post" | "until_post" => self.synthesize_while(node, hint),
             "rescue" => self.synthesize_rescue(node, hint),
             "resbody" => self.synthesize_resbody(node, hint),

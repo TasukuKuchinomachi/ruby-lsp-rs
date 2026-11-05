@@ -3,7 +3,7 @@ use std::rc::Rc;
 use rbs_definition::ast::{Callable, Type as RbsType, TypeName};
 use steep_interface::types::Type;
 
-use super::{Pair, TypeConstruction, is_instance_of};
+use super::{Pair, TypeConstruction, instance_type, is_instance_of};
 use crate::{inference::InferenceRule, ruby::node::Node};
 
 impl<'checker> TypeConstruction<'checker> {
@@ -100,6 +100,15 @@ impl<'checker> TypeConstruction<'checker> {
         pair.constr
             .record_inference_rule(node, InferenceRule::ProcTypeFromBlock);
         pair.constr.add_typing(node, proc_type)
+    }
+
+    pub(super) fn synthesize_numbered_reference(&self, node: &Rc<Node>) -> Pair<'checker> {
+        let string = instance_type("::String", Vec::new());
+        if self.infers(InferenceRule::NumberedReferenceAsString) {
+            self.record_inference_rule(node, InferenceRule::NumberedReferenceAsString);
+            return self.add_typing(node, string);
+        }
+        self.add_typing(node, Type::union(vec![string, Type::Nil]))
     }
 }
 
