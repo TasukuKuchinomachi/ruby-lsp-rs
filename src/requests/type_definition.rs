@@ -48,7 +48,7 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
 }
 
 pub fn class_implementations(index: &Index, class_name: &str) -> Vec<LocationLink> {
-    index
+    let mut implementations: Vec<LocationLink> = index
         .get(class_name)
         .unwrap_or_default()
         .iter()
@@ -59,5 +59,18 @@ pub fn class_implementations(index: &Index, class_name: &str) -> Vec<LocationLin
             target_range: range_from_location(&entry.location),
             target_selection_range: range_from_location(&entry.name_location()),
         })
-        .collect()
+        .collect();
+    implementations.sort_by(|left, right| {
+        (
+            &left.target_uri,
+            left.target_range.start.line,
+            left.target_range.start.character,
+        )
+            .cmp(&(
+                &right.target_uri,
+                right.target_range.start.line,
+                right.target_range.start.character,
+            ))
+    });
+    implementations
 }
