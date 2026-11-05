@@ -3,11 +3,14 @@ use crate::{source::Source, type_construction::Checker};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum InferenceRule {
     CollectionLiteralWithHintOfSelfReturningCall,
+    ProcTypeFromBlock,
 }
 
 impl InferenceRule {
-    pub const ALL: [InferenceRule; 1] =
-        [InferenceRule::CollectionLiteralWithHintOfSelfReturningCall];
+    pub const ALL: [InferenceRule; 2] = [
+        InferenceRule::CollectionLiteralWithHintOfSelfReturningCall,
+        InferenceRule::ProcTypeFromBlock,
+    ];
 
     fn bit(self) -> u8 {
         1 << self as u8

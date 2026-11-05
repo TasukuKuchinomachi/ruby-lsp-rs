@@ -3,7 +3,7 @@ use std::rc::Rc;
 use rbs_definition::ast::{Callable, Type as RbsType, TypeName};
 use steep_interface::types::Type;
 
-use super::{Pair, TypeConstruction};
+use super::{Pair, TypeConstruction, is_instance_of};
 use crate::{inference::InferenceRule, ruby::node::Node};
 
 impl<'checker> TypeConstruction<'checker> {
@@ -77,4 +77,38 @@ impl<'checker> TypeConstruction<'checker> {
             matches!(return_type, RbsType::SelfType)
         })
     }
+
+    pub(super) fn type_proc_call_as_proc_type(
+        &self,
+        node: &Rc<Node>,
+        params: &Rc<Node>,
+        body: Option<&Rc<Node>>,
+        hint: Option<&Type>,
+        pair: Pair<'checker>,
+    ) -> Pair<'checker> {
+        if !self.infers(InferenceRule::ProcTypeFromBlock) || !is_proc_call(node) {
+            return pair;
+        }
+        if !is_instance_of(&pair.type_, "::Proc") {
+            return pair;
+        }
+        let trial = self.with_new_typing(self.typing.new_child());
+        let proc_type = trial.type_lambda(node, params, body, hint).type_;
+        if !matches!(proc_type, Type::Proc { .. }) {
+            return pair;
+        }
+        pair.constr
+            .record_inference_rule(node, InferenceRule::ProcTypeFromBlock);
+        pair.constr.add_typing(node, proc_type)
+    }
+}
+
+fn is_proc_call(node: &Node) -> bool {
+    matches!(node.type_, "block" | "numblock" | "itblock")
+        && node.child_node(0).is_some_and(|send| {
+            send.type_ == "send"
+                && send.child(0).is_nil()
+                && send.child_symbol(1) == Some("proc")
+                && send.children.len() == 2
+        })
 }

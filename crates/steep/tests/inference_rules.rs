@@ -435,3 +435,19 @@ fn a_frozen_array_literal_returned_from_a_method_returning_a_tuple_is_the_tuple(
         same_in_both_versions("::Array[(::Integer | ::String)]", "[::Integer, ::String]"),
     );
 }
+
+#[test]
+fn proc_is_typed_with_the_parameters_and_the_body_of_its_block() {
+    assert_types(
+        "proc_type_from_block.rb",
+        "proc { |value| value }",
+        InferenceRule::ProcTypeFromBlock,
+        same_in_both_versions("::Proc", "^(untyped) -> untyped"),
+    );
+    assert_types(
+        "proc_type_from_block.rb",
+        "proc { 1 }.call",
+        InferenceRule::ProcTypeFromBlock,
+        same_in_both_versions("untyped", "::Integer"),
+    );
+}

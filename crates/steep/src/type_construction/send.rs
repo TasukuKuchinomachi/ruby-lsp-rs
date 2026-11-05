@@ -173,15 +173,16 @@ impl<'checker> TypeConstruction<'checker> {
                 if send_node.type_ == "lambda" {
                     return self.type_lambda(node, &params, body.as_ref(), hint);
                 }
-                self.type_send(
+                let pair = self.type_send(
                     node,
                     &send_node,
-                    Some(params),
-                    body,
+                    Some(params.clone()),
+                    body.clone(),
                     send_node.type_ == "csend",
                     tapp,
                     hint,
-                )
+                );
+                self.type_proc_call_as_proc_type(node, &params, body.as_ref(), hint, pair)
             }
             _ => ruby_exception::raise_runtime_error(format!(
                 "Unexpected node is given to `#synthesize_sendish` ({}, {})",
