@@ -30,7 +30,7 @@ fn load_service() -> TypeCheckService {
         fs::read_to_string(base_directory.join("Steepfile")).expect("the Steepfile is readable");
     let project = dsl::parse(&base_directory, &steepfile).expect("the Steepfile is read");
     let rbs_gem =
-        RbsGem::new(&tests_directory().join("rbs_gem"), &[]).expect("the rbs gem is found");
+        RbsGem::new(&tests_directory().join("rbs_gem"), &[], None).expect("the rbs gem is found");
     let mut service = TypeCheckService::load(
         project,
         &rbs_gem,

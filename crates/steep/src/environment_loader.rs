@@ -158,16 +158,21 @@ pub fn rbs_gem_directory(ruby: Option<&Path>, release: Option<&str>) -> Result<P
                 directory.display()
             ));
         }
-        if let Some(release) = release
-            && let Some(found) = release_of_gem_directory(&directory)
-            && found != release
-        {
-            return Err(format!(
-                "{RBS_DIRECTORY_VARIABLE}={} is rbs {found}, not rbs {release}",
-                directory.display()
-            ));
+        match (release_of_gem_directory(&directory), release) {
+            (Some(found), Some(release)) if found != release => {
+                return Err(format!(
+                    "{RBS_DIRECTORY_VARIABLE}={} is rbs {found}, not rbs {release}",
+                    directory.display()
+                ));
+            }
+            (None, None) => {
+                return Err(format!(
+                    "{RBS_DIRECTORY_VARIABLE}={} has neither lib/rbs/version.rb nor an rbs-VERSION name, so its rbs version is unknown: pass --rbs-version",
+                    directory.display()
+                ));
+            }
+            _ => return Ok(directory),
         }
-        return Ok(directory);
     }
     let candidates = gem_directories(ruby)?;
     let found = match release {
@@ -201,7 +206,7 @@ pub fn rbs_gem(ruby: Option<&Path>, release: Option<&str>) -> Result<RbsGem, Str
             .flat_map(|value| env::split_paths(&value).collect::<Vec<_>>())
             .collect(),
     };
-    RbsGem::new(&directory, &gem_paths)
+    RbsGem::new(&directory, &gem_paths, release)
 }
 
 pub fn supported_rbs_release(release: &str, found_in: &str) -> Result<(), String> {

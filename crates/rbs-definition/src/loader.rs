@@ -22,7 +22,11 @@ pub struct RbsGem {
 }
 
 impl RbsGem {
-    pub fn new(directory: &Path, other_gem_paths: &[PathBuf]) -> Result<RbsGem, String> {
+    pub fn new(
+        directory: &Path,
+        other_gem_paths: &[PathBuf],
+        requested_release: Option<&str>,
+    ) -> Result<RbsGem, String> {
         let mut gem_paths: Vec<PathBuf> = directory
             .parent()
             .and_then(Path::parent)
@@ -34,7 +38,8 @@ impl RbsGem {
                 gem_paths.push(gem_path.clone());
             }
         }
-        let release = release_of_gem_directory(directory);
+        let release =
+            release_of_gem_directory(directory).or_else(|| requested_release.map(str::to_string));
         let version = match &release {
             Some(release) => RbsVersion::of_release(release).ok_or_else(|| {
                 format!(
@@ -91,7 +96,7 @@ impl RbsGem {
 }
 
 pub fn load(rbs_gem_directory: &Path, directories: &[PathBuf]) -> Result<Environment, String> {
-    let rbs_gem = RbsGem::new(rbs_gem_directory, &[])?;
+    let rbs_gem = RbsGem::new(rbs_gem_directory, &[], None)?;
     let mut loader = rbs_gem.environment_loader(
         Some(rbs_gem.core_root()),
         (*rbs_gem.default_repository).clone(),

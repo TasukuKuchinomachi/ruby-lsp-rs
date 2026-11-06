@@ -230,13 +230,13 @@ fn rbs_gem(request: &LoadRequest, events: &Sender<Event>) -> Result<RbsGem, Stri
     let ruby = request.ruby.as_deref();
     let gem_paths = || environment_loader::gem_directories(ruby).unwrap_or_default();
     if let Some(directory) = &request.rbs_gem_directory {
-        return RbsGem::new(directory, &gem_paths());
+        return RbsGem::new(directory, &gem_paths(), None);
     }
     if std::env::var_os(environment_loader::RBS_DIRECTORY_VARIABLE).is_none()
         && let Some(directory) = &request.locked_rbs_directory
         && directory.join("core").is_dir()
     {
-        match RbsGem::new(directory, &gem_paths()) {
+        match RbsGem::new(directory, &gem_paths(), None) {
             Ok(rbs_gem) => return Ok(rbs_gem),
             Err(message) => {
                 let _ = events.send(Event::Log {
