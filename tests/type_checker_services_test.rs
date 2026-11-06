@@ -50,13 +50,14 @@ fn start_server_in(workspace_path: &Path, initialization_options: Value) -> Type
             "workspaceFolders": [{ "uri": workspace_uri, "name": "workspace" }],
             "capabilities": {
                 "general": { "positionEncodings": ["utf-16"] },
+                "window": { "workDoneProgress": true },
                 "workspace": { "inlayHint": { "refreshSupport": true }, "diagnostics": { "refreshSupport": true } },
             },
             "initializationOptions": initialization_options,
         }),
     );
     server.notify("initialized", json!({}));
-    server.wait_for_log("Loaded the signatures");
+    server.wait_for_signatures_and_indexing();
     server
 }
 
@@ -91,6 +92,33 @@ impl TypeCheckedServer {
                 if text.starts_with(prefix) {
                     return text.to_string();
                 }
+            }
+        }
+    }
+
+    fn wait_for_signatures_and_indexing(&self) {
+        let mut signatures_loaded = false;
+        let mut indexing_finished = false;
+        while !(signatures_loaded && indexing_finished) {
+            let message = self
+                .client
+                .receiver
+                .recv_timeout(RESPONSE_TIMEOUT)
+                .expect("No message received from server");
+            let Message::Notification(notification) = message else {
+                continue;
+            };
+            match notification.method.as_str() {
+                "window/logMessage" => {
+                    let text = notification.params["message"].as_str().unwrap_or_default();
+                    assert!(!text.starts_with("Failed to load the RBS signatures"), "{text}");
+                    signatures_loaded |= text.starts_with("Loaded the signatures");
+                }
+                "$/progress" => {
+                    indexing_finished |= notification.params["token"] == "indexing-progress"
+                        && notification.params["value"]["kind"] == "end";
+                }
+                _ => {}
             }
         }
     }
