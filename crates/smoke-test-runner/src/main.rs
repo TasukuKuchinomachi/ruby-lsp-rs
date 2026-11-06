@@ -42,7 +42,7 @@ const STEEP_ALLOWED_FAILURES: &[AllowedFailure] = &[
 ];
 
 const USAGE: &str = "\
-Usage: smoke-test-runner [--checker=steep-check|steep] [--steep-version=VERSION] [TEST ...]
+Usage: smoke-test-runner [--checker=ruby-type-check|steep] [--steep-version=VERSION] [TEST ...]
 
 Runs `check --with-expectations=test_expectations.yml` of the checker in every smoke test
 directory, as `rake test:output` of Steep does. A test passes when the checker exits with 0,
@@ -65,15 +65,15 @@ Tests come from three roots:
     e2e/NAME     e2e/cases of this repository
     strict/NAME  e2e/strict of this repository, run twice: without options against
                  test_expectations.yml (saved by Steep), and with `--strict` against
-                 strict_expectations.yml, only with steep-check because Steep has no such option;
+                 strict_expectations.yml, only with ruby-type-check because Steep has no such option;
                  options in the file strict_arguments of the test follow `--strict`
 
 Options:
-    --checker=steep-check
-                         Run target/<profile>/steep-check (default)
+    --checker=ruby-type-check
+                         Run target/<profile>/ruby-type-check (default)
     --checker=steep      Run Steep VERSION with rbs 4.2.0 through `ruby` in PATH
     --steep-version=VERSION
-                         Compare with Steep VERSION, 2.0.0 or 2.1.0 (default); steep-check runs
+                         Compare with Steep VERSION, 2.0.0 or 2.1.0 (default); ruby-type-check runs
                          with --steep-version=VERSION
     TEST                 Run only the tests named TEST, as `steep/hello`, `e2e/NAME`, `strict/NAME` or `hello`
 ";
@@ -133,7 +133,7 @@ struct Options {
 }
 
 fn parse_arguments() -> Result<Options, String> {
-    let mut checker_name = "steep-check".to_string();
+    let mut checker_name = "ruby-type-check".to_string();
     let mut steep_version = SteepVersion::default();
     let mut test_names = Vec::new();
     for argument in env::args().skip(1) {

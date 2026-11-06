@@ -1,6 +1,6 @@
 # Steep 2.1.0 の検査項目と end-to-end ケースの対応
 
-`steep-check` が Steep 2.1.0 と同じ結果を出すことを、Steep の smoke test（`smoke/` 以下）と、このディレクトリの `cases/` 以下のケースの両方を `steep check` で走らせて確かめます。この文書は、Steep が検査する項目を Steep のソースから洗い出し、それぞれがどちらで確かめられているかをまとめたものです。
+`ruby-type-check` が Steep 2.1.0 と同じ結果を出すことを、Steep の smoke test（`smoke/` 以下）と、このディレクトリの `cases/` 以下のケースの両方を `steep check` で走らせて確かめます。この文書は、Steep が検査する項目を Steep のソースから洗い出し、それぞれがどちらで確かめられているかをまとめたものです。
 
 ## ケースの作り方と確かめ方
 

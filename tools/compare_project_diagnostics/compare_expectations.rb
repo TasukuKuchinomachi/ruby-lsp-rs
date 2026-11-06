@@ -45,33 +45,33 @@ def load_diagnostics(path, project_directory)
   end
 end
 
-def same?(steep, steep_check)
-  steep.severity == steep_check.severity && steep.message == steep_check.message
+def same?(steep, ruby_type_check)
+  steep.severity == ruby_type_check.severity && steep.message == ruby_type_check.message
 end
 
-steep_path, steep_check_path, steep_project_directory, steep_check_project_directory = ARGV
-abort "usage: #{$PROGRAM_NAME} STEEP_EXPECTATIONS STEEP_CHECK_EXPECTATIONS [STEEP_PROJECT_DIRECTORY STEEP_CHECK_PROJECT_DIRECTORY]" unless steep_path && steep_check_path
+steep_path, ruby_type_check_path, steep_project_directory, ruby_type_check_project_directory = ARGV
+abort "usage: #{$PROGRAM_NAME} STEEP_EXPECTATIONS STEEP_CHECK_EXPECTATIONS [STEEP_PROJECT_DIRECTORY STEEP_CHECK_PROJECT_DIRECTORY]" unless steep_path && ruby_type_check_path
 
 steep_by_position = load_diagnostics(steep_path, steep_project_directory).group_by(&:position)
-steep_check_by_position = load_diagnostics(steep_check_path, steep_check_project_directory).group_by(&:position)
+ruby_type_check_by_position = load_diagnostics(ruby_type_check_path, ruby_type_check_project_directory).group_by(&:position)
 
 entries = []
-(steep_by_position.keys | steep_check_by_position.keys).each do |position|
+(steep_by_position.keys | ruby_type_check_by_position.keys).each do |position|
   steep_remaining = (steep_by_position[position] || []).dup
-  steep_check_remaining = (steep_check_by_position[position] || []).dup
+  ruby_type_check_remaining = (ruby_type_check_by_position[position] || []).dup
   steep_remaining.dup.each do |steep|
-    index = steep_check_remaining.index {|steep_check| same?(steep, steep_check) }
+    index = ruby_type_check_remaining.index {|ruby_type_check| same?(steep, ruby_type_check) }
     next unless index
-    entries << [:same, steep, steep_check_remaining.delete_at(index)]
+    entries << [:same, steep, ruby_type_check_remaining.delete_at(index)]
     steep_remaining.delete_at(steep_remaining.index(steep) || raise)
   end
-  steep_remaining.zip(steep_check_remaining.shift(steep_remaining.size)).each do |steep, steep_check|
-    entries << (steep_check ? [:differing_message, steep, steep_check] : [:only_in_steep, steep, nil])
+  steep_remaining.zip(ruby_type_check_remaining.shift(steep_remaining.size)).each do |steep, ruby_type_check|
+    entries << (ruby_type_check ? [:differing_message, steep, ruby_type_check] : [:only_in_steep, steep, nil])
   end
-  steep_check_remaining.each {|steep_check| entries << [:only_in_steep_check, nil, steep_check] }
+  ruby_type_check_remaining.each {|ruby_type_check| entries << [:only_in_ruby_type_check, nil, ruby_type_check] }
 end
 
-entries.sort_by! {|(_, steep, steep_check)| (steep || steep_check).position.map {|value| value.is_a?(Integer) ? format("%09d", value) : value } }
+entries.sort_by! {|(_, steep, ruby_type_check)| (steep || ruby_type_check).position.map {|value| value.is_a?(Integer) ? format("%09d", value) : value } }
 
 def print_message(prefix, diagnostic)
   lines = "[#{diagnostic.severity}] #{diagnostic.message}".lines(chomp: true)
@@ -82,30 +82,30 @@ end
 labels = {
   same: "same",
   only_in_steep: "only in Steep",
-  only_in_steep_check: "only in steep-check",
+  only_in_ruby_type_check: "only in ruby-type-check",
   differing_message: "differing message"
 }
 
-entries.each do |(kind, steep, steep_check)|
+entries.each do |(kind, steep, ruby_type_check)|
   next if kind == :same
-  diagnostic = steep || steep_check
+  diagnostic = steep || ruby_type_check
   puts "#{diagnostic.location} #{diagnostic.code} (#{labels.fetch(kind)})"
   print_message("-", steep) if steep
-  print_message("+", steep_check) if steep_check
+  print_message("+", ruby_type_check) if ruby_type_check
   puts
 end
 
 counts = entries.group_by(&:first).transform_values(&:size)
-codes = entries.map {|(_, steep, steep_check)| (steep || steep_check).code }.uniq.sort
+codes = entries.map {|(_, steep, ruby_type_check)| (steep || ruby_type_check).code }.uniq.sort
 code_width = [codes.map(&:size).max || 0, "code".size].max
 puts "Diagnostics by code:"
 puts format("  %-#{code_width}s  %6s  %13s  %16s  %17s", "code", *labels.values)
 codes.each do |code|
-  by_kind = entries.select {|(_, steep, steep_check)| (steep || steep_check).code == code }.group_by(&:first).transform_values(&:size)
+  by_kind = entries.select {|(_, steep, ruby_type_check)| (steep || ruby_type_check).code == code }.group_by(&:first).transform_values(&:size)
   puts format("  %-#{code_width}s  %6d  %13d  %16d  %17d", code, *labels.keys.map {|kind| by_kind.fetch(kind, 0) })
 end
 puts
-puts "Summary: Steep reported #{steep_by_position.values.sum(&:size)}, steep-check reported #{steep_check_by_position.values.sum(&:size)}"
+puts "Summary: Steep reported #{steep_by_position.values.sum(&:size)}, ruby-type-check reported #{ruby_type_check_by_position.values.sum(&:size)}"
 labels.each {|kind, label| puts "  #{label}: #{counts.fetch(kind, 0)}" }
 
 exit(entries.all? {|(kind, _, _)| kind == :same } ? 0 : 1)

@@ -17,5 +17,5 @@ serde_yaml.workspace = true
 mimalloc = { version = "0.1.52", features = ["v2"] }
 
 [[bin]]
-name = "steep-check"
+name = "ruby-type-check"
 path = "src/main.rs"

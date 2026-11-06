@@ -919,7 +919,7 @@ impl<'checker> TypeConstruction<'checker> {
                             }
                         } else {
                             eprintln!(
-                                "steep-check: passing multiple args through Symbol#to_proc is not supported ({}:{})",
+                                "ruby-type-check: passing multiple args through Symbol#to_proc is not supported ({}:{})",
                                 self.source.buffer.name,
                                 self.source.buffer.line(node.expression().begin_pos)
                             );

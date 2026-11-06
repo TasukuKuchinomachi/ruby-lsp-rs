@@ -23,19 +23,19 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 const DEFAULT_EXPECTATIONS_PATH: &str = "steep_expectations.yml";
 
 const USAGE: &str = "\
-Usage: steep-check check [options]
+Usage: ruby-type-check [check] [options]
 
 Description:
     Type check the program, as `steep check` does.
 
-    steep-check reads the Steepfile in the current directory without running Ruby,
+    ruby-type-check reads the Steepfile in the current directory without running Ruby,
     and finds the rbs 4.2.0 gem in the gem directories of the Ruby given with
     --ruby, or without it, of installed Rubies, or in RBS_GEM_DIRECTORY.
 
     The diagnostics are the same as those of the Steep version in the
     Gemfile.lock that `bundle exec` uses, or, without it, of the newest Steep
     in the first gem directory that has one (Steep 2.1.0 when none is found).
-    steep-check supports Steep 2.0.0 and 2.1.0.
+    ruby-type-check supports Steep 2.0.0 and 2.1.0.
 
 Options:
         --with-expectations[=PATH]   Type check with expectations saved in PATH (or steep_expectations.yml)
@@ -336,10 +336,10 @@ fn check(options: CheckOptions) -> Result<ExitCode, String> {
         return Ok(exit_code);
     }
     for failure in &failures {
-        eprintln!("steep-check: {failure}");
+        eprintln!("ruby-type-check: {failure}");
     }
     Err(format!(
-        "{} {} failed inside steep-check, so the result above is incomplete",
+        "{} {} failed inside ruby-type-check, so the result above is incomplete",
         failures.len(),
         if failures.len() == 1 {
             "check"
@@ -354,11 +354,10 @@ fn main() -> ExitCode {
     let arguments: Vec<String> = env::args().skip(1).collect();
     let options = match arguments.split_first() {
         Some((command, rest)) if command == "check" => parse_check_arguments(rest),
-        Some((option, [])) if option == "-h" || option == "--help" => Ok(CheckOptions {
-            help: true,
-            ..CheckOptions::default()
-        }),
-        _ => Err("the only supported command is `check`".to_string()),
+        Some((command, _)) if !command.starts_with('-') => Err(format!(
+            "unknown command `{command}`: the only supported command is `check`"
+        )),
+        _ => parse_check_arguments(&arguments),
     };
     match options {
         Ok(options) if options.help => {
@@ -366,11 +365,11 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(options) => check(options).unwrap_or_else(|message| {
-            eprintln!("steep-check: {message}");
+            eprintln!("ruby-type-check: {message}");
             ExitCode::FAILURE
         }),
         Err(message) => {
-            eprintln!("steep-check: {message}");
+            eprintln!("ruby-type-check: {message}");
             eprint!("{}", usage());
             ExitCode::from(2)
         }

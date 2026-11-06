@@ -45,16 +45,16 @@ fn run(mut command: Command) -> Result<CheckOutput, String> {
 impl Checker {
     pub fn parse(name: &str, steep_version: SteepVersion) -> Result<Self, String> {
         let kind = match name {
-            "steep-check" => {
+            "ruby-type-check" => {
                 let executable = env::current_exe()
                     .map_err(|error| format!("cannot locate the runner itself: {error}"))?
-                    .with_file_name(format!("steep-check{}", env::consts::EXE_SUFFIX));
+                    .with_file_name(format!("ruby-type-check{}", env::consts::EXE_SUFFIX));
                 CheckerKind::SteepCheck { executable }
             }
             "steep" => CheckerKind::Steep,
             _ => {
                 return Err(format!(
-                    "unknown checker `{name}`: choose `steep-check` or `steep`"
+                    "unknown checker `{name}`: choose `ruby-type-check` or `steep`"
                 ));
             }
         };
@@ -79,7 +79,7 @@ impl Checker {
                     ));
                 }
                 Ok(format!(
-                    "steep-check ({}) as Steep {steep_version}",
+                    "ruby-type-check ({}) as Steep {steep_version}",
                     executable.display()
                 ))
             }

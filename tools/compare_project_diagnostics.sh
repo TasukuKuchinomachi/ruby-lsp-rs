@@ -8,10 +8,10 @@ rbs_version=4.2.0
 
 usage() {
   cat <<USAGE
-Usage: tools/compare_project_diagnostics.sh [--steep-version=VERSION] [--project-directory=DIRECTORY] [--steep-check-steepfile=STEEPFILE] [--name=NAME] [--diagnostics=PRESET]
+Usage: tools/compare_project_diagnostics.sh [--steep-version=VERSION] [--project-directory=DIRECTORY] [--ruby-type-check-steepfile=STEEPFILE] [--name=NAME] [--diagnostics=PRESET]
 
 Type check a project with the real Steep VERSION (2.0.0 or 2.1.0, default $steep_version) with
-rbs $rbs_version and with \`steep-check check --steep-version=VERSION\`, and compare the diagnostics.
+rbs $rbs_version and with \`ruby-type-check check --steep-version=VERSION\`, and compare the diagnostics.
 Without --project-directory, Steep's own repository at the tag of VERSION is fetched and compared.
 With --diagnostics, every target and group of both Steepfiles uses the preset PRESET of
 Steep::Diagnostic::Ruby (all_error, strict, default, lenient or silent).
@@ -21,14 +21,14 @@ USAGE
 }
 
 project_directory=
-steep_check_steepfile=
+ruby_type_check_steepfile=
 name=
 diagnostics=
 for argument in "$@"; do
   case $argument in
     --steep-version=2.0.0|--steep-version=2.1.0) steep_version=${argument#*=} ;;
     --project-directory=*) project_directory=${argument#*=} ;;
-    --steep-check-steepfile=*) steep_check_steepfile=${argument#*=} ;;
+    --ruby-type-check-steepfile=*) ruby_type_check_steepfile=${argument#*=} ;;
     --name=*) name=${argument#*=} ;;
     --diagnostics=*)
       diagnostics=${argument#*=}
@@ -54,7 +54,7 @@ work_root="$repository/target/compare-project-diagnostics"
 if [ -z "$project_directory" ]; then
   name=${name:-steep-$steep_version}
   project_directory="$work_root/$name/project"
-  steep_check_steepfile=${steep_check_steepfile:-$helpers/steep/Steepfile}
+  ruby_type_check_steepfile=${ruby_type_check_steepfile:-$helpers/steep/Steepfile}
   if [ ! -d "$project_directory" ]; then
     echo "Fetching Steep $steep_tag into $project_directory" >&2
     rm -rf "$project_directory.partial"
@@ -75,7 +75,7 @@ output="$work_root/$name"
 if [ -n "$diagnostics" ]; then
   output="$output/diagnostics-$diagnostics"
 fi
-steep_check_project="$output/steep-check-project"
+ruby_type_check_project="$output/ruby-type-check-project"
 steep_project="$output/steep-project"
 mkdir -p "$output"
 
@@ -86,7 +86,7 @@ fi
 rbs_directory=$(ruby -e "$activate_gems; print Gem.loaded_specs[\"rbs\"].gem_dir")
 
 cargo build --quiet --release --manifest-path "$repository/Cargo.toml" -p steep
-steep_check="${CARGO_TARGET_DIR:-$repository/target}/release/steep-check"
+ruby_type_check="${CARGO_TARGET_DIR:-$repository/target}/release/ruby-type-check"
 
 seconds() {
   ruby -e 'print Process.clock_gettime(Process::CLOCK_MONOTONIC).round(1)'
@@ -141,66 +141,66 @@ if [ ! -f "$output/steep.yml" ]; then
   exit 1
 fi
 
-copy_project "$steep_check_project"
-override_diagnostics "$steep_check_project/Steepfile"
+copy_project "$ruby_type_check_project"
+override_diagnostics "$ruby_type_check_project/Steepfile"
 
-: > "$output/unsupported-by-steep-check.txt"
-steep_check_seconds=
+: > "$output/unsupported-by-ruby-type-check.txt"
+ruby_type_check_seconds=
 
-run_steep_check() {
+run_ruby_type_check() {
   stage=$1
-  rm -f "$output/steep-check.yml"
-  steep_check_start=$(seconds)
-  (cd "$steep_check_project" && RBS_GEM_DIRECTORY="$rbs_directory" "$steep_check" check --steep-version="$steep_version" --save-expectations="$output/steep-check.yml" 2> "$output/steep-check-$stage.log" > /dev/null) || true
-  steep_check_end=$(seconds)
-  if [ -f "$output/steep-check.yml" ] && ! grep -q '^steep-check: cannot load signatures of target' "$output/steep-check-$stage.log"; then
-    steep_check_seconds=$(elapsed "$steep_check_start" "$steep_check_end")
+  rm -f "$output/ruby-type-check.yml"
+  ruby_type_check_start=$(seconds)
+  (cd "$ruby_type_check_project" && RBS_GEM_DIRECTORY="$rbs_directory" "$ruby_type_check" check --steep-version="$steep_version" --save-expectations="$output/ruby-type-check.yml" 2> "$output/ruby-type-check-$stage.log" > /dev/null) || true
+  ruby_type_check_end=$(seconds)
+  if [ -f "$output/ruby-type-check.yml" ] && ! grep -q '^ruby-type-check: cannot load signatures of target' "$output/ruby-type-check-$stage.log"; then
+    ruby_type_check_seconds=$(elapsed "$ruby_type_check_start" "$ruby_type_check_end")
     return 0
   fi
   {
-    echo "steep-check cannot check the project ($stage):"
-    sed 's/^/  /' "$output/steep-check-$stage.log"
-  } >> "$output/unsupported-by-steep-check.txt"
+    echo "ruby-type-check cannot check the project ($stage):"
+    sed 's/^/  /' "$output/ruby-type-check-$stage.log"
+  } >> "$output/unsupported-by-ruby-type-check.txt"
   return 1
 }
 
 adapt() {
   description=$1
   shift
-  echo "Adapting the project for steep-check: $description" >> "$output/unsupported-by-steep-check.txt"
+  echo "Adapting the project for ruby-type-check: $description" >> "$output/unsupported-by-ruby-type-check.txt"
   if ! "$@" > "$output/adapt.log" 2>&1; then
     cat "$output/adapt.log" >&2
     exit 1
   fi
-  sed 's/^/  /' "$output/adapt.log" >> "$output/unsupported-by-steep-check.txt"
+  sed 's/^/  /' "$output/adapt.log" >> "$output/unsupported-by-ruby-type-check.txt"
 }
 
 replace_steepfile() {
-  cp "$steep_check_steepfile" "$steep_check_project/Steepfile"
-  override_diagnostics "$steep_check_project/Steepfile"
+  cp "$ruby_type_check_steepfile" "$ruby_type_check_project/Steepfile"
+  override_diagnostics "$ruby_type_check_project/Steepfile"
 }
 
-adapt_and_run_steep_check() {
+adapt_and_run_ruby_type_check() {
   next_stage=$1
   shift
   adapt "$@"
-  run_steep_check "$next_stage"
+  run_ruby_type_check "$next_stage"
 }
 
-echo "Type checking with steep-check" >&2
-run_steep_check original ||
-  { [ -n "$steep_check_steepfile" ] && adapt_and_run_steep_check steepfile-replaced "use $steep_check_steepfile as the Steepfile" replace_steepfile; } ||
+echo "Type checking with ruby-type-check" >&2
+run_ruby_type_check original ||
+  { [ -n "$ruby_type_check_steepfile" ] && adapt_and_run_ruby_type_check steepfile-replaced "use $ruby_type_check_steepfile as the Steepfile" replace_steepfile; } ||
   {
-    cat "$output/unsupported-by-steep-check.txt" >&2
+    cat "$output/unsupported-by-ruby-type-check.txt" >&2
     exit 1
   }
 
 status=0
-ruby "$helpers/compare_expectations.rb" "$output/steep.yml" "$output/steep-check.yml" "$steep_directory" "$steep_check_project" > "$output/differences.txt" || status=$?
+ruby "$helpers/compare_expectations.rb" "$output/steep.yml" "$output/ruby-type-check.yml" "$steep_directory" "$ruby_type_check_project" > "$output/differences.txt" || status=$?
 if [ "$status" -gt 1 ]; then
   exit "$status"
 fi
-if grep -q 'failed inside steep-check, so the result above is incomplete' "$output/steep-check-$stage.log"; then
+if grep -q 'failed inside ruby-type-check, so the result above is incomplete' "$output/ruby-type-check-$stage.log"; then
   status=1
 fi
 
@@ -210,21 +210,21 @@ fi
     sed "s|^$output/|  |" "$output/override-diagnostics.log"
     echo
   fi
-  if [ -s "$output/unsupported-by-steep-check.txt" ]; then
-    cat "$output/unsupported-by-steep-check.txt"
+  if [ -s "$output/unsupported-by-ruby-type-check.txt" ]; then
+    cat "$output/unsupported-by-ruby-type-check.txt"
     echo
   fi
-  echo "steep-check reported on the standard error ($output/steep-check-$stage.log):"
-  grep '^steep-check: ' "$output/steep-check-$stage.log" |
+  echo "ruby-type-check reported on the standard error ($output/ruby-type-check-$stage.log):"
+  grep '^ruby-type-check: ' "$output/ruby-type-check-$stage.log" |
     sed -e 's/ ([^()]*:[0-9][^()]*)//' \
-      -e 's/^steep-check: type checking [^ ]* failed: /steep-check: type checking a file failed: /' |
+      -e 's/^ruby-type-check: type checking [^ ]* failed: /ruby-type-check: type checking a file failed: /' |
     sort | uniq -c | sort -rn || true
-  echo "  $(grep -c 'panicked at' "$output/steep-check-$stage.log" || true) panics"
+  echo "  $(grep -c 'panicked at' "$output/ruby-type-check-$stage.log" || true) panics"
   echo
-  echo "Files steep-check failed to type check (no diagnostics are compared in them):"
-  sed -n 's/^steep-check: type checking \([^ ]*\) failed: .*/  \1/p' "$output/steep-check-$stage.log" | sort
+  echo "Files ruby-type-check failed to type check (no diagnostics are compared in them):"
+  sed -n 's/^ruby-type-check: type checking \([^ ]*\) failed: .*/  \1/p' "$output/ruby-type-check-$stage.log" | sort
   echo
-  echo "Steep took $(elapsed "$steep_start" "$steep_end") seconds, steep-check took $steep_check_seconds seconds"
+  echo "Steep took $(elapsed "$steep_start" "$steep_end") seconds, ruby-type-check took $ruby_type_check_seconds seconds"
   echo
   cat "$output/differences.txt"
 } > "$output/report.txt"

@@ -8,7 +8,7 @@ Rust で書いた Ruby の language server です。[Shopify Ruby LSP](https://g
 - signature help
 - 定義・宣言・型定義・実装へのジャンプ（RBS ファイルの中も）
 - 型の inlay hint（メソッドの引数と戻り値、`attr_*`、変数、ブロック引数）
-- `steep-check` によるプロジェクト全体の型検査（`steep check` と同じ診断を出します）
+- `ruby-type-check` によるプロジェクト全体の型検査（`steep check` と同じ診断を出します）
 
 ## 必要なもの
 
@@ -33,7 +33,7 @@ Rust で書いた Ruby の language server です。[Shopify Ruby LSP](https://g
 cargo install --locked --git https://github.com/TasukuKuchinomachi/ruby-lsp-rs --tag v0.2.0 ruby-lsp-rs steep
 ```
 
-`ruby-lsp-rs`（language server）と `steep-check`（CLI）が入ります。リリースの tag は `v<バージョン>` です。
+`ruby-lsp-rs`（language server）と `ruby-type-check`（CLI）が入ります。リリースの tag は `v<バージョン>` です。
 
 ## ビルド
 
@@ -41,7 +41,7 @@ cargo install --locked --git https://github.com/TasukuKuchinomachi/ruby-lsp-rs -
 cargo build --release
 ```
 
-`target/release/ruby-lsp-rs` と `target/release/steep-check` ができます。
+`target/release/ruby-lsp-rs` と `target/release/ruby-type-check` ができます。
 
 ## VS Code
 
@@ -78,10 +78,10 @@ cargo build --release
 
 ```sh
 cd /path/to/project
-steep-check check
+ruby-type-check
 ```
 
-`steep check` と同じ診断を出します。オプションは `steep-check --help` を参照してください。
+`steep check` と同じ診断を出します。オプションは `ruby-type-check --help` を参照してください。
 
 ## リポジトリの構成
 
@@ -90,8 +90,8 @@ steep-check check
 | `src/` | language server（[ARCHITECTURE.md](ARCHITECTURE.md)） |
 | `crates/rbs-definition` | rbs gem の `Environment`・`AncestorBuilder`・`DefinitionBuilder` と、RBS・inline RBS・rbs collection の読み込み |
 | `crates/steep-interface` | Steep の型、`Interface::Builder` の shape、`Subtyping::Check` |
-| `crates/steep` | `Steepfile`、parser gem の形の AST、`TypeConstruction`、診断、Steep の services（`TypeCheckService`、`HoverProvider`、`CompletionProvider`、`SignatureHelpProvider`、`GotoService`）、`steep-check` |
-| `crates/smoke-test-runner` | Steep の smoke test と `e2e/cases` を `steep-check` で走らせて集計する |
+| `crates/steep` | `Steepfile`、parser gem の形の AST、`TypeConstruction`、診断、Steep の services（`TypeCheckService`、`HoverProvider`、`CompletionProvider`、`SignatureHelpProvider`、`GotoService`）、`ruby-type-check` |
+| `crates/smoke-test-runner` | Steep の smoke test と `e2e/cases` を `ruby-type-check` で走らせて集計する |
 | `crates/prism-child-nodes` | Prism のノードを走査するための生成コード |
 | `crates/ruby-environment` | Bundler と RubyGems から Ruby 環境を調べる |
 | `crates/ruby-file-glob` | Ruby の `File.fnmatch` と `Dir.glob` 相当 |
