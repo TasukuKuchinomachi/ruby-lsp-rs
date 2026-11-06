@@ -53,8 +53,14 @@ pub fn steep_smoke_tests(
         .parent()
         .expect("the smoke directory is in the version directory")
         .to_path_buf();
-    if smoke_directory.is_dir() {
+    let fetched_commit_path = version_directory.join("fetched_commit");
+    let fetched_commit = fs::read_to_string(&fetched_commit_path).unwrap_or_default();
+    if smoke_directory.is_dir() && fetched_commit.trim() == steep_tag_commit {
         return Ok(smoke_directory);
+    }
+    if smoke_directory.exists() {
+        fs::remove_dir_all(&smoke_directory)
+            .map_err(|error| format!("cannot remove {}: {error}", smoke_directory.display()))?;
     }
 
     eprintln!(
@@ -95,5 +101,7 @@ pub fn steep_smoke_tests(
         .map_err(|error| format!("cannot move the smoke tests: {error}"))?;
     fs::remove_dir_all(&clone_directory)
         .map_err(|error| format!("cannot remove {}: {error}", clone_directory.display()))?;
+    fs::write(&fetched_commit_path, steep_tag_commit)
+        .map_err(|error| format!("cannot write {}: {error}", fetched_commit_path.display()))?;
     Ok(smoke_directory)
 }
