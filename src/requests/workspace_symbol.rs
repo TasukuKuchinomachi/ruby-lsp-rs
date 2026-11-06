@@ -21,12 +21,17 @@ pub struct WorkspaceSymbol {
 }
 
 pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult {
-    let params: WorkspaceSymbolParams = if params.is_null() { WorkspaceSymbolParams::default() } else { parse_params(params)? };
+    let params: WorkspaceSymbolParams = if params.is_null() {
+        WorkspaceSymbolParams::default()
+    } else {
+        parse_params(params)?
+    };
     let global_state = &*context.global_state;
     let index = global_state.index();
 
     let ids = index.fuzzy_search(params.query.as_deref(), |entry| {
-        let in_dependencies = crate::uri::to_path(&entry.uri).is_some_and(|path| !global_state.not_in_dependencies(&path));
+        let in_dependencies =
+            crate::uri::to_path(&entry.uri).is_some_and(|path| !global_state.not_in_dependencies(&path));
         !in_dependencies && !entry.is_private()
     });
 
@@ -38,7 +43,10 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
                 name: entry.name.clone(),
                 container_name: container_name(&entry.name),
                 kind: kind_for_entry(&index, id),
-                location: Location { uri: entry.uri.to_string(), range: range_from_location(&entry.location) },
+                location: Location {
+                    uri: entry.uri.to_string(),
+                    range: range_from_location(&entry.location),
+                },
             }
         })
         .collect();

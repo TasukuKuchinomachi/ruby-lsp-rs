@@ -4,10 +4,12 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 
 use super::configuration::Configuration;
-use crate::position::Location;
-use super::entry::{Entry, EntryId, EntryKind, MethodAliasTarget, MethodAliasTargetKind, ModuleOperation, Namespace, NamespaceKind};
+use super::entry::{
+    Entry, EntryId, EntryKind, MethodAliasTarget, MethodAliasTargetKind, ModuleOperation, Namespace, NamespaceKind,
+};
 use super::jaro_winkler;
 use super::prefix_tree::PrefixTree;
+use crate::position::Location;
 
 /// Ruby LSP stores indexer columns through Prism's `code_units_offset`, which counts characters rather than bytes for
 /// UTF-8, so UTF-8 columns are character columns like UTF-32
@@ -129,10 +131,14 @@ impl Index {
     pub fn delete(&mut self, uri: &str, skip_require_paths_tree: bool) {
         if let Some(ids) = self.uris_to_entries.remove(uri) {
             for id in ids {
-                let Some(entry) = self.entries.get_mut(id).and_then(Option::take) else { continue };
+                let Some(entry) = self.entries.get_mut(id).and_then(Option::take) else {
+                    continue;
+                };
                 self.free_entry_ids.push(id);
                 let name = entry.name;
-                let Some(list) = self.names.get_mut(&name) else { continue };
+                let Some(list) = self.names.get_mut(&name) else {
+                    continue;
+                };
                 list.retain(|existing| *existing != id);
                 if list.is_empty() {
                     self.names.swap_remove(&name);
@@ -158,7 +164,8 @@ impl Index {
     pub fn insert_require_path(&mut self, require_path: &str, uri: Arc<str>) {
         let require_path: Arc<str> = Arc::from(require_path);
         self.require_paths_by_uri.insert(uri.clone(), require_path.clone());
-        self.require_paths_tree.insert(&require_path, (require_path.clone(), uri));
+        self.require_paths_tree
+            .insert(&require_path, (require_path.clone(), uri));
     }
 
     pub fn get(&self, fully_qualified_name: &str) -> Option<&[EntryId]> {
@@ -171,7 +178,9 @@ impl Index {
     }
 
     pub fn entries_named(&self, fully_qualified_name: &str) -> Vec<&Entry> {
-        self.get(fully_qualified_name).map(|ids| ids.iter().map(|id| self.entry(*id)).collect()).unwrap_or_default()
+        self.get(fully_qualified_name)
+            .map(|ids| ids.iter().map(|id| self.entry(*id)).collect())
+            .unwrap_or_default()
     }
 
     pub fn search_require_paths(&self, query: &str) -> Vec<(Arc<str>, Arc<str>)> {
@@ -184,12 +193,20 @@ impl Index {
             .names
             .iter()
             .find(|(constant_name, _)| *constant_name == name || constant_name.ends_with(&suffix))
-            .or_else(|| self.names.iter().find(|(constant_name, _)| constant_name.ends_with(name)));
+            .or_else(|| {
+                self.names
+                    .iter()
+                    .find(|(constant_name, _)| constant_name.ends_with(name))
+            });
         found.map(|(_, ids)| ids.clone())
     }
 
     fn tree_search(&self, query: &str) -> Vec<Vec<EntryId>> {
-        self.entries_tree.search(query).into_iter().filter_map(|name| self.names.get(name.as_ref()).cloned()).collect()
+        self.entries_tree
+            .search(query)
+            .into_iter()
+            .filter_map(|name| self.names.get(name.as_ref()).cloned())
+            .collect()
     }
 
     pub fn prefix_search(&self, query: &str, nesting: Option<&[String]>) -> Vec<Vec<EntryId>> {
@@ -199,7 +216,11 @@ impl Index {
                 let mut results = Vec::new();
                 for i in (0..=nesting.len()).rev() {
                     let prefix = nesting[..i].join("::");
-                    let namespaced_query = if prefix.is_empty() { query.to_string() } else { format!("{prefix}::{query}") };
+                    let namespaced_query = if prefix.is_empty() {
+                        query.to_string()
+                    } else {
+                        format!("{prefix}::{query}")
+                    };
                     results.extend(self.tree_search(&namespaced_query));
                 }
                 results
@@ -256,8 +277,9 @@ impl Index {
             }
 
             let entry_name = entry.name.clone();
-            let Some(ancestor_index) =
-                entry.owner().and_then(|owner| ancestors.iter().position(|ancestor| ancestor == owner))
+            let Some(ancestor_index) = entry
+                .owner()
+                .and_then(|owner| ancestors.iter().position(|ancestor| ancestor == owner))
             else {
                 continue;
             };
@@ -287,7 +309,11 @@ impl Index {
             return self.tree_search(stripped);
         }
 
-        let direct_query = if nesting.is_empty() { name.to_string() } else { format!("{}::{name}", nesting.join("::")) };
+        let direct_query = if nesting.is_empty() {
+            name.to_string()
+        } else {
+            format!("{}::{name}", nesting.join("::"))
+        };
         let mut entries = self.tree_search(&direct_query);
 
         for i in (1..=nesting.len()).rev() {
@@ -308,7 +334,10 @@ impl Index {
         let mut filtered: Vec<Vec<EntryId>> = entries
             .into_iter()
             .map(|definitions| {
-                definitions.into_iter().filter(|id| self.try_entry(*id).is_some_and(Entry::is_constant_like)).collect()
+                definitions
+                    .into_iter()
+                    .filter(|id| self.try_entry(*id).is_some_and(Entry::is_constant_like))
+                    .collect()
             })
             .filter(|definitions: &Vec<EntryId>| !definitions.is_empty())
             .collect();
@@ -322,7 +351,12 @@ impl Index {
         self.resolve_with_seen(name, nesting, &mut seen_names)
     }
 
-    fn resolve_with_seen(&mut self, name: &str, nesting: &[String], seen_names: &mut Vec<String>) -> Option<Vec<EntryId>> {
+    fn resolve_with_seen(
+        &mut self,
+        name: &str,
+        nesting: &[String],
+        seen_names: &mut Vec<String>,
+    ) -> Option<Vec<EntryId>> {
         self.try_resolve(name, nesting, seen_names).ok().flatten()
     }
 
@@ -338,7 +372,11 @@ impl Index {
             return Ok(Some(entries));
         }
 
-        let full_name = if nesting.is_empty() { name.to_string() } else { format!("{}::{name}", nesting.join("::")) };
+        let full_name = if nesting.is_empty() {
+            name.to_string()
+        } else {
+            format!("{}::{name}", nesting.join("::"))
+        };
 
         if let Some(entries) = self.direct_or_aliased_constant(&full_name, seen_names)? {
             return Ok(Some(entries));
@@ -401,7 +439,12 @@ impl Index {
     }
 
     /// Attempts to find methods for a resolved fully qualified receiver name
-    pub fn resolve_method(&mut self, method_name: &str, receiver_name: &str, inherited_only: bool) -> Option<Vec<EntryId>> {
+    pub fn resolve_method(
+        &mut self,
+        method_name: &str,
+        receiver_name: &str,
+        inherited_only: bool,
+    ) -> Option<Vec<EntryId>> {
         let mut seen_names = Vec::new();
         self.resolve_method_with_seen(method_name, receiver_name, &mut seen_names, inherited_only)
     }
@@ -456,12 +499,18 @@ impl Index {
     /// or constant declarations.
     ///
     /// The order of ancestors is [linearized_prepends, self, linearized_includes, linearized_superclass]
-    pub fn linearized_ancestors_of(&mut self, fully_qualified_name: &str) -> Result<Vec<String>, NonExistingNamespaceError> {
+    pub fn linearized_ancestors_of(
+        &mut self,
+        fully_qualified_name: &str,
+    ) -> Result<Vec<String>, NonExistingNamespaceError> {
         if let Some(cached) = self.ancestors.get(fully_qualified_name) {
             return Ok(cached.clone());
         }
 
-        let mut parts: Vec<String> = split_name(fully_qualified_name).into_iter().map(str::to_string).collect();
+        let mut parts: Vec<String> = split_name(fully_qualified_name)
+            .into_iter()
+            .map(str::to_string)
+            .collect();
         let mut singleton_levels = 0;
         while parts.last().is_some_and(|part| part.contains("<Class:")) {
             singleton_levels += 1;
@@ -476,7 +525,8 @@ impl Index {
         let entries = entries.ok_or(NonExistingNamespaceError)?;
 
         let mut ancestors = vec![fully_qualified_name.to_string()];
-        self.ancestors.insert(fully_qualified_name.to_string(), ancestors.clone());
+        self.ancestors
+            .insert(fully_qualified_name.to_string(), ancestors.clone());
 
         let mut namespaces: Vec<EntryId> = Vec::new();
         for id in &entries {
@@ -484,7 +534,12 @@ impl Index {
                 EntryKind::Namespace(_) => namespaces.push(*id),
                 EntryKind::ConstantAlias { target } => {
                     if let Some(target_ids) = self.get(target) {
-                        namespaces.extend(target_ids.iter().copied().filter(|target_id| self.entry(*target_id).is_namespace()));
+                        namespaces.extend(
+                            target_ids
+                                .iter()
+                                .copied()
+                                .filter(|target_id| self.entry(*target_id).is_namespace()),
+                        );
                     }
                 }
                 _ => {}
@@ -498,7 +553,13 @@ impl Index {
         let mut nesting: Vec<String> = self
             .entry(namespaces[0])
             .namespace()
-            .map(|namespace| namespace.nesting.iter().flat_map(|part| split_name(part).into_iter().map(str::to_string)).collect())
+            .map(|namespace| {
+                namespace
+                    .nesting
+                    .iter()
+                    .flat_map(|part| split_name(part).into_iter().map(str::to_string))
+                    .collect()
+            })
             .unwrap_or_default();
 
         if !nesting.is_empty() {
@@ -530,7 +591,11 @@ impl Index {
         Some(
             entries
                 .into_iter()
-                .filter(|id| self.entry(*id).owner().is_some_and(|owner| ancestors.iter().any(|ancestor| ancestor == owner)))
+                .filter(|id| {
+                    self.entry(*id)
+                        .owner()
+                        .is_some_and(|owner| ancestors.iter().any(|ancestor| ancestor == owner))
+                })
                 .collect(),
         )
     }
@@ -551,7 +616,11 @@ impl Index {
         Some(
             entries
                 .into_iter()
-                .filter(|id| self.entry(*id).owner().is_some_and(|owner| ancestors.iter().any(|ancestor| ancestor == owner)))
+                .filter(|id| {
+                    self.entry(*id)
+                        .owner()
+                        .is_some_and(|owner| ancestors.iter().any(|ancestor| ancestor == owner))
+                })
                 .collect(),
         )
     }
@@ -563,22 +632,32 @@ impl Index {
         }
 
         let ancestors = self.linearized_ancestors_of(owner_name).unwrap_or_default();
-        let (instance_variables, class_variables): (Vec<EntryId>, Vec<EntryId>) =
-            entries.into_iter().partition(|id| matches!(self.entry(*id).kind, EntryKind::InstanceVariable { .. }));
+        let (instance_variables, class_variables): (Vec<EntryId>, Vec<EntryId>) = entries
+            .into_iter()
+            .partition(|id| matches!(self.entry(*id).kind, EntryKind::InstanceVariable { .. }));
 
         let owned_by = |index: &Index, id: &EntryId, ancestors: &[String]| {
-            index.entry(*id).owner().is_some_and(|owner| ancestors.iter().any(|ancestor| ancestor == owner))
+            index
+                .entry(*id)
+                .owner()
+                .is_some_and(|owner| ancestors.iter().any(|ancestor| ancestor == owner))
         };
 
-        let mut variables: Vec<EntryId> =
-            instance_variables.into_iter().filter(|id| owned_by(self, id, &ancestors)).collect();
+        let mut variables: Vec<EntryId> = instance_variables
+            .into_iter()
+            .filter(|id| owned_by(self, id, &ancestors))
+            .collect();
 
         if !class_variables.is_empty() {
             let name_parts = split_name(owner_name);
             if name_parts.last().is_some_and(|part| part.starts_with("<Class:")) {
                 let attached_name = name_parts[..name_parts.len() - 1].join("::");
                 let attached_ancestors = self.linearized_ancestors_of(&attached_name).unwrap_or_default();
-                variables.extend(class_variables.into_iter().filter(|id| owned_by(self, id, &attached_ancestors)));
+                variables.extend(
+                    class_variables
+                        .into_iter()
+                        .filter(|id| owned_by(self, id, &attached_ancestors)),
+                );
             } else {
                 variables.extend(class_variables.into_iter().filter(|id| owned_by(self, id, &ancestors)));
             }
@@ -597,7 +676,11 @@ impl Index {
         let ancestors = self.linearized_attached_ancestors(owner_name).unwrap_or_default();
         let mut variables: Vec<EntryId> = entries
             .into_iter()
-            .filter(|id| self.entry(*id).owner().is_some_and(|owner| ancestors.iter().any(|ancestor| ancestor == owner)))
+            .filter(|id| {
+                self.entry(*id)
+                    .owner()
+                    .is_some_and(|owner| ancestors.iter().any(|ancestor| ancestor == owner))
+            })
             .collect();
         let mut seen = std::collections::HashSet::new();
         variables.retain(|id| seen.insert(self.entry(*id).name.clone()));
@@ -631,7 +714,9 @@ impl Index {
             ids.iter()
                 .filter_map(|id| {
                     let entry = self.try_entry(*id)?;
-                    entry.namespace().map(|namespace| (entry.name.clone(), namespace.ancestor_hash()))
+                    entry
+                        .namespace()
+                        .map(|namespace| (entry.name.clone(), namespace.ancestor_hash()))
                 })
                 .collect(),
         )
@@ -672,9 +757,17 @@ impl Index {
             return id;
         }
 
-        let attached = self.get(name).and_then(|ids| ids.first().copied()).map(|id| self.entry(id));
+        let attached = self
+            .get(name)
+            .and_then(|ids| ids.first().copied())
+            .map(|id| self.entry(id));
         let uri = attached.map(|entry| entry.uri.clone()).unwrap_or_else(|| Arc::from(""));
-        let empty_location = Location { start_line: 1, end_line: 1, start_column: 0, end_column: 0 };
+        let empty_location = Location {
+            start_line: 1,
+            end_line: 1,
+            start_column: 0,
+            end_column: 0,
+        };
         let location = attached.map(|entry| entry.location).unwrap_or(empty_location);
         let name_location = attached.map(Entry::name_location).unwrap_or(empty_location);
         let entry = Entry::new(
@@ -698,7 +791,10 @@ impl Index {
     }
 
     pub fn all_entry_ids(&self) -> impl Iterator<Item = EntryId> + '_ {
-        self.entries.iter().enumerate().filter_map(|(id, entry)| entry.as_ref().map(|_| id))
+        self.entries
+            .iter()
+            .enumerate()
+            .filter_map(|(id, entry)| entry.as_ref().map(|_| id))
     }
 
     /// Moves every entry from a separately built index into this one, used to merge files indexed in parallel
@@ -743,20 +839,31 @@ impl Index {
     ) -> Result<(), NonExistingNamespaceError> {
         let mixin_operations: Vec<ModuleOperation> = namespaces
             .iter()
-            .flat_map(|id| self.entry(*id).namespace().map(|namespace| namespace.mixin_operations.clone()).unwrap_or_default())
+            .flat_map(|id| {
+                self.entry(*id)
+                    .namespace()
+                    .map(|namespace| namespace.mixin_operations.clone())
+                    .unwrap_or_default()
+            })
             .collect();
         let mut main_namespace_index = 0;
 
         for operation in mixin_operations {
-            let Some(resolved) = self.resolve(operation.module_name(), nesting) else { continue };
+            let Some(resolved) = self.resolve(operation.module_name(), nesting) else {
+                continue;
+            };
             let module_fully_qualified_name = self.entry(resolved[0]).name.clone();
 
             match operation {
                 ModuleOperation::Prepend(_) => {
                     let linearized_prepends = self.linearized_ancestors_of(&module_fully_qualified_name)?;
-                    let prepended_ancestors: Vec<String> = ancestors[..main_namespace_index.min(ancestors.len())].to_vec();
-                    let unique_prepends: Vec<String> =
-                        linearized_prepends.iter().filter(|name| !prepended_ancestors.contains(name)).cloned().collect();
+                    let prepended_ancestors: Vec<String> =
+                        ancestors[..main_namespace_index.min(ancestors.len())].to_vec();
+                    let unique_prepends: Vec<String> = linearized_prepends
+                        .iter()
+                        .filter(|name| !prepended_ancestors.contains(name))
+                        .cloned()
+                        .collect();
                     let insert_position = (linearized_prepends.len() - unique_prepends.len()).min(ancestors.len());
                     for (offset, name) in unique_prepends.into_iter().enumerate() {
                         ancestors.insert(insert_position + offset, name);
@@ -765,8 +872,10 @@ impl Index {
                 }
                 ModuleOperation::Include(_) => {
                     let linearized_includes = self.linearized_ancestors_of(&module_fully_qualified_name)?;
-                    let new_includes: Vec<String> =
-                        linearized_includes.into_iter().filter(|name| !ancestors.contains(name)).collect();
+                    let new_includes: Vec<String> = linearized_includes
+                        .into_iter()
+                        .filter(|name| !ancestors.contains(name))
+                        .collect();
                     let insert_position = (main_namespace_index + 1).min(ancestors.len());
                     for (offset, name) in new_includes.into_iter().enumerate() {
                         ancestors.insert(insert_position + offset, name);
@@ -796,8 +905,11 @@ impl Index {
         nesting: &[String],
         singleton_levels: usize,
     ) -> Result<(), NonExistingNamespaceError> {
-        let possible_parents: Vec<EntryId> =
-            if singleton_levels > 0 { self.get_owned(attached_class_name).unwrap_or_default() } else { namespaces.to_vec() };
+        let possible_parents: Vec<EntryId> = if singleton_levels > 0 {
+            self.get_owned(attached_class_name).unwrap_or_default()
+        } else {
+            namespaces.to_vec()
+        };
 
         let mut superclass: Option<String> = None;
         for id in &possible_parents {
@@ -816,7 +928,9 @@ impl Index {
         }
 
         if let Some(parent_class) = superclass {
-            let parent_class_name = self.resolve(&parent_class, nesting).map(|resolved| self.entry(resolved[0]).name.clone());
+            let parent_class_name = self
+                .resolve(&parent_class, nesting)
+                .map(|resolved| self.entry(resolved[0]).name.clone());
 
             if let Some(parent_class_name) = &parent_class_name
                 && fully_qualified_name != parent_class_name
@@ -824,22 +938,31 @@ impl Index {
                 let parent_name = Self::singleton_name_parts(parent_class_name, singleton_levels);
                 let parent_ancestors = self.linearized_ancestors_of(&parent_name)?;
                 ancestors.extend(parent_ancestors);
-                self.ancestors.insert(fully_qualified_name.to_string(), ancestors.clone());
+                self.ancestors
+                    .insert(fully_qualified_name.to_string(), ancestors.clone());
             }
 
-            if parent_class_name.as_deref().is_some_and(|name| name.starts_with("BasicObject")) && singleton_levels > 0 {
+            if parent_class_name
+                .as_deref()
+                .is_some_and(|name| name.starts_with("BasicObject"))
+                && singleton_levels > 0
+            {
                 let class_class_name = Self::singleton_name_parts("Class", singleton_levels - 1);
                 let class_ancestors = self.linearized_ancestors_of(&class_class_name)?;
                 ancestors.extend(class_ancestors);
-                self.ancestors.insert(fully_qualified_name.to_string(), ancestors.clone());
+                self.ancestors
+                    .insert(fully_qualified_name.to_string(), ancestors.clone());
             }
         } else if singleton_levels > 0 {
-            let has_module = self.get(attached_class_name).is_some_and(|ids| ids.iter().any(|id| self.entry(*id).is_module()));
+            let has_module = self
+                .get(attached_class_name)
+                .is_some_and(|ids| ids.iter().any(|id| self.entry(*id).is_module()));
             if has_module {
                 let module_class_name = Self::singleton_name_parts("Module", singleton_levels - 1);
                 let module_ancestors = self.linearized_ancestors_of(&module_class_name)?;
                 ancestors.extend(module_ancestors);
-                self.ancestors.insert(fully_qualified_name.to_string(), ancestors.clone());
+                self.ancestors
+                    .insert(fully_qualified_name.to_string(), ancestors.clone());
             }
         }
         Ok(())
@@ -855,8 +978,12 @@ impl Index {
         }
         seen_names.push(alias_name.clone());
 
-        let EntryKind::UnresolvedConstantAlias { target, nesting } = entry.kind.clone() else { return id };
-        let Some(resolved_target) = self.resolve_with_seen(&target, &nesting, seen_names) else { return id };
+        let EntryKind::UnresolvedConstantAlias { target, nesting } = entry.kind.clone() else {
+            return id;
+        };
+        let Some(resolved_target) = self.resolve_with_seen(&target, &nesting, seen_names) else {
+            return id;
+        };
         if resolved_target[0] == id {
             return id;
         }
@@ -896,24 +1023,36 @@ impl Index {
     ) -> Result<Option<Vec<EntryId>>, UnresolvableAliasError> {
         let full_name = build_non_redundant_full_name(name, nesting);
         let mut parts: Vec<&str> = split_name(&full_name);
-        let Some(constant_name) = parts.pop() else { return Ok(None) };
+        let Some(constant_name) = parts.pop() else {
+            return Ok(None);
+        };
         if parts.is_empty() {
             return Ok(None);
         }
 
-        let Some(namespace_entries) = self.try_resolve(&parts.join("::"), &[], seen_names)? else { return Ok(None) };
+        let Some(namespace_entries) = self.try_resolve(&parts.join("::"), &[], seen_names)? else {
+            return Ok(None);
+        };
         let namespace_name = self.entry(namespace_entries[0]).name.clone();
-        let Ok(ancestors) = self.linearized_ancestors_of(&namespace_name) else { return Ok(None) };
+        let Ok(ancestors) = self.linearized_ancestors_of(&namespace_name) else {
+            return Ok(None);
+        };
 
         for ancestor_name in ancestors {
-            if let Some(entries) = self.direct_or_aliased_constant(&format!("{ancestor_name}::{constant_name}"), seen_names)? {
+            if let Some(entries) =
+                self.direct_or_aliased_constant(&format!("{ancestor_name}::{constant_name}"), seen_names)?
+            {
                 return Ok(Some(entries));
             }
         }
         Ok(None)
     }
 
-    fn inherited_constant_completion_candidates(&mut self, name: Option<&str>, nesting: &[String]) -> Vec<Vec<EntryId>> {
+    fn inherited_constant_completion_candidates(
+        &mut self,
+        name: Option<&str>,
+        nesting: &[String],
+    ) -> Vec<Vec<EntryId>> {
         let (namespace_entries, constant_name) = match name {
             Some(name) => {
                 let full_name = build_non_redundant_full_name(name, nesting);
@@ -926,10 +1065,14 @@ impl Index {
             }
             None => (self.resolve(&nesting.join("::"), &[]), String::new()),
         };
-        let Some(namespace_entries) = namespace_entries else { return Vec::new() };
+        let Some(namespace_entries) = namespace_entries else {
+            return Vec::new();
+        };
 
         let namespace_name = self.entry(namespace_entries[0]).name.clone();
-        let Ok(ancestors) = self.linearized_ancestors_of(&namespace_name) else { return Vec::new() };
+        let Ok(ancestors) = self.linearized_ancestors_of(&namespace_name) else {
+            return Vec::new();
+        };
         let candidates: Vec<Vec<EntryId>> = ancestors
             .iter()
             .flat_map(|ancestor_name| self.tree_search(&format!("{ancestor_name}::{constant_name}")))
@@ -969,7 +1112,11 @@ impl Index {
             return Ok(None);
         }
 
-        Ok(self.names.get(&aliased).cloned().map(|ids| self.resolve_constant_aliases(ids, seen_names)))
+        Ok(self
+            .names
+            .get(&aliased)
+            .cloned()
+            .map(|ids| self.resolve_constant_aliases(ids, seen_names)))
     }
 
     fn resolve_constant_aliases(&mut self, ids: Vec<EntryId>, seen_names: &mut Vec<String>) -> Vec<EntryId> {
@@ -982,8 +1129,18 @@ impl Index {
     }
 
     /// Attempt to resolve a given unresolved method alias, returning the same entry if the target cannot be found
-    fn resolve_method_alias(&mut self, id: EntryId, receiver_name: &str, seen_names: &mut Vec<String>) -> Option<EntryId> {
-        let EntryKind::UnresolvedMethodAlias { new_name, old_name, owner } = self.try_entry(id)?.kind.clone() else {
+    fn resolve_method_alias(
+        &mut self,
+        id: EntryId,
+        receiver_name: &str,
+        seen_names: &mut Vec<String>,
+    ) -> Option<EntryId> {
+        let EntryKind::UnresolvedMethodAlias {
+            new_name,
+            old_name,
+            owner,
+        } = self.try_entry(id)?.kind.clone()
+        else {
             return Some(id);
         };
         if new_name == old_name || seen_names.contains(&new_name) {

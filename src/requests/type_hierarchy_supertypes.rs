@@ -16,20 +16,30 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
 
     let mut parents: IndexSet<EntryId> = IndexSet::new();
     for id in entries {
-        let Some(namespace) = index.entry(id).namespace().cloned() else { continue };
+        let Some(namespace) = index.entry(id).namespace().cloned() else {
+            continue;
+        };
 
         if index.entry(id).is_class()
             && let Some(parent_class_name) = &namespace.parent_class
             && let Some(resolved_parent_entries) = index.resolve(parent_class_name, &namespace.nesting)
         {
-            parents.extend(resolved_parent_entries.into_iter().filter(|parent| index.entry(*parent).is_class()));
+            parents.extend(
+                resolved_parent_entries
+                    .into_iter()
+                    .filter(|parent| index.entry(*parent).is_class()),
+            );
         }
 
         for mixin_operation in &namespace.mixin_operations {
             let Some(resolved_mixin_entries) = index.resolve(mixin_operation.module_name(), &namespace.nesting) else {
                 continue;
             };
-            parents.extend(resolved_mixin_entries.into_iter().filter(|mixin| index.entry(*mixin).is_module()));
+            parents.extend(
+                resolved_mixin_entries
+                    .into_iter()
+                    .filter(|mixin| index.entry(*mixin).is_module()),
+            );
         }
     }
 

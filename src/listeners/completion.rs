@@ -1,11 +1,8 @@
-use std::collections::HashSet;
 use std::path::Path;
 
-use rbs_environment::{Environment, Type};
 use ruby_prism::{CallNode, Node};
 use serde::Serialize;
 use serde_json::{Value, json};
-use type_checker::Analysis;
 
 use crate::document::ParsedDocument;
 use crate::indexer::{EntryId, EntryKind, Index};
@@ -14,7 +11,6 @@ use crate::node_context::NodeContext;
 use crate::position::{Position, Range};
 use crate::prism::{ConstantNameError, NodeExt, constant_full_name, constant_name, location_slice, node_slice};
 use crate::requests::support::common::self_receiver;
-use crate::requests::support::receiver_methods::{self, ReceiverMethod};
 use crate::requests::support::sorbet_level::SorbetLevel;
 use crate::type_inferrer::TypeInferrer;
 
@@ -111,7 +107,6 @@ pub struct Completion<'a, 'pr> {
     sorbet_level: SorbetLevel,
     uri: &'a str,
     trigger_character: Option<&'a str>,
-    type_checking: Option<(&'a Analysis, &'a Environment)>,
 }
 
 impl<'a, 'pr> Completion<'a, 'pr> {
@@ -131,14 +126,7 @@ impl<'a, 'pr> Completion<'a, 'pr> {
             sorbet_level,
             uri,
             trigger_character,
-            type_checking: None,
         }
-    }
-
-    /// Methods of receivers whose type the type checker knows come from that type instead of the guess of `TypeInferrer`
-    pub fn with_type_checking(mut self, analysis: &'a Analysis, environment: &'a Environment) -> Completion<'a, 'pr> {
-        self.type_checking = Some((analysis, environment));
-        self
     }
 
     pub fn into_response(self) -> Vec<CompletionItem> {
@@ -189,21 +177,31 @@ impl<'a, 'pr> Completion<'a, 'pr> {
 
     fn variable_name_range(&self, node: &Node<'_>) -> Range {
         let name_location = match node {
-            Node::GlobalVariableAndWriteNode { .. } => node.as_global_variable_and_write_node().map(|node| node.name_loc()),
-            Node::GlobalVariableOperatorWriteNode { .. } => {
-                node.as_global_variable_operator_write_node().map(|node| node.name_loc())
+            Node::GlobalVariableAndWriteNode { .. } => {
+                node.as_global_variable_and_write_node().map(|node| node.name_loc())
             }
-            Node::GlobalVariableOrWriteNode { .. } => node.as_global_variable_or_write_node().map(|node| node.name_loc()),
+            Node::GlobalVariableOperatorWriteNode { .. } => node
+                .as_global_variable_operator_write_node()
+                .map(|node| node.name_loc()),
+            Node::GlobalVariableOrWriteNode { .. } => {
+                node.as_global_variable_or_write_node().map(|node| node.name_loc())
+            }
             Node::GlobalVariableWriteNode { .. } => node.as_global_variable_write_node().map(|node| node.name_loc()),
-            Node::InstanceVariableWriteNode { .. } => node.as_instance_variable_write_node().map(|node| node.name_loc()),
+            Node::InstanceVariableWriteNode { .. } => {
+                node.as_instance_variable_write_node().map(|node| node.name_loc())
+            }
             Node::InstanceVariableAndWriteNode { .. } => {
                 node.as_instance_variable_and_write_node().map(|node| node.name_loc())
             }
-            Node::InstanceVariableOperatorWriteNode { .. } => {
-                node.as_instance_variable_operator_write_node().map(|node| node.name_loc())
+            Node::InstanceVariableOperatorWriteNode { .. } => node
+                .as_instance_variable_operator_write_node()
+                .map(|node| node.name_loc()),
+            Node::InstanceVariableOrWriteNode { .. } => {
+                node.as_instance_variable_or_write_node().map(|node| node.name_loc())
             }
-            Node::InstanceVariableOrWriteNode { .. } => node.as_instance_variable_or_write_node().map(|node| node.name_loc()),
-            Node::ClassVariableAndWriteNode { .. } => node.as_class_variable_and_write_node().map(|node| node.name_loc()),
+            Node::ClassVariableAndWriteNode { .. } => {
+                node.as_class_variable_and_write_node().map(|node| node.name_loc())
+            }
             Node::ClassVariableOperatorWriteNode { .. } => {
                 node.as_class_variable_operator_write_node().map(|node| node.name_loc())
             }
@@ -224,7 +222,9 @@ impl<'a, 'pr> Completion<'a, 'pr> {
         let Some(name) = constant_name(node) else { return };
 
         let range = self.parsed.range_from_node(node);
-        let candidates = self.index.constant_completion_candidates(&name, &self.node_context.nesting);
+        let candidates = self
+            .index
+            .constant_completion_candidates(&name, &self.node_context.nesting);
         for entries in candidates {
             let complete_name = self.index.entry(entries[0]).name.clone();
             let top_level = self.is_top_level(&complete_name);
@@ -254,12 +254,16 @@ impl<'a, 'pr> Completion<'a, 'pr> {
             && location_slice(&call_operator_location) == "::"
             && let Some(name) = constant_name(&receiver)
         {
-            let range = self.parsed.byte_range(node.as_node().start_offset(), call_operator_location.end_offset());
+            let range = self
+                .parsed
+                .byte_range(node.as_node().start_offset(), call_operator_location.end_offset());
             self.constant_path_completion(&format!("{name}::"), range);
             return;
         }
 
-        let Some(name) = node.message_loc().map(|location| location_slice(&location)) else { return };
+        let Some(name) = node.message_loc().map(|location| location_slice(&location)) else {
+            return;
+        };
 
         match name.as_str() {
             "require" => self.complete_require(node),
@@ -284,13 +288,19 @@ impl<'a, 'pr> Completion<'a, 'pr> {
         };
 
         let nesting = self.node_context.nesting.clone();
-        let Some(namespace_entries) = self.index.resolve(&aliased_namespace, &nesting) else { return };
+        let Some(namespace_entries) = self.index.resolve(&aliased_namespace, &nesting) else {
+            return;
+        };
         let namespace_name = self.index.entry(namespace_entries[0]).name.clone();
-        let real_namespace = self.index.follow_aliased_namespace(&namespace_name).unwrap_or(namespace_name);
+        let real_namespace = self
+            .index
+            .follow_aliased_namespace(&namespace_name)
+            .unwrap_or(namespace_name);
 
         let candidate_nesting: &[String] = if top_level_reference { &[] } else { &nesting };
-        let candidates =
-            self.index.constant_completion_candidates(&format!("{real_namespace}::{incomplete_name}"), candidate_nesting);
+        let candidates = self
+            .index
+            .constant_completion_candidates(&format!("{real_namespace}::{incomplete_name}"), candidate_nesting);
 
         let nesting_prefix = format!("{}::", ruby_array_inspect(&nesting));
         for entries in candidates {
@@ -301,7 +311,9 @@ impl<'a, 'pr> Completion<'a, 'pr> {
 
             let entry_name = first_entry.name.clone();
             let full_name = if aliased_namespace != real_namespace {
-                let constant_name = entry_name.strip_prefix(&format!("{real_namespace}::")).unwrap_or(&entry_name);
+                let constant_name = entry_name
+                    .strip_prefix(&format!("{real_namespace}::"))
+                    .unwrap_or(&entry_name);
                 if aliased_namespace.is_empty() {
                     constant_name.to_string()
                 } else {
@@ -335,18 +347,28 @@ impl<'a, 'pr> Completion<'a, 'pr> {
             let entry_name = entry.name.clone();
             self.response.push(CompletionItem {
                 label: entry_name.clone(),
-                label_details: Some(CompletionItemLabelDetails { detail: None, description: Some(entry.file_name()) }),
+                label_details: Some(CompletionItemLabelDetails {
+                    detail: None,
+                    description: Some(entry.file_name()),
+                }),
                 kind: completion_item_kind::VARIABLE,
                 filter_text: Some(entry_name.clone()),
-                text_edit: TextEdit { range, new_text: entry_name },
+                text_edit: TextEdit {
+                    range,
+                    new_text: entry_name,
+                },
                 data: None,
             });
         }
     }
 
     fn handle_class_variable_completion(&mut self, name: &str, range: Range) {
-        let Some(receiver_type) = TypeInferrer::new(self.index).infer_receiver_type(self.node_context) else { return };
-        let candidates = self.index.class_variable_completion_candidates(name, &receiver_type.name);
+        let Some(receiver_type) = TypeInferrer::new(self.index).infer_receiver_type(self.node_context) else {
+            return;
+        };
+        let candidates = self
+            .index
+            .class_variable_completion_candidates(name, &receiver_type.name);
         for id in candidates {
             let item = self.variable_completion_item(id, range);
             self.response.push(item);
@@ -357,8 +379,12 @@ impl<'a, 'pr> Completion<'a, 'pr> {
         if self.sorbet_level.is_strict() {
             return;
         }
-        let Some(receiver_type) = TypeInferrer::new(self.index).infer_receiver_type(self.node_context) else { return };
-        let candidates = self.index.instance_variable_completion_candidates(name, &receiver_type.name);
+        let Some(receiver_type) = TypeInferrer::new(self.index).infer_receiver_type(self.node_context) else {
+            return;
+        };
+        let candidates = self
+            .index
+            .instance_variable_completion_candidates(name, &receiver_type.name);
         for id in candidates {
             let item = self.variable_completion_item(id, range);
             self.response.push(item);
@@ -369,10 +395,16 @@ impl<'a, 'pr> Completion<'a, 'pr> {
         let entry = self.index.entry(id);
         CompletionItem {
             label: entry.name.clone(),
-            label_details: Some(CompletionItemLabelDetails { detail: None, description: Some(entry.file_name()) }),
+            label_details: Some(CompletionItemLabelDetails {
+                detail: None,
+                description: Some(entry.file_name()),
+            }),
             kind: completion_item_kind::FIELD,
             filter_text: None,
-            text_edit: TextEdit { range, new_text: entry.name.clone() },
+            text_edit: TextEdit {
+                range,
+                new_text: entry.name.clone(),
+            },
             data: Some(json!({ "owner_name": entry.owner() })),
         }
     }
@@ -382,11 +414,17 @@ impl<'a, 'pr> Completion<'a, 'pr> {
     }
 
     fn complete_require(&mut self, node: &CallNode<'_>) {
-        let Some(path_node_to_complete) = Self::first_string_argument(node) else { return };
+        let Some(path_node_to_complete) = Self::first_string_argument(node) else {
+            return;
+        };
         let content = location_slice(&path_node_to_complete.content_loc());
 
-        let mut paths: Vec<String> =
-            self.index.search_require_paths(&content).into_iter().map(|(require_path, _)| require_path.to_string()).collect();
+        let mut paths: Vec<String> = self
+            .index
+            .search_require_paths(&content)
+            .into_iter()
+            .map(|(require_path, _)| require_path.to_string())
+            .collect();
         paths.sort();
         let range = self.parsed.range_from_location(&path_node_to_complete.content_loc());
         for path in paths {
@@ -395,10 +433,17 @@ impl<'a, 'pr> Completion<'a, 'pr> {
     }
 
     fn complete_require_relative(&mut self, node: &CallNode<'_>) {
-        let Some(path_node_to_complete) = Self::first_string_argument(node) else { return };
-        let Some(full_path) = crate::uri::to_path(self.uri) else { return };
+        let Some(path_node_to_complete) = Self::first_string_argument(node) else {
+            return;
+        };
+        let Some(full_path) = crate::uri::to_path(self.uri) else {
+            return;
+        };
 
-        let origin_directory = Path::new(&full_path).parent().map(Path::to_path_buf).unwrap_or_default();
+        let origin_directory = Path::new(&full_path)
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_default();
         let content = location_slice(&path_node_to_complete.content_loc());
         let path_queries = if content.ends_with('/') || content.is_empty() {
             vec![format!("{content}**/*.rb")]
@@ -406,7 +451,10 @@ impl<'a, 'pr> Completion<'a, 'pr> {
             vec![format!("{content}*/**/*.rb"), format!("**/{content}*.rb")]
         };
 
-        let mut paths: Vec<String> = path_queries.iter().flat_map(|query| glob(&origin_directory, query)).collect();
+        let mut paths: Vec<String> = path_queries
+            .iter()
+            .flat_map(|query| glob(&origin_directory, query))
+            .collect();
         paths.sort();
         let range = self.parsed.range_from_location(&path_node_to_complete.content_loc());
         for path in paths {
@@ -425,19 +473,29 @@ impl<'a, 'pr> Completion<'a, 'pr> {
             return;
         }
 
-        let method_name = if self.trigger_character == Some(".") { None } else { Some(name) };
+        let method_name = if self.trigger_character == Some(".") {
+            None
+        } else {
+            Some(name)
+        };
 
-        if self.complete_methods_of_known_receiver_type(node, method_name) {
+        let Some(receiver_type) = TypeInferrer::new(self.index).infer_receiver_type(self.node_context) else {
             return;
-        }
+        };
+        let Some(range) = self.method_name_range(node, method_name) else {
+            return;
+        };
 
-        let Some(receiver_type) = TypeInferrer::new(self.index).infer_receiver_type(self.node_context) else { return };
-        let Some(range) = self.method_name_range(node, method_name) else { return };
-
-        let guessed_type = if receiver_type.guessed { json!(receiver_type.name) } else { json!(false) };
+        let guessed_type = if receiver_type.guessed {
+            json!(receiver_type.name)
+        } else {
+            json!(false)
+        };
         let external_references = self.node_context.fully_qualified_name() != receiver_type.name;
 
-        let candidates = self.index.method_completion_candidates(method_name, &receiver_type.name);
+        let candidates = self
+            .index
+            .method_completion_candidates(method_name, &receiver_type.name);
         for id in candidates {
             let entry = self.index.entry(id);
             if !entry.is_public() && external_references {
@@ -467,7 +525,9 @@ impl<'a, 'pr> Completion<'a, 'pr> {
 
     fn method_name_range(&self, node: &CallNode<'_>, method_name: Option<&str>) -> Option<Range> {
         match method_name {
-            Some(_) => node.message_loc().map(|location| self.parsed.range_from_location(&location)),
+            Some(_) => node
+                .message_loc()
+                .map(|location| self.parsed.range_from_location(&location)),
             None => {
                 let location = node.call_operator_loc()?;
                 let start = self.parsed.byte_position(location.start_offset());
@@ -477,71 +537,10 @@ impl<'a, 'pr> Completion<'a, 'pr> {
         }
     }
 
-    /// Returns false when the type checker doesn't know the receiver, so that the methods are guessed as before. The
-    /// methods declared in RBS come first and the Ruby index adds the methods that only have a Ruby implementation
-    fn complete_methods_of_known_receiver_type(&mut self, node: &CallNode<'_>, method_name: Option<&str>) -> bool {
-        let Some((analysis, environment)) = self.type_checking else { return false };
-        let Some(receiver) = node.receiver() else { return false };
-        let Some(receiver_type) = analysis.receiver_type(receiver.start_offset(), receiver.end_offset()) else {
-            return false;
-        };
-        let receiver_type = if node.is_safe_navigation() {
-            match receiver_methods::without_nil(receiver_type) {
-                Some(receiver_type) => receiver_type,
-                None => return false,
-            }
-        } else {
-            receiver_type.clone()
-        };
-        let members = receiver_methods::receiver_members(environment, &receiver_type);
-        if members.is_empty() {
-            return false;
-        }
-        let Some(range) = self.method_name_range(node, method_name) else { return true };
-        let prefix = method_name.unwrap_or_default();
-        let includes_private = receiver.as_self_node().is_some();
-
-        let mut seen_names = HashSet::new();
-        for member in &members {
-            for (name, method) in receiver_methods::methods(environment, member) {
-                if !name.starts_with(prefix) || (method.is_private() && !includes_private) {
-                    continue;
-                }
-                if seen_names.insert(name.clone()) {
-                    let item = receiver_method_completion_item(&name, &method, member, range, self.uri);
-                    self.response.push(item);
-                }
-            }
-            let Some(index_receiver_name) = receiver_methods::index_receiver_name(member) else { continue };
-            for id in self.index.method_completion_candidates(method_name, &index_receiver_name) {
-                let entry = self.index.entry(id);
-                if (!entry.is_public() && !includes_private) || !seen_names.insert(entry.name.clone()) {
-                    continue;
-                }
-                let entry_name = entry.name.clone();
-                self.response.push(CompletionItem {
-                    label: entry_name.clone(),
-                    label_details: Some(CompletionItemLabelDetails {
-                        detail: Some(entry.decorated_parameters()),
-                        description: Some(entry.file_name()),
-                    }),
-                    kind: completion_item_kind::METHOD,
-                    filter_text: Some(entry_name.clone()),
-                    text_edit: TextEdit { range, new_text: method_insertion_text(&entry_name) },
-                    data: Some(json!({
-                        "owner_name": entry.owner(),
-                        "guessed_type": false,
-                        "receiver_type": member.to_string(),
-                        "uri": self.uri,
-                    })),
-                });
-            }
-        }
-        true
-    }
-
     fn add_local_completions(&mut self, node: &CallNode<'_>, name: &str) {
-        let Some(message_location) = node.message_loc() else { return };
+        let Some(message_location) = node.message_loc() else {
+            return;
+        };
         let range = self.parsed.range_from_location(&message_location);
 
         for local_name in self.node_context.locals_for_scope() {
@@ -553,14 +552,19 @@ impl<'a, 'pr> Completion<'a, 'pr> {
                 label_details: None,
                 kind: completion_item_kind::VARIABLE,
                 filter_text: Some(local_name.clone()),
-                text_edit: TextEdit { range, new_text: local_name },
+                text_edit: TextEdit {
+                    range,
+                    new_text: local_name,
+                },
                 data: Some(json!({ "skip_resolve": true })),
             });
         }
     }
 
     fn add_keyword_completions(&mut self, node: &CallNode<'_>, name: &str) {
-        let Some(message_location) = node.message_loc() else { return };
+        let Some(message_location) = node.message_loc() else {
+            return;
+        };
         let range = self.parsed.range_from_location(&message_location);
 
         for keyword in KEYWORDS {
@@ -572,7 +576,10 @@ impl<'a, 'pr> Completion<'a, 'pr> {
                 label_details: None,
                 kind: completion_item_kind::KEYWORD,
                 filter_text: None,
-                text_edit: TextEdit { range, new_text: keyword.to_string() },
+                text_edit: TextEdit {
+                    range,
+                    new_text: keyword.to_string(),
+                },
                 data: Some(json!({ "keyword": true })),
             });
         }
@@ -608,7 +615,10 @@ impl<'a, 'pr> Completion<'a, 'pr> {
         if !fully_qualified_name.starts_with(incomplete_name) {
             for namespace in &self.node_context.nesting {
                 let prefix = format!("{namespace}::");
-                let shortened_name = insertion_text.strip_prefix(&prefix).unwrap_or(&insertion_text).to_string();
+                let shortened_name = insertion_text
+                    .strip_prefix(&prefix)
+                    .unwrap_or(&insertion_text)
+                    .to_string();
 
                 let conflict_name = format!("{fully_qualified_name}::{shortened_name}");
                 if real_name != conflict_name && self.index.get(&conflict_name).is_some() {
@@ -624,14 +634,24 @@ impl<'a, 'pr> Completion<'a, 'pr> {
             }
         }
 
-        let description = entries.iter().map(|id| self.index.entry(*id).file_name()).collect::<Vec<_>>().join(",");
+        let description = entries
+            .iter()
+            .map(|id| self.index.entry(*id).file_name())
+            .collect::<Vec<_>>()
+            .join(",");
 
         CompletionItem {
             label: real_name.to_string(),
-            label_details: Some(CompletionItemLabelDetails { detail: None, description: Some(description) }),
+            label_details: Some(CompletionItemLabelDetails {
+                detail: None,
+                description: Some(description),
+            }),
             kind,
             filter_text: Some(filter_text),
-            text_edit: TextEdit { range, new_text: insertion_text },
+            text_edit: TextEdit {
+                range,
+                new_text: insertion_text,
+            },
             data: None,
         }
     }
@@ -640,7 +660,11 @@ impl<'a, 'pr> Completion<'a, 'pr> {
         let nesting = &self.node_context.nesting;
         for i in (0..=nesting.len()).rev() {
             let prefix = nesting[..i].join("::");
-            let full_name = if prefix.is_empty() { entry_name.to_string() } else { format!("{prefix}::{entry_name}") };
+            let full_name = if prefix.is_empty() {
+                entry_name.to_string()
+            } else {
+                format!("{prefix}::{entry_name}")
+            };
             if full_name == entry_name {
                 continue;
             }
@@ -650,39 +674,6 @@ impl<'a, 'pr> Completion<'a, 'pr> {
         }
         false
     }
-}
-
-fn receiver_method_completion_item(
-    name: &str,
-    method: &ReceiverMethod<'_>,
-    member: &Type,
-    range: Range,
-    uri: &str,
-) -> CompletionItem {
-    let owner = method.definition.owner.as_str();
-    CompletionItem {
-        label: name.to_string(),
-        label_details: Some(CompletionItemLabelDetails {
-            detail: method.overloads.first().map(ToString::to_string),
-            description: Some(owner.to_string()),
-        }),
-        kind: completion_item_kind::METHOD,
-        filter_text: Some(name.to_string()),
-        text_edit: TextEdit { range, new_text: method_insertion_text(name) },
-        data: Some(json!({ "owner_name": owner, "guessed_type": false, "receiver_type": member.to_string(), "uri": uri })),
-    }
-}
-
-/// Only for calls with an explicit receiver, so a writer never needs `self.`
-fn method_insertion_text(name: &str) -> String {
-    match name.strip_suffix('=') {
-        Some(writer_name) if is_writer_name(writer_name) => format!("{writer_name} = "),
-        _ => name.to_string(),
-    }
-}
-
-fn is_writer_name(name: &str) -> bool {
-    name.chars().last().is_some_and(|character| character.is_alphanumeric() || character == '_')
 }
 
 fn build_completion(label: String, range: Range) -> CompletionItem {
@@ -716,18 +707,36 @@ fn ruby_array_inspect(parts: &[String]) -> String {
 /// the pattern's literal prefix
 pub fn glob(base: &Path, pattern: &str) -> Vec<String> {
     let (start, components): (std::path::PathBuf, Vec<&str>) = match pattern.strip_prefix('/') {
-        Some(stripped) => (std::path::PathBuf::from("/"), stripped.split('/').filter(|part| !part.is_empty()).collect()),
-        None => (base.to_path_buf(), pattern.split('/').filter(|part| !part.is_empty()).collect()),
+        Some(stripped) => (
+            std::path::PathBuf::from("/"),
+            stripped.split('/').filter(|part| !part.is_empty()).collect(),
+        ),
+        None => (
+            base.to_path_buf(),
+            pattern.split('/').filter(|part| !part.is_empty()).collect(),
+        ),
     };
-    let prefix = if pattern.starts_with('/') { "/".to_string() } else { String::new() };
+    let prefix = if pattern.starts_with('/') {
+        "/".to_string()
+    } else {
+        String::new()
+    };
     let mut results = Vec::new();
     glob_components(&start, &prefix, &components, &mut results);
     results
 }
 
 fn glob_components(directory: &Path, relative: &str, components: &[&str], results: &mut Vec<String>) {
-    let Some((component, rest)) = components.split_first() else { return };
-    let join = |name: &str| if relative.is_empty() || relative.ends_with('/') { format!("{relative}{name}") } else { format!("{relative}/{name}") };
+    let Some((component, rest)) = components.split_first() else {
+        return;
+    };
+    let join = |name: &str| {
+        if relative.is_empty() || relative.ends_with('/') {
+            format!("{relative}{name}")
+        } else {
+            format!("{relative}/{name}")
+        }
+    };
 
     if *component == "**" {
         glob_components(directory, relative, rest, results);
@@ -771,7 +780,9 @@ fn glob_components(directory: &Path, relative: &str, components: &[&str], result
 }
 
 fn directory_entries(directory: &Path) -> Vec<(String, std::path::PathBuf)> {
-    let Ok(read_directory) = std::fs::read_dir(directory) else { return Vec::new() };
+    let Ok(read_directory) = std::fs::read_dir(directory) else {
+        return Vec::new();
+    };
     read_directory
         .filter_map(Result::ok)
         .map(|entry| (entry.file_name().to_string_lossy().into_owned(), entry.path()))
@@ -809,7 +820,10 @@ mod tests {
 
     #[test]
     fn inspects_arrays_like_ruby() {
-        assert_eq!(ruby_array_inspect(&["Foo".to_string(), "Bar".to_string()]), "[\"Foo\", \"Bar\"]");
+        assert_eq!(
+            ruby_array_inspect(&["Foo".to_string(), "Bar".to_string()]),
+            "[\"Foo\", \"Bar\"]"
+        );
         assert_eq!(ruby_array_inspect(&[]), "[]");
     }
 

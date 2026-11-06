@@ -25,7 +25,8 @@ struct SignatureFile<'source> {
 
 impl SignatureFile<'_> {
     fn location(&self, range: &RBSLocationRange) -> Location {
-        self.line_index.location_of(range.start().max(0) as usize, range.end().max(0) as usize)
+        self.line_index
+            .location_of(range.start().max(0) as usize, range.end().max(0) as usize)
     }
 }
 
@@ -33,9 +34,13 @@ impl SignatureFile<'_> {
 pub fn core_signature_paths(directory: &Path) -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = walkdir::WalkDir::new(directory)
         .into_iter()
-        .filter_entry(|entry| entry.depth() == 0 || !entry.file_type().is_dir() || !entry.file_name().to_string_lossy().starts_with('_'))
+        .filter_entry(|entry| {
+            entry.depth() == 0 || !entry.file_type().is_dir() || !entry.file_name().to_string_lossy().starts_with('_')
+        })
         .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_file() && entry.path().extension().is_some_and(|extension| extension == "rbs"))
+        .filter(|entry| {
+            entry.file_type().is_file() && entry.path().extension().is_some_and(|extension| extension == "rbs")
+        })
         .map(|entry| entry.into_path())
         .collect();
     paths.sort_by(|left, right| left.to_string_lossy().cmp(&right.to_string_lossy()));
@@ -58,17 +63,24 @@ impl<'index> RbsIndexer<'index> {
     /// Mirrors `RBSIndexer#index_ruby_core`, given the `core` directory of the RBS gem
     pub fn index_core_directory(&mut self, directory: &Path) {
         for path in core_signature_paths(directory) {
-            let Ok(source) = std::fs::read_to_string(&path) else { continue };
+            let Ok(source) = std::fs::read_to_string(&path) else {
+                continue;
+            };
             self.process_signature(&path.to_string_lossy(), &source);
         }
     }
 
     /// Mirrors `RBSIndexer#process_signature`. Files that RBS fails to parse are skipped
     pub fn process_signature(&mut self, path: &str, source: &str) {
-        let Ok(signature) = ruby_rbs::node::parse(source) else { return };
+        let Ok(signature) = ruby_rbs::node::parse(source) else {
+            return;
+        };
         let file = SignatureFile {
             uri: Arc::from(crate::uri::from_path(path)),
-            line_index: LineIndex::new(source.as_bytes(), super::index::indexer_column_encoding(self.index.configuration.encoding)),
+            line_index: LineIndex::new(
+                source.as_bytes(),
+                super::index::indexer_column_encoding(self.index.configuration.encoding),
+            ),
         };
 
         for declaration in signature.declarations().iter() {
@@ -99,7 +111,9 @@ impl<'index> RbsIndexer<'index> {
     }
 
     fn handle_class(&mut self, file: &SignatureFile<'_>, declaration: &ClassNode<'_>) {
-        let parent_class = declaration.super_class().map(|super_class| symbol_name(&super_class.name()));
+        let parent_class = declaration
+            .super_class()
+            .map(|super_class| symbol_name(&super_class.name()));
         self.handle_class_or_module(
             file,
             symbol_name(&declaration.name()),
@@ -164,7 +178,9 @@ impl<'index> RbsIndexer<'index> {
         if !extended_modules.is_empty() {
             let singleton = self.index.existing_or_new_singleton_class(&name);
             if let Some(namespace) = self.index.entry_mut(singleton).namespace_mut() {
-                namespace.mixin_operations.extend(extended_modules.into_iter().map(ModuleOperation::Include));
+                namespace
+                    .mixin_operations
+                    .extend(extended_modules.into_iter().map(ModuleOperation::Include));
             }
         }
 
@@ -194,14 +210,22 @@ impl<'index> RbsIndexer<'index> {
             MethodDefinitionVisibility::Private => Visibility::Private,
             MethodDefinitionVisibility::Public | MethodDefinitionVisibility::Unspecified => Visibility::Public,
         };
-        let signatures = member.overloads().iter().map(|overload| Signature::new(process_overload(overload))).collect();
+        let signatures = member
+            .overloads()
+            .iter()
+            .map(|overload| Signature::new(process_overload(overload)))
+            .collect();
 
         let mut entry = Entry::new(
             name,
             file.uri.clone(),
             location,
             comments,
-            EntryKind::Method { owner: Some(real_owner), signatures, name_location: location },
+            EntryKind::Method {
+                owner: Some(real_owner),
+                signatures,
+                name_location: location,
+            },
         );
         entry.visibility = visibility;
         self.index.add(entry, false);
@@ -250,8 +274,12 @@ impl<'index> RbsIndexer<'index> {
 }
 
 fn process_overload(overload: Node<'_>) -> Vec<Parameter> {
-    let Node::MethodDefinitionOverload(overload) = overload else { return Vec::new() };
-    let Node::MethodType(method_type) = overload.method_type() else { return Vec::new() };
+    let Node::MethodDefinitionOverload(overload) = overload else {
+        return Vec::new();
+    };
+    let Node::MethodType(method_type) = overload.method_type() else {
+        return Vec::new();
+    };
 
     match method_type.type_() {
         Node::FunctionType(function) => {
@@ -296,7 +324,9 @@ fn parse_arguments(function: &FunctionTypeNode<'_>) -> Vec<Parameter> {
     }
 
     for parameter in function.trailing_positionals().iter() {
-        parameters.push(Parameter::Optional(function_parameter_name(&parameter).unwrap_or_default()));
+        parameters.push(Parameter::Optional(
+            function_parameter_name(&parameter).unwrap_or_default(),
+        ));
     }
 
     if let Some(rest) = function.rest_positionals() {

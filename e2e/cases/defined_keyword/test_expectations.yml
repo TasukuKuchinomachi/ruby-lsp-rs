@@ -1,0 +1,23 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 7
+      end:
+        line: 2
+        character: 21
+    severity: ERROR
+    message: Type `(::String | nil)` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 4
+        character: 31
+      end:
+        line: 4
+        character: 45
+    severity: ERROR
+    message: Type `(::String | nil)` does not have method `no_such_method`
+    code: Ruby::NoMethod

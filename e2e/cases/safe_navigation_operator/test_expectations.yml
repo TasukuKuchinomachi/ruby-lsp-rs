@@ -1,0 +1,43 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 3
+        character: 12
+      end:
+        line: 3
+        character: 26
+    severity: ERROR
+    message: Type `(::String | nil)` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 5
+        character: 0
+      end:
+        line: 5
+        character: 27
+    severity: ERROR
+    message: Type `::Node` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 6
+        character: 12
+      end:
+        line: 6
+        character: 16
+    severity: ERROR
+    message: Type `(::Node | nil)` does not have method `name`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 8
+        character: 11
+      end:
+        line: 8
+        character: 25
+    severity: ERROR
+    message: Type `(::String | nil)` does not have method `no_such_method`
+    code: Ruby::NoMethod

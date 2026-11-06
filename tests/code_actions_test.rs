@@ -42,7 +42,10 @@ fn resolve_fails_for_non_ruby_documents() {
 
     let error = response.response_result.expect_err("resolve should fail");
     assert_eq!(lsp_server::ErrorCode::RequestFailed as i32, error.code);
-    assert_eq!("Code actions are currently only available for Ruby documents", error.message);
+    assert_eq!(
+        "Code actions are currently only available for Ruby documents",
+        error.message
+    );
     assert_eq!(vec![error.message.clone()], shown_messages(&messages));
 }
 
@@ -66,7 +69,10 @@ fn resolve_fails_for_empty_extract_selection() {
         "data": { "range": { "start": { "line": 0, "character": 1 }, "end": { "line": 0, "character": 1 } }, "uri": "file:///fake.rb" },
     });
     let (response, _) = resolve("foo", "file:///fake.rb", "ruby", params);
-    assert_eq!("Invalid selection for refactor", response.response_result.expect_err("resolve should fail").message);
+    assert_eq!(
+        "Invalid selection for refactor",
+        response.response_result.expect_err("resolve should fail").message
+    );
 }
 
 #[test]
@@ -75,7 +81,12 @@ fn resolve_extracts_variable() {
         "title": "Refactor: Extract Variable",
         "data": { "range": { "start": { "line": 3, "character": 6 }, "end": { "line": 3, "character": 11 } }, "uri": "file:///fake.rb" },
     });
-    let (response, _) = resolve("def foo\n  a = 1\n  b = 2\n  c = a + b\nend\n", "file:///fake.rb", "ruby", params);
+    let (response, _) = resolve(
+        "def foo\n  a = 1\n  b = 2\n  c = a + b\nend\n",
+        "file:///fake.rb",
+        "ruby",
+        params,
+    );
 
     assert_eq!(
         json!({

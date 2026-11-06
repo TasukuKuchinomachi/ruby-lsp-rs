@@ -17,7 +17,11 @@ fn mixin_operation_module_names(test: &TestCase, name: &str) -> Vec<String> {
 }
 
 fn parent_class(test: &TestCase, name: &str) -> Option<String> {
-    test.first(name).namespace().expect("expected a namespace").parent_class.clone()
+    test.first(name)
+        .namespace()
+        .expect("expected a namespace")
+        .parent_class
+        .clone()
 }
 
 fn comments(test: &TestCase, name: &str) -> Option<String> {
@@ -30,7 +34,10 @@ fn lazy_comments(test: &mut TestCase, name: &str) -> String {
 }
 
 fn temporary_ruby_file(test_name: &str, source: &str) -> PathBuf {
-    let directory = std::env::temp_dir().join(format!("ruby_lsp_rs_classes_and_modules_{}_{test_name}", std::process::id()));
+    let directory = std::env::temp_dir().join(format!(
+        "ruby_lsp_rs_classes_and_modules_{}_{test_name}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&directory).unwrap();
     let path = directory.join("foo.rb");
     std::fs::write(&path, source).unwrap();
@@ -196,8 +203,14 @@ fn test_comments_can_be_attached_to_a_class() {
     test.index(
         "# This is method comment\ndef foo; end\n# This is a Foo comment\n# This is another Foo comment\nclass Foo\n  # This should not be attached\nend\n\n# Ignore me\n\n# This Bar comment has 1 line padding\n\nclass Bar; end\n",
     );
-    assert_eq!(Some("This is a Foo comment\nThis is another Foo comment".to_string()), comments(&test, "Foo"));
-    assert_eq!(Some("This Bar comment has 1 line padding".to_string()), comments(&test, "Bar"));
+    assert_eq!(
+        Some("This is a Foo comment\nThis is another Foo comment".to_string()),
+        comments(&test, "Foo")
+    );
+    assert_eq!(
+        Some("This Bar comment has 1 line padding".to_string()),
+        comments(&test, "Bar")
+    );
 }
 
 #[test]
@@ -214,7 +227,10 @@ fn test_comments_can_be_attached_to_a_namespaced_class() {
     test.index(
         "# This is a Foo comment\n# This is another Foo comment\nclass Foo\n  # This is a Bar comment\n  class Bar; end\nend\n",
     );
-    assert_eq!(Some("This is a Foo comment\nThis is another Foo comment".to_string()), comments(&test, "Foo"));
+    assert_eq!(
+        Some("This is a Foo comment\nThis is another Foo comment".to_string()),
+        comments(&test, "Foo")
+    );
     assert_eq!(Some("This is a Bar comment".to_string()), comments(&test, "Foo::Bar"));
 }
 
@@ -300,26 +316,50 @@ end
 fn test_keeping_track_of_included_modules() {
     let mut test = TestCase::new();
     test.index(&mixin_source("include"));
-    assert_eq!(vec!["A1", "A2", "A3", "A4", "A5", "A6"], mixin_operation_module_names(&test, "Foo"));
-    assert_eq!(vec!["Corge", "Corge", "Baz"], mixin_operation_module_names(&test, "Foo::Qux"));
-    assert_eq!(vec!["Foo::Bar", "Foo::Bar2"], mixin_operation_module_names(&test, "ConstantPathReferences"));
+    assert_eq!(
+        vec!["A1", "A2", "A3", "A4", "A5", "A6"],
+        mixin_operation_module_names(&test, "Foo")
+    );
+    assert_eq!(
+        vec!["Corge", "Corge", "Baz"],
+        mixin_operation_module_names(&test, "Foo::Qux")
+    );
+    assert_eq!(
+        vec!["Foo::Bar", "Foo::Bar2"],
+        mixin_operation_module_names(&test, "ConstantPathReferences")
+    );
 }
 
 #[test]
 fn test_keeping_track_of_prepended_modules() {
     let mut test = TestCase::new();
     test.index(&mixin_source("prepend"));
-    assert_eq!(vec!["A1", "A2", "A3", "A4", "A5", "A6"], mixin_operation_module_names(&test, "Foo"));
-    assert_eq!(vec!["Corge", "Corge", "Baz"], mixin_operation_module_names(&test, "Foo::Qux"));
-    assert_eq!(vec!["Foo::Bar", "Foo::Bar2"], mixin_operation_module_names(&test, "ConstantPathReferences"));
+    assert_eq!(
+        vec!["A1", "A2", "A3", "A4", "A5", "A6"],
+        mixin_operation_module_names(&test, "Foo")
+    );
+    assert_eq!(
+        vec!["Corge", "Corge", "Baz"],
+        mixin_operation_module_names(&test, "Foo::Qux")
+    );
+    assert_eq!(
+        vec!["Foo::Bar", "Foo::Bar2"],
+        mixin_operation_module_names(&test, "ConstantPathReferences")
+    );
 }
 
 #[test]
 fn test_keeping_track_of_extended_modules() {
     let mut test = TestCase::new();
     test.index(&mixin_source("extend"));
-    assert_eq!(vec!["A1", "A2", "A3", "A4", "A5", "A6"], mixin_operation_module_names(&test, "Foo::<Class:Foo>"));
-    assert_eq!(vec!["Corge", "Corge", "Baz"], mixin_operation_module_names(&test, "Foo::Qux::<Class:Qux>"));
+    assert_eq!(
+        vec!["A1", "A2", "A3", "A4", "A5", "A6"],
+        mixin_operation_module_names(&test, "Foo::<Class:Foo>")
+    );
+    assert_eq!(
+        vec!["Corge", "Corge", "Baz"],
+        mixin_operation_module_names(&test, "Foo::Qux::<Class:Qux>")
+    );
     assert_eq!(
         vec!["Foo::Bar", "Foo::Bar2"],
         mixin_operation_module_names(&test, "ConstantPathReferences::<Class:ConstantPathReferences>")
@@ -424,7 +464,12 @@ fn test_lazy_comment_fetching_uses_correct_line_breaks_for_rendering() {
 fn test_lazy_comment_fetching_does_not_fail_if_file_gets_deleted() {
     let mut test = TestCase::new();
     let path = std::env::temp_dir().join("ruby_lsp_rs_does_not_exist/does_not_exist.rb");
-    index_single(&mut test.index, &ruby_lsp_rs::uri::from_path_buf(&path), "class Foo\nend\n", false);
+    index_single(
+        &mut test.index,
+        &ruby_lsp_rs::uri::from_path_buf(&path),
+        "class Foo\nend\n",
+        false,
+    );
     assert!(lazy_comments(&mut test, "Foo").is_empty());
 }
 
@@ -444,7 +489,10 @@ fn test_lazy_comments_with_spaces_are_properly_attributed() {
     let path = index_lazily_from_file(&mut test, "with_spaces", source);
     let comments = lazy_comments(&mut test, "Foo");
     std::fs::remove_file(&path).unwrap();
-    assert_eq!("These comments belong to the declaration below\nThey have to be associated with it", comments);
+    assert_eq!(
+        "These comments belong to the declaration below\nThey have to be associated with it",
+        comments
+    );
 }
 
 #[test]
@@ -454,7 +502,10 @@ fn test_lazy_comments_with_no_spaces_are_properly_attributed() {
     let path = index_lazily_from_file(&mut test, "no_spaces", source);
     let comments = lazy_comments(&mut test, "Foo");
     std::fs::remove_file(&path).unwrap();
-    assert_eq!("These comments belong to the declaration below\nThey have to be associated with it", comments);
+    assert_eq!(
+        "These comments belong to the declaration below\nThey have to be associated with it",
+        comments
+    );
 }
 
 #[test]

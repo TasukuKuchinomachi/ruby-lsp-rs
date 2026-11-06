@@ -110,10 +110,21 @@ pub struct SemanticHighlightingResponseBuilder<'a> {
 
 impl<'a> SemanticHighlightingResponseBuilder<'a> {
     pub fn new(source: &'a [u8], encoding: Encoding) -> SemanticHighlightingResponseBuilder<'a> {
-        SemanticHighlightingResponseBuilder { source, line_index: LineIndex::new(source, encoding), encoding, stack: Vec::new() }
+        SemanticHighlightingResponseBuilder {
+            source,
+            line_index: LineIndex::new(source, encoding),
+            encoding,
+            stack: Vec::new(),
+        }
     }
 
-    pub fn add_token(&mut self, start_offset: usize, end_offset: usize, token_type: TokenType, modifiers: &[TokenModifier]) {
+    pub fn add_token(
+        &mut self,
+        start_offset: usize,
+        end_offset: usize,
+        token_type: TokenType,
+        modifiers: &[TokenModifier],
+    ) {
         let token = SemanticToken {
             start_line: self.line_index.line_of_offset(start_offset) + 1,
             start_code_unit_column: self.code_unit_column(start_offset),
@@ -140,7 +151,10 @@ impl<'a> SemanticHighlightingResponseBuilder<'a> {
     }
 
     fn code_unit_column(&self, offset: usize) -> usize {
-        let line_start = self.line_index.line_start(self.line_index.line_of_offset(offset)).unwrap_or(0);
+        let line_start = self
+            .line_index
+            .line_start(self.line_index.line_of_offset(offset))
+            .unwrap_or(0);
         self.code_units_between(line_start, offset)
     }
 
@@ -170,7 +184,11 @@ pub fn encode(tokens: &[SemanticToken]) -> Vec<u32> {
         let row = token.start_line - 1;
         let column = token.start_code_unit_column;
         let delta_line = row - current_row;
-        let delta_column = if delta_line == 0 { column - current_column } else { column };
+        let delta_column = if delta_line == 0 {
+            column - current_column
+        } else {
+            column
+        };
         data.extend([
             delta_line as u32,
             delta_column as u32,
@@ -185,7 +203,9 @@ pub fn encode(tokens: &[SemanticToken]) -> Vec<u32> {
 }
 
 pub fn encode_modifiers(modifiers: &[u32]) -> u32 {
-    modifiers.iter().fold(0, |encoded_modifiers, modifier| encoded_modifiers | (1 << modifier))
+    modifiers
+        .iter()
+        .fold(0, |encoded_modifiers, modifier| encoded_modifiers | (1 << modifier))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

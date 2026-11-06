@@ -19,7 +19,13 @@ fn rename_capable_server(uri: &str) -> TestServer {
     )
 }
 
-fn rename_request(server: &mut TestServer, uri: &str, line: u32, character: u32, new_name: &str) -> lsp_server::Response {
+fn rename_request(
+    server: &mut TestServer,
+    uri: &str,
+    line: u32,
+    character: u32,
+    new_name: &str,
+) -> lsp_server::Response {
     server.request(
         "textDocument/rename",
         json!({
@@ -31,22 +37,41 @@ fn rename_request(server: &mut TestServer, uri: &str, line: u32, character: u32,
 }
 
 fn apply_edits(source: &str, edits: &[Value]) -> String {
-    let mut document = Document::new("file:///applied.rb", source.to_string(), 1, LanguageId::Ruby, Encoding::Utf16);
+    let mut document = Document::new(
+        "file:///applied.rb",
+        source.to_string(),
+        1,
+        LanguageId::Ruby,
+        Encoding::Utf16,
+    );
     let changes: Vec<ContentChange> = edits
         .iter()
         .map(|edit| {
             let range = &edit["range"];
             let position = |key: &str| {
-                Position::new(range[key]["line"].as_u64().unwrap() as u32, range[key]["character"].as_u64().unwrap() as u32)
+                Position::new(
+                    range[key]["line"].as_u64().unwrap() as u32,
+                    range[key]["character"].as_u64().unwrap() as u32,
+                )
             };
-            ContentChange { range: Some(Range::new(position("start"), position("end"))), text: edit["newText"].as_str().unwrap().to_string() }
+            ContentChange {
+                range: Some(Range::new(position("start"), position("end"))),
+                text: edit["newText"].as_str().unwrap().to_string(),
+            }
         })
         .collect();
     document.push_edits(&changes, 2).unwrap();
     document.source().to_string()
 }
 
-fn expect_renames(fixture_name: &str, new_fixture_path: &str, expected: &str, line: u32, character: u32, new_name: &str) {
+fn expect_renames(
+    fixture_name: &str,
+    new_fixture_path: &str,
+    expected: &str,
+    line: u32,
+    character: u32,
+    new_name: &str,
+) {
     let path = fixture_path(fixture_name);
     let source = std::fs::read_to_string(&path).unwrap();
     let uri = ruby_lsp_rs::uri::from_path_buf(&path);
@@ -70,8 +95,14 @@ fn expect_renames(fixture_name: &str, new_fixture_path: &str, expected: &str, li
     }
 
     assert_eq!(expected, new_source);
-    let new_uri = file_renames.first().expect("a file rename")["newUri"].as_str().unwrap().to_string();
-    assert_eq!(repository_path().join(new_fixture_path), ruby_lsp_rs::uri::to_path_buf(&new_uri).unwrap());
+    let new_uri = file_renames.first().expect("a file rename")["newUri"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        repository_path().join(new_fixture_path),
+        ruby_lsp_rs::uri::to_path_buf(&new_uri).unwrap()
+    );
 }
 
 #[test]

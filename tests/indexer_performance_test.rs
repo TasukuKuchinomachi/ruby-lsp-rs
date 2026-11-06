@@ -26,10 +26,15 @@ fn indexes_the_ruby_standard_library_and_core_signatures() {
     let paths: Vec<IndexablePath> = walkdir::WalkDir::new(&library_directory)
         .into_iter()
         .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_file() && entry.path().extension().is_some_and(|extension| extension == "rb"))
+        .filter(|entry| {
+            entry.file_type().is_file() && entry.path().extension().is_some_and(|extension| extension == "rb")
+        })
         .map(|entry| {
             let path = entry.into_path();
-            let require_path = Some(ruby_lsp_rs::uri::require_path(&path.to_string_lossy(), &library_directory.to_string_lossy()));
+            let require_path = Some(ruby_lsp_rs::uri::require_path(
+                &path.to_string_lossy(),
+                &library_directory.to_string_lossy(),
+            ));
             IndexablePath { path, require_path }
         })
         .collect();

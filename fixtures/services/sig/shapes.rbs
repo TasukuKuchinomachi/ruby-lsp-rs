@@ -1,0 +1,34 @@
+use Services::Shapes::*
+
+module Services
+  VERSION: String
+
+  module Shapes
+    interface _Drawable
+      def draw: (String canvas) -> void
+    end
+
+    type color = :red | :green
+
+    # A circle.
+    class Circle
+      include _Drawable
+
+      def initialize: (Point center, Integer radius) -> void
+
+      def area: () -> Float
+
+      def color: () -> color
+
+      def resize: [T < Numeric] (T factor) -> Circle
+    end
+  end
+end
+
+class Canvas
+  def shapes: () -> Array[Circle]
+
+  def drawables: () -> Array[_Drawable]
+
+  def palette: () -> Hash[Symbol, color]
+end

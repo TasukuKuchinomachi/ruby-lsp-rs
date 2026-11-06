@@ -1,0 +1,58 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 4
+        character: 4
+      end:
+        line: 4
+        character: 12
+    severity: WARNING
+    message: |-
+      Cannot assign a value of type `::Integer` to a variable of type `::String`
+        ::Integer <: ::String
+          ::Numeric <: ::String
+            ::Object <: ::String
+              ::BasicObject <: ::String
+    code: Ruby::IncompatibleAssignment
+  - range:
+      start:
+        line: 7
+        character: 13
+      end:
+        line: 7
+        character: 18
+    severity: ERROR
+    message: The method cannot be called with a block
+    code: Ruby::UnexpectedBlockGiven
+  - range:
+      start:
+        line: 8
+        character: 4
+      end:
+        line: 8
+        character: 33
+    severity: ERROR
+    message: 'Cannot find the declaration of instance variable: `@undeclared_instance_variable`'
+    code: Ruby::UnknownInstanceVariable
+  - range:
+      start:
+        line: 9
+        character: 12
+      end:
+        line: 9
+        character: 14
+    severity: ERROR
+    message: Empty array doesn't have type annotation
+    code: Ruby::UnannotatedEmptyCollection
+  - range:
+      start:
+        line: 13
+        character: 6
+      end:
+        line: 13
+        character: 16
+    severity: WARNING
+    message: Method `::Sample#undeclared` is not declared in RBS
+    code: Ruby::UndeclaredMethodDefinition

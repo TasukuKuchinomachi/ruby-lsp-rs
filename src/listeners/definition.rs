@@ -34,7 +34,15 @@ impl<'a, 'pr> Definition<'a, 'pr> {
         node_context: &'a NodeContext<'pr>,
         sorbet_level: SorbetLevel,
     ) -> Definition<'a, 'pr> {
-        Definition { response: Vec::new(), global_state, index, language_id, uri, node_context, sorbet_level }
+        Definition {
+            response: Vec::new(),
+            global_state,
+            index,
+            language_id,
+            uri,
+            node_context,
+            sorbet_level,
+        }
     }
 
     pub fn into_response(self) -> Vec<LocationOrLink> {
@@ -92,10 +100,14 @@ impl<'a, 'pr> Definition<'a, 'pr> {
             return;
         }
 
-        let Some(message) = node.message_loc().map(|location| location_slice(&location)) else { return };
+        let Some(message) = node.message_loc().map(|location| location_slice(&location)) else {
+            return;
+        };
 
         let mut receiver_type = TypeInferrer::new(self.index).infer_receiver_type(self.node_context);
-        if self.language_id == LanguageId::Erb && receiver_type.as_ref().is_some_and(|receiver| receiver.name == "Object") {
+        if self.language_id == LanguageId::Erb
+            && receiver_type.as_ref().is_some_and(|receiver| receiver.name == "Object")
+        {
             receiver_type = None;
         }
 
@@ -103,7 +115,9 @@ impl<'a, 'pr> Definition<'a, 'pr> {
     }
 
     fn on_string_node_enter(&mut self, node: &Node<'_>) {
-        let Some(enclosing_call) = self.node_context.call_node() else { return };
+        let Some(enclosing_call) = self.node_context.call_node() else {
+            return;
+        };
         let string = node.as_string_node().expect("type name was checked");
         match constant_id_name(&enclosing_call.name()).as_str() {
             "require" => self.handle_require_definition(&location_slice(&string.content_loc())),
@@ -117,7 +131,9 @@ impl<'a, 'pr> Definition<'a, 'pr> {
     }
 
     fn on_symbol_node_enter(&mut self, node: &Node<'_>) {
-        let Some(enclosing_call) = self.node_context.call_node() else { return };
+        let Some(enclosing_call) = self.node_context.call_node() else {
+            return;
+        };
         let symbol = node.as_symbol_node().expect("type name was checked");
         match constant_id_name(&enclosing_call.name()).as_str() {
             "autoload" => self.handle_autoload_definition(&enclosing_call),
@@ -131,14 +147,27 @@ impl<'a, 'pr> Definition<'a, 'pr> {
 
     fn on_block_argument_node_enter(&mut self, node: &Node<'_>) {
         let block_argument = node.as_block_argument_node().expect("type name was checked");
-        let Some(expression) = block_argument.expression() else { return };
-        let Some(symbol) = expression.as_symbol_node() else { return };
-        let Some(value) = symbol.value_loc().map(|location| location_slice(&location)) else { return };
+        let Some(expression) = block_argument.expression() else {
+            return;
+        };
+        let Some(symbol) = expression.as_symbol_node() else {
+            return;
+        };
+        let Some(value) = symbol.value_loc().map(|location| location_slice(&location)) else {
+            return;
+        };
         self.handle_method_definition(&value, None, false);
     }
 
-    fn handle_send_or_public_send_definition(&mut self, enclosing_call: &CallNode<'_>, node: &Node<'_>, method_name: &str) {
-        let first_argument = enclosing_call.arguments().and_then(|arguments| arguments.arguments().iter().next());
+    fn handle_send_or_public_send_definition(
+        &mut self,
+        enclosing_call: &CallNode<'_>,
+        node: &Node<'_>,
+        method_name: &str,
+    ) {
+        let first_argument = enclosing_call
+            .arguments()
+            .and_then(|arguments| arguments.arguments().iter().next());
         if !first_argument.is_some_and(|argument| argument.same_node(node)) {
             return;
         }
@@ -149,13 +178,18 @@ impl<'a, 'pr> Definition<'a, 'pr> {
         if self.sorbet_level.is_true_or_higher() {
             return;
         }
-        let Some(surrounding_method) = self.node_context.surrounding_method.clone() else { return };
+        let Some(surrounding_method) = self.node_context.surrounding_method.clone() else {
+            return;
+        };
         let receiver_type = TypeInferrer::new(self.index).infer_receiver_type(self.node_context);
         self.handle_method_definition(&surrounding_method, receiver_type.as_ref(), true);
     }
 
     fn push_location(&mut self, uri: &str, range: Range) {
-        self.response.push(LocationOrLink::Location(Location { uri: uri.to_string(), range }));
+        self.response.push(LocationOrLink::Location(Location {
+            uri: uri.to_string(),
+            range,
+        }));
     }
 
     fn handle_global_variable_definition(&mut self, name: &str) {
@@ -168,8 +202,12 @@ impl<'a, 'pr> Definition<'a, 'pr> {
     }
 
     fn handle_class_variable_definition(&mut self, name: &str) {
-        let Some(receiver_type) = TypeInferrer::new(self.index).infer_receiver_type(self.node_context) else { return };
-        let Some(ids) = self.index.resolve_class_variable(name, &receiver_type.name) else { return };
+        let Some(receiver_type) = TypeInferrer::new(self.index).infer_receiver_type(self.node_context) else {
+            return;
+        };
+        let Some(ids) = self.index.resolve_class_variable(name, &receiver_type.name) else {
+            return;
+        };
         for id in ids {
             let entry = self.index.entry(id);
             let (uri, range) = (entry.uri.to_string(), range_from_location(&entry.location));
@@ -181,8 +219,12 @@ impl<'a, 'pr> Definition<'a, 'pr> {
         if self.sorbet_level.is_strict() {
             return;
         }
-        let Some(receiver_type) = TypeInferrer::new(self.index).infer_receiver_type(self.node_context) else { return };
-        let Some(ids) = self.index.resolve_instance_variable(name, &receiver_type.name) else { return };
+        let Some(receiver_type) = TypeInferrer::new(self.index).infer_receiver_type(self.node_context) else {
+            return;
+        };
+        let Some(ids) = self.index.resolve_instance_variable(name, &receiver_type.name) else {
+            return;
+        };
         for id in ids {
             let entry = self.index.entry(id);
             let (uri, range) = (entry.uri.to_string(), range_from_location(&entry.location));
@@ -191,11 +233,15 @@ impl<'a, 'pr> Definition<'a, 'pr> {
     }
 
     fn handle_method_definition(&mut self, message: &str, receiver_type: Option<&Type>, inherited_only: bool) {
-        let mut methods = receiver_type.and_then(|receiver| self.index.resolve_method(message, &receiver.name, inherited_only));
+        let mut methods =
+            receiver_type.and_then(|receiver| self.index.resolve_method(message, &receiver.name, inherited_only));
 
         if receiver_type.is_none_or(|receiver| receiver.guessed && methods.is_none()) {
             methods = self.index.get(message).map(|ids| {
-                ids.iter().take(MAX_NUMBER_OF_DEFINITION_CANDIDATES_WITHOUT_RECEIVER).copied().collect()
+                ids.iter()
+                    .take(MAX_NUMBER_OF_DEFINITION_CANDIDATES_WITHOUT_RECEIVER)
+                    .copied()
+                    .collect()
             });
         }
 
@@ -205,7 +251,9 @@ impl<'a, 'pr> Definition<'a, 'pr> {
             let entry = self.index.entry(id);
             let full_path = crate::uri::to_path(&entry.uri);
             if self.sorbet_level.is_true_or_higher()
-                && full_path.as_deref().is_none_or(|path| self.global_state.not_in_dependencies(path))
+                && full_path
+                    .as_deref()
+                    .is_none_or(|path| self.global_state.not_in_dependencies(path))
             {
                 continue;
             }
@@ -242,18 +290,31 @@ impl<'a, 'pr> Definition<'a, 'pr> {
     }
 
     fn handle_autoload_definition(&mut self, node: &CallNode<'_>) {
-        let Some(argument) = node.arguments().and_then(|arguments| arguments.arguments().iter().next()) else { return };
-        let Some(symbol) = argument.as_symbol_node() else { return };
-        let Some(constant_name) = symbol.value_loc().map(|location| location_slice(&location)) else { return };
+        let Some(argument) = node
+            .arguments()
+            .and_then(|arguments| arguments.arguments().iter().next())
+        else {
+            return;
+        };
+        let Some(symbol) = argument.as_symbol_node() else {
+            return;
+        };
+        let Some(constant_name) = symbol.value_loc().map(|location| location_slice(&location)) else {
+            return;
+        };
         self.find_in_index(&constant_name);
     }
 
     fn find_in_index(&mut self, value: &str) {
-        let Some(ids) = self.index.resolve(value, &self.node_context.nesting) else { return };
+        let Some(ids) = self.index.resolve(value, &self.node_context.nesting) else {
+            return;
+        };
         let Some(first) = ids.first() else { return };
 
         let first_entry = self.index.entry(*first);
-        if first_entry.is_private() && first_entry.name != format!("{}::{value}", self.node_context.fully_qualified_name()) {
+        if first_entry.is_private()
+            && first_entry.name != format!("{}::{value}", self.node_context.fully_qualified_name())
+        {
             return;
         }
 
@@ -261,7 +322,9 @@ impl<'a, 'pr> Definition<'a, 'pr> {
             let entry = self.index.entry(id);
             let full_path = crate::uri::to_path(&entry.uri);
             if !self.sorbet_level.is_ignore()
-                && full_path.as_deref().is_none_or(|path| self.global_state.not_in_dependencies(path))
+                && full_path
+                    .as_deref()
+                    .is_none_or(|path| self.global_state.not_in_dependencies(path))
             {
                 continue;
             }
@@ -329,7 +392,10 @@ mod tests {
 
     #[test]
     fn expands_paths_lexically() {
-        assert_eq!(expand_path(Path::new("/../../lib/ruby_lsp/utils.rb")), PathBuf::from("/lib/ruby_lsp/utils.rb"));
+        assert_eq!(
+            expand_path(Path::new("/../../lib/ruby_lsp/utils.rb")),
+            PathBuf::from("/lib/ruby_lsp/utils.rb")
+        );
         assert_eq!(expand_path(Path::new("/a/b/./../c.rb")), PathBuf::from("/a/c.rb"));
     }
 }

@@ -3,7 +3,13 @@ use ruby_prism::{Location, Node};
 
 use crate::prism::{NodeExt, constant_id_name};
 
-const SCOPE_BOUNDARIES: &[&str] = &["ProgramNode", "DefNode", "ClassNode", "ModuleNode", "SingletonClassNode"];
+const SCOPE_BOUNDARIES: &[&str] = &[
+    "ProgramNode",
+    "DefNode",
+    "ClassNode",
+    "ModuleNode",
+    "SingletonClassNode",
+];
 const NESTED_SCOPES: &[&str] = &["BlockNode", "LambdaNode"];
 
 struct LocalVariable {
@@ -65,7 +71,11 @@ fn collect_declarations(node: &Node<'_>, name: &str, depth: u32, declarations: &
     if SCOPE_BOUNDARIES.contains(&type_name) {
         return;
     }
-    let child_depth = if NESTED_SCOPES.contains(&type_name) { depth + 1 } else { depth };
+    let child_depth = if NESTED_SCOPES.contains(&type_name) {
+        depth + 1
+    } else {
+        depth
+    };
     for child in child_nodes(node) {
         collect_declarations(&child, name, child_depth, declarations);
     }
@@ -160,7 +170,10 @@ mod tests {
     #[test]
     fn tells_shadowing_block_parameters_apart_from_outer_variables() {
         let source = "item = 1\n[2].each { |item| item }\nitem\n";
-        assert_eq!(definition_of(source, "item", 2), source.find("|item|").map(|offset| offset + 1));
+        assert_eq!(
+            definition_of(source, "item", 2),
+            source.find("|item|").map(|offset| offset + 1)
+        );
         assert_eq!(definition_of(source, "item", 3), Some(0));
     }
 

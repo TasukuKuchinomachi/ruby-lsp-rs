@@ -1,0 +1,23 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 6
+      end:
+        line: 1
+        character: 12
+    severity: ERROR
+    message: Cannot find implementation of method `::Config.reload`
+    code: Ruby::MethodDefinitionMissing
+  - range:
+      start:
+        line: 1
+        character: 6
+      end:
+        line: 1
+        character: 12
+    severity: ERROR
+    message: "@dynamic annotation contains unknown method name `missing`"
+    code: Ruby::UnexpectedDynamicMethod

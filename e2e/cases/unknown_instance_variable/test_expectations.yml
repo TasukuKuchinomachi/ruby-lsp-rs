@@ -1,0 +1,23 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 4
+        character: 4
+      end:
+        line: 4
+        character: 13
+    severity: ERROR
+    message: 'Cannot find the declaration of instance variable: `@nickname`'
+    code: Ruby::UnknownInstanceVariable
+  - range:
+      start:
+        line: 5
+        character: 4
+      end:
+        line: 5
+        character: 13
+    severity: ERROR
+    message: Cannot detect the type of the expression
+    code: Ruby::FallbackAny

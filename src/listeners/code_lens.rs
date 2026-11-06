@@ -92,7 +92,8 @@ impl<'a, 'b> CodeLens<'a, 'b> {
 
     fn on_class_node_enter(&mut self, node: &Node<'_>) {
         let class = node.as_class_node().expect("matched a class node");
-        self.visibility_stack.push((Some("public".to_string()), Some("public".to_string())));
+        self.visibility_stack
+            .push((Some("public".to_string()), Some("public".to_string())));
         let class_name = node_slice(&class.constant_path());
         self.group_stack.push(class_name.clone());
 
@@ -120,11 +121,18 @@ impl<'a, 'b> CodeLens<'a, 'b> {
             return;
         }
 
-        if !self.group_stack.last().is_some_and(|class_name| class_name.ends_with("Test")) {
+        if !self
+            .group_stack
+            .last()
+            .is_some_and(|class_name| class_name.ends_with("Test"))
+        {
             return;
         }
 
-        let visibility = self.visibility_stack.last().and_then(|(visibility, _)| visibility.clone());
+        let visibility = self
+            .visibility_stack
+            .last()
+            .and_then(|(visibility, _)| visibility.clone());
         if visibility.as_deref() != Some("public") {
             return;
         }
@@ -152,7 +160,12 @@ impl<'a, 'b> CodeLens<'a, 'b> {
                     self.visibility_stack.push((Some(name.clone()), Some(name)));
                 }
                 Some(arguments) => {
-                    if arguments.arguments().iter().next().is_some_and(|argument| argument.as_def_node().is_some()) {
+                    if arguments
+                        .arguments()
+                        .iter()
+                        .next()
+                        .is_some_and(|argument| argument.as_def_node().is_some())
+                    {
                         let visibility = self.visibility_stack.pop().and_then(|(visibility, _)| visibility);
                         self.visibility_stack.push((Some(name), visibility));
                     }
@@ -173,8 +186,12 @@ impl<'a, 'b> CodeLens<'a, 'b> {
     }
 
     fn on_call_node_leave(&mut self, call: &CallNode<'_>) {
-        let previous_visibility = self.visibility_stack.pop().and_then(|(_, previous_visibility)| previous_visibility);
-        self.visibility_stack.push((previous_visibility.clone(), previous_visibility));
+        let previous_visibility = self
+            .visibility_stack
+            .pop()
+            .and_then(|(_, previous_visibility)| previous_visibility);
+        self.visibility_stack
+            .push((previous_visibility.clone(), previous_visibility));
         if constant_id_name(&call.name()) == "describe" {
             self.group_id_stack.pop();
             self.group_stack.pop();
@@ -243,13 +260,20 @@ impl<'a, 'b> CodeLens<'a, 'b> {
     }
 
     fn generate_minitest_command(&self, method_name: Option<&str>, spec_name: Option<&str>) -> String {
-        let last_dynamic_reference_index = self.group_stack.iter().rposition(|group| group == DYNAMIC_REFERENCE_MARKER);
+        let last_dynamic_reference_index = self
+            .group_stack
+            .iter()
+            .rposition(|group| group == DYNAMIC_REFERENCE_MARKER);
 
         if let Some(last_dynamic_reference_index) = last_dynamic_reference_index {
             let dynamic_stack = self.group_stack[last_dynamic_reference_index + 1..].join("::");
             return match method_name {
                 Some(method_name) => {
-                    format!(" --name /::{}#{}$/", shell_escape(&dynamic_stack), shell_escape(method_name))
+                    format!(
+                        " --name /::{}#{}$/",
+                        shell_escape(&dynamic_stack),
+                        shell_escape(method_name)
+                    )
                 }
                 None => format!(" --name \"/::{}(#|::)/\"", shell_escape(&dynamic_stack)),
             };
@@ -259,7 +283,11 @@ impl<'a, 'b> CodeLens<'a, 'b> {
         if let Some(method_name) = method_name {
             format!(" --name {}#{}", shell_escape(&group_name), shell_escape(method_name))
         } else if let Some(spec_name) = spec_name {
-            format!(" --name \"/^{}#{}$/\"", shell_escape(&group_name), shell_escape(spec_name))
+            format!(
+                " --name \"/^{}#{}$/\"",
+                shell_escape(&group_name),
+                shell_escape(spec_name)
+            )
         } else {
             format!(" --name \"/^{}(#|::)/\"", shell_escape(&group_name))
         }
@@ -276,7 +304,9 @@ impl<'a, 'b> CodeLens<'a, 'b> {
 
     fn add_spec_code_lens(&mut self, call: &CallNode<'_>, node: &Node<'_>, kind: Kind) {
         let Some(arguments) = call.arguments() else { return };
-        let Some(first_argument) = arguments.arguments().iter().next() else { return };
+        let Some(first_argument) = arguments.arguments().iter().next() else {
+            return;
+        };
 
         let name = if let Some(string) = first_argument.as_string_node() {
             Some(location_slice(&string.content_loc()))

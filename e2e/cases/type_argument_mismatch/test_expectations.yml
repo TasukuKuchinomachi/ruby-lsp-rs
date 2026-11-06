@@ -1,0 +1,17 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 29
+      end:
+        line: 1
+        character: 35
+    severity: ERROR
+    message: |-
+      Cannot pass a type `::String` as a type parameter `T < ::Numeric`
+        ::String <: ::Numeric
+          ::Object <: ::Numeric
+            ::BasicObject <: ::Numeric
+    code: Ruby::TypeArgumentMismatchError

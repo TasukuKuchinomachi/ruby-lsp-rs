@@ -1,0 +1,35 @@
+---
+- file: broken.rb
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 2
+      end:
+        line: 2
+        character: 3
+    severity: ERROR
+    message: 'SyntaxError: unexpected integer; expected a `)` to close the parameters'
+    code: Ruby::SyntaxError
+  - range:
+      start:
+        line: 2
+        character: 2
+      end:
+        line: 2
+        character: 3
+    severity: ERROR
+    message: 'Steep does not type check this file because of a Ruby syntax error: unexpected integer; expected a `)` to close the parameters'
+    code: Strict::RubySyntaxError
+- file: fine.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 2
+      end:
+        line: 1
+        character: 16
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod

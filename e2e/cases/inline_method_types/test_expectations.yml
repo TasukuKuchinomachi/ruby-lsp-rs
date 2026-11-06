@@ -1,0 +1,72 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 8
+        character: 6
+      end:
+        line: 8
+        character: 14
+    severity: ERROR
+    message: |-
+      Cannot allow method body have type `::Integer` because declared as type `::String`
+        ::Integer <: ::String
+          ::Numeric <: ::String
+            ::Object <: ::String
+              ::BasicObject <: ::String
+    code: Ruby::MethodBodyTypeMismatch
+  - range:
+      start:
+        line: 15
+        character: 10
+      end:
+        line: 15
+        character: 24
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 24
+        character: 11
+      end:
+        line: 24
+        character: 25
+    severity: ERROR
+    message: Type `::Array[::Integer]` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 25
+        character: 12
+      end:
+        line: 25
+        character: 26
+    severity: ERROR
+    message: Type `::Hash[::Symbol, ::String]` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 33
+        character: 22
+      end:
+        line: 33
+        character: 25
+    severity: ERROR
+    message: |-
+      Cannot pass a value of type `::String` as an argument of type `::Integer`
+        ::String <: ::Integer
+          ::Object <: ::Integer
+            ::BasicObject <: ::Integer
+    code: Ruby::ArgumentTypeMismatch
+  - range:
+      start:
+        line: 34
+        character: 24
+      end:
+        line: 34
+        character: 38
+    severity: ERROR
+    message: Type `::String` does not have method `no_such_method`
+    code: Ruby::NoMethod

@@ -23,13 +23,22 @@ impl<V: Clone> Default for PrefixTree<V> {
 impl<V: Clone> PrefixTree<V> {
     pub fn new() -> Self {
         PrefixTree {
-            nodes: vec![TrieNode { key: '\0', parent: None, children: Vec::new(), value: None }],
+            nodes: vec![TrieNode {
+                key: '\0',
+                parent: None,
+                children: Vec::new(),
+                value: None,
+            }],
             free_nodes: Vec::new(),
         }
     }
 
     fn child(&self, node: usize, character: char) -> Option<usize> {
-        self.nodes[node].children.iter().copied().find(|child| self.nodes[*child].key == character)
+        self.nodes[node]
+            .children
+            .iter()
+            .copied()
+            .find(|child| self.nodes[*child].key == character)
     }
 
     fn find_node(&self, key: &str) -> Option<usize> {
@@ -46,7 +55,12 @@ impl<V: Clone> PrefixTree<V> {
             node = match self.child(node, character) {
                 Some(child) => child,
                 None => {
-                    let new_node = TrieNode { key: character, parent: Some(node), children: Vec::new(), value: None };
+                    let new_node = TrieNode {
+                        key: character,
+                        parent: Some(node),
+                        children: Vec::new(),
+                        value: None,
+                    };
                     let index = match self.free_nodes.pop() {
                         Some(index) => {
                             self.nodes[index] = new_node;
@@ -80,7 +94,9 @@ impl<V: Clone> PrefixTree<V> {
     }
 
     pub fn search(&self, prefix: &str) -> Vec<V> {
-        let Some(start) = self.find_node(prefix) else { return Vec::new() };
+        let Some(start) = self.find_node(prefix) else {
+            return Vec::new();
+        };
         let mut result = Vec::new();
         let mut stack = vec![start];
         while let Some(node) = stack.pop() {

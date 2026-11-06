@@ -1,0 +1,7 @@
+target :app do
+  check "a.rb"
+
+  library "json"
+
+  configure_code_diagnostics(Steep::Diagnostic::Ruby.all_error)
+end

@@ -1,0 +1,17 @@
+class Inventory
+  def initialize: () -> void
+  def raw: () -> untyped
+  def raw_count: () -> untyped
+  def count: () -> Integer
+  def take: (Integer) -> void
+  def take_options: (**untyped) -> void
+  def receivers: (untyped value) -> void
+  def other_method: (untyped value) -> void
+  def unions: (Integer? count) -> void
+  def optional_call: (Inventory? inventory) -> void
+  def branches: (bool flag, Integer number) -> void
+  def statements: (bool flag) -> void
+  def rescues: () -> Integer
+  def hashes: (Hash[Symbol, untyped] options, { name: String } record) -> void
+  def declared: () -> void
+end

@@ -1,0 +1,213 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 24
+        character: 10
+      end:
+        line: 24
+        character: 16
+    severity: ERROR
+    message: '`value` is untyped, so Steep types the calls on it as untyped without type checking their arguments and blocks against any method type (reported at the first call in each method)'
+    code: Strict::UntypedReceiver
+  - range:
+      start:
+        line: 26
+        character: 8
+      end:
+        line: 26
+        character: 13
+    severity: ERROR
+    message: '`raw` is untyped, so Steep types the calls on it as untyped without type checking their arguments and blocks against any method type (reported at the first call in each method)'
+    code: Strict::UntypedReceiver
+  - range:
+      start:
+        line: 28
+        character: 14
+      end:
+        line: 28
+        character: 18
+    severity: ERROR
+    message: '`raw_count` is untyped, so Steep types the calls on it as untyped without type checking their arguments and blocks against any method type (reported at the first call in each method)'
+    code: Strict::UntypedReceiver
+  - range:
+      start:
+        line: 29
+        character: 4
+      end:
+        line: 29
+        character: 18
+    severity: ERROR
+    message: Type `::Inventory` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 30
+        character: 4
+      end:
+        line: 30
+        character: 19
+    severity: WARNING
+    message: 'Cannot find the declaration of constant: `UnknownConstant`'
+    code: Ruby::UnknownConstant
+  - range:
+      start:
+        line: 36
+        character: 10
+      end:
+        line: 36
+        character: 15
+    severity: ERROR
+    message: '`value` is untyped, so Steep types the calls on it as untyped without type checking their arguments and blocks against any method type (reported at the first call in each method)'
+    code: Strict::UntypedReceiver
+  - range:
+      start:
+        line: 40
+        character: 21
+      end:
+        line: 40
+        character: 24
+    severity: ERROR
+    message: This operand of `||` is untyped, so Steep types the `||` as untyped instead of a union with `::Integer`
+    code: Strict::UntypedInUnion
+  - range:
+      start:
+        line: 41
+        character: 13
+      end:
+        line: 41
+        character: 16
+    severity: ERROR
+    message: This operand of `||` is untyped, so Steep types the `||` as untyped instead of a union with `::Integer`
+    code: Strict::UntypedInUnion
+  - range:
+      start:
+        line: 42
+        character: 12
+      end:
+        line: 42
+        character: 15
+    severity: ERROR
+    message: This operand of `&&` is untyped, so Steep types the `&&` as untyped instead of a union with `(::Integer | nil)`
+    code: Strict::UntypedInUnion
+  - range:
+      start:
+        line: 43
+        character: 15
+      end:
+        line: 43
+        character: 18
+    severity: ERROR
+    message: This operand of `..` is untyped, so Steep types the `..` as untyped instead of a union with `::Integer`
+    code: Strict::UntypedInUnion
+  - range:
+      start:
+        line: 46
+        character: 9
+      end:
+        line: 46
+        character: 12
+    severity: ERROR
+    message: This operand of `||` is untyped, so Steep types the `||` as untyped instead of a union with `::Integer`
+    code: Strict::UntypedInUnion
+  - range:
+      start:
+        line: 56
+        character: 21
+      end:
+        line: 56
+        character: 24
+    severity: ERROR
+    message: This branch of `?:` is untyped, and Steep leaves it out of the type of the value, typing the value as `::Integer`
+    code: Strict::DroppedUntypedBranch
+  - range:
+      start:
+        line: 57
+        character: 32
+      end:
+        line: 57
+        character: 35
+    severity: ERROR
+    message: This branch of `if` is untyped, and Steep leaves it out of the type of the value, typing the value as `nil`
+    code: Strict::DroppedUntypedBranch
+  - range:
+      start:
+        line: 59
+        character: 24
+      end:
+        line: 59
+        character: 27
+    severity: ERROR
+    message: This branch of `case` is untyped, and Steep leaves it out of the type of the value, typing the value as `::String`
+    code: Strict::DroppedUntypedBranch
+  - range:
+      start:
+        line: 81
+        character: 6
+      end:
+        line: 81
+        character: 9
+    severity: ERROR
+    message: This branch of `rescue` is untyped, and Steep leaves it out of the type of the value, typing the value as `::Integer`
+    code: Strict::DroppedUntypedBranch
+  - range:
+      start:
+        line: 84
+        character: 6
+      end:
+        line: 84
+        character: 9
+    severity: ERROR
+    message: This value is untyped, so Steep types the value of the `rescue` as untyped instead of a union with `::Integer` from the other branches
+    code: Strict::UntypedInUnion
+  - range:
+      start:
+        line: 91
+        character: 23
+      end:
+        line: 91
+        character: 26
+    severity: ERROR
+    message: This value is untyped, and Steep leaves it out of the type of the hash, typing its values as `::Integer`
+    code: Strict::DroppedUntypedHashElement
+  - range:
+      start:
+        line: 92
+        character: 12
+      end:
+        line: 92
+        character: 15
+    severity: ERROR
+    message: This key is untyped, and Steep leaves it out of the type of the hash, typing its keys as `::Symbol`
+    code: Strict::DroppedUntypedHashElement
+  - range:
+      start:
+        line: 93
+        character: 20
+      end:
+        line: 93
+        character: 29
+    severity: ERROR
+    message: The values of this `**` are untyped, and Steep leaves them out of the type of the hash, typing its values as `::Integer`
+    code: Strict::DroppedUntypedHashElement
+  - range:
+      start:
+        line: 94
+        character: 27
+      end:
+        line: 94
+        character: 35
+    severity: ERROR
+    message: The value of `**` has type `{ :name => ::String }`, which is not a Hash, so Steep leaves its keys and values out of the type of the hash
+    code: Strict::DroppedHashSplat
+  - range:
+      start:
+        line: 102
+        character: 4
+      end:
+        line: 102
+        character: 15
+    severity: ERROR
+    message: An untyped value is assigned to `total`, and Steep assumes it is `::Integer` without checking
+    code: Strict::UntypedAssignedToDeclaredVariable

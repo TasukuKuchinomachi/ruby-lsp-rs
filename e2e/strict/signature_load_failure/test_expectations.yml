@@ -1,0 +1,14 @@
+---
+- file: a.rbs
+  diagnostics:
+  - range:
+      start:
+        line: 3
+        character: 0
+      end:
+        line: 3
+        character: 3
+    severity: ERROR
+    message: 'a.rbs:3:0...3:3: Syntax error: unexpected token for simple type, token=`end`
+      (kEND)'
+    code: RBS::SyntaxError

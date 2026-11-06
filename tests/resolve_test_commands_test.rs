@@ -29,7 +29,10 @@ fn resolve_test_commands(items: Value) -> Vec<String> {
 
 fn commands(expected: &[&str]) -> Vec<String> {
     let command = test_command(&bundled_workspace().to_string_lossy());
-    expected.iter().map(|expected| expected.replace("{COMMAND}", &command)).collect()
+    expected
+        .iter()
+        .map(|expected| expected.replace("{COMMAND}", &command))
+        .collect()
 }
 
 /// Stands in for Ruby LSP's `Dir.stubs(:glob)`: the stubbed paths are created below a temporary root, so that the real
@@ -52,11 +55,17 @@ impl TestDirectory {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, "").unwrap();
         }
-        TestDirectory { root, files: files.iter().map(|file| file.to_string()).collect() }
+        TestDirectory {
+            root,
+            files: files.iter().map(|file| file.to_string()).collect(),
+        }
     }
 
     fn relocated(&self, path: &str) -> String {
-        self.root.join(path.trim_start_matches('/')).to_string_lossy().into_owned()
+        self.root
+            .join(path.trim_start_matches('/'))
+            .to_string_lossy()
+            .into_owned()
     }
 
     fn relocate(&self, mut items: Value) -> Value {
@@ -222,18 +231,14 @@ fn minitest_resolve_test_command_entire_files() {
             "children": [],
         },
     ]);
-    let expected = commands(&[
-        r#"{COMMAND} -Itest -e "ARGV.each { |f| require f }" /test/server_test.rb /test/store_test.rb"#,
-    ]);
+    let expected =
+        commands(&[r#"{COMMAND} -Itest -e "ARGV.each { |f| require f }" /test/server_test.rb /test/store_test.rb"#]);
     assert_eq!(resolve_test_commands(items), expected);
 }
 
 #[test]
 fn minitest_resolve_test_command_entire_directories() {
-    let directory = TestDirectory::new(&[
-        r#"/other/test/fake_test.rb"#,
-        r#"/other/test/fake_test_2_test.rb"#,
-    ]);
+    let directory = TestDirectory::new(&[r#"/other/test/fake_test.rb"#, r#"/other/test/fake_test_2_test.rb"#]);
     let items = directory.relocate(json!([
         {
             "id": "file:///other/test",
@@ -283,9 +288,8 @@ fn minitest_resolve_test_command_multiple_test_groups() {
             "children": [],
         },
     ]);
-    let expected = commands(&[
-        r#"{COMMAND} -Itest /test/server_test.rb --name "/(^ServerTest(#|::)|^OtherServerTest(#|::))/""#,
-    ]);
+    let expected =
+        commands(&[r#"{COMMAND} -Itest /test/server_test.rb --name "/(^ServerTest(#|::)|^OtherServerTest(#|::))/""#]);
     assert_eq!(resolve_test_commands(items), expected);
 }
 
@@ -433,18 +437,14 @@ fn minitest_resolve_test_command_nested_test_groups() {
             ],
         },
     ]);
-    let expected = commands(&[
-        r#"{COMMAND} -Itest /test/server_test.rb --name "/^ServerTest::MainTest::NestedTest(#|::)/""#,
-    ]);
+    let expected =
+        commands(&[r#"{COMMAND} -Itest /test/server_test.rb --name "/^ServerTest::MainTest::NestedTest(#|::)/""#]);
     assert_eq!(resolve_test_commands(items), expected);
 }
 
 #[test]
 fn minitest_resolve_test_command_mix_of_directories_and_examples() {
-    let directory = TestDirectory::new(&[
-        r#"/test/unit/fake_test.rb"#,
-        r#"/test/unit/fake_test_2_test.rb"#,
-    ]);
+    let directory = TestDirectory::new(&[r#"/test/unit/fake_test.rb"#, r#"/test/unit/fake_test_2_test.rb"#]);
     let items = directory.relocate(json!([
         {
             "id": "file:///test/unit",
@@ -507,10 +507,7 @@ fn minitest_resolve_test_command_for_minitest_spec() {
 
 #[test]
 fn minitest_resolve_test_command_for_minitest_spec_directory() {
-    let directory = TestDirectory::new(&[
-        r#"/other/spec/fake_spec.rb"#,
-        r#"/other/spec/fake_spec_2_spec.rb"#,
-    ]);
+    let directory = TestDirectory::new(&[r#"/other/spec/fake_spec.rb"#, r#"/other/spec/fake_spec_2_spec.rb"#]);
     let items = directory.relocate(json!([
         {
             "id": "file:///other/spec",
@@ -547,9 +544,7 @@ fn minitest_resolve_test_command_for_nested_spec_in_class() {
             ],
         },
     ]);
-    let expected = commands(&[
-        r#"{COMMAND} -Ispec /spec/server_spec.rb --name "/^ServerSpec::foo(#|::)/""#,
-    ]);
+    let expected = commands(&[r#"{COMMAND} -Ispec /spec/server_spec.rb --name "/^ServerSpec::foo(#|::)/""#]);
     assert_eq!(resolve_test_commands(items), expected);
 }
 
@@ -591,17 +586,13 @@ fn minitest_resolve_properly_escapes_single_file_paths() {
             "children": [],
         },
     ]);
-    let expected = commands(&[
-        r#"{COMMAND} -Itest -e "ARGV.each { |f| require f }" /test/server\(v2\)_test.rb"#,
-    ]);
+    let expected = commands(&[r#"{COMMAND} -Itest -e "ARGV.each { |f| require f }" /test/server\(v2\)_test.rb"#]);
     assert_eq!(resolve_test_commands(items), expected);
 }
 
 #[test]
 fn minitest_resolve_properly_escapes_file_paths_within_directories() {
-    let directory = TestDirectory::new(&[
-        r#"/other/test/fake(v2)_test.rb"#,
-    ]);
+    let directory = TestDirectory::new(&[r#"/other/test/fake(v2)_test.rb"#]);
     let items = directory.relocate(json!([
         {
             "id": "file:///other/test",
@@ -611,9 +602,8 @@ fn minitest_resolve_properly_escapes_file_paths_within_directories() {
             "children": [],
         },
     ]));
-    let expected = directory.relocate_commands(&[
-        r#"{COMMAND} -Itest -e "ARGV.each { |f| require f }" /other/test/fake\(v2\)_test.rb"#,
-    ]);
+    let expected = directory
+        .relocate_commands(&[r#"{COMMAND} -Itest -e "ARGV.each { |f| require f }" /other/test/fake\(v2\)_test.rb"#]);
     assert_eq!(resolve_test_commands(items), expected);
 }
 
@@ -629,9 +619,7 @@ fn minitest_resolve_properly_escapes_file_paths_in_groups() {
             "children": [],
         },
     ]);
-    let expected = commands(&[
-        r#"{COMMAND} -Itest /test/server\(v2\)_test.rb --name "/^ServerTest(#|::)/""#,
-    ]);
+    let expected = commands(&[r#"{COMMAND} -Itest /test/server\(v2\)_test.rb --name "/^ServerTest(#|::)/""#]);
     assert_eq!(resolve_test_commands(items), expected);
 }
 
@@ -923,18 +911,14 @@ fn test_unit_resolve_test_command_nested_test_groups() {
             ],
         },
     ]);
-    let expected = commands(&[
-        r#"{COMMAND} -Itest /test/server_test.rb --testcase "/^ServerTest::MainTest::NestedTest\$/""#,
-    ]);
+    let expected =
+        commands(&[r#"{COMMAND} -Itest /test/server_test.rb --testcase "/^ServerTest::MainTest::NestedTest\$/""#]);
     assert_eq!(resolve_test_commands(items), expected);
 }
 
 #[test]
 fn test_unit_resolve_test_command_mix_of_directories_and_examples() {
-    let directory = TestDirectory::new(&[
-        r#"/test/unit/fake_test.rb"#,
-        r#"/test/unit/fake_test_2_test.rb"#,
-    ]);
+    let directory = TestDirectory::new(&[r#"/test/unit/fake_test.rb"#, r#"/test/unit/fake_test_2_test.rb"#]);
     let items = directory.relocate(json!([
         {
             "id": "file:///test/unit",
@@ -970,17 +954,13 @@ fn test_unit_resolve_properly_escapes_single_file_paths() {
             "children": [],
         },
     ]);
-    let expected = commands(&[
-        r#"{COMMAND} -Itest -e "ARGV.each { |f| require f }" /test/server\(v2\)_test.rb"#,
-    ]);
+    let expected = commands(&[r#"{COMMAND} -Itest -e "ARGV.each { |f| require f }" /test/server\(v2\)_test.rb"#]);
     assert_eq!(resolve_test_commands(items), expected);
 }
 
 #[test]
 fn test_unit_resolve_properly_escapes_file_paths_within_directories() {
-    let directory = TestDirectory::new(&[
-        r#"/other/test/fake(v2)_test.rb"#,
-    ]);
+    let directory = TestDirectory::new(&[r#"/other/test/fake(v2)_test.rb"#]);
     let items = directory.relocate(json!([
         {
             "id": "file:///other/test",
@@ -990,9 +970,8 @@ fn test_unit_resolve_properly_escapes_file_paths_within_directories() {
             "children": [],
         },
     ]));
-    let expected = directory.relocate_commands(&[
-        r#"{COMMAND} -Itest -e "ARGV.each { |f| require f }" /other/test/fake\(v2\)_test.rb"#,
-    ]);
+    let expected = directory
+        .relocate_commands(&[r#"{COMMAND} -Itest -e "ARGV.each { |f| require f }" /other/test/fake\(v2\)_test.rb"#]);
     assert_eq!(resolve_test_commands(items), expected);
 }
 
@@ -1008,9 +987,7 @@ fn test_unit_resolve_properly_escapes_file_paths_in_groups() {
             "children": [],
         },
     ]);
-    let expected = commands(&[
-        r#"{COMMAND} -Itest /test/server\(v2\)_test.rb --testcase "/^ServerTest\$/""#,
-    ]);
+    let expected = commands(&[r#"{COMMAND} -Itest /test/server\(v2\)_test.rb --testcase "/^ServerTest\$/""#]);
     assert_eq!(resolve_test_commands(items), expected);
 }
 
@@ -1052,8 +1029,6 @@ fn other_frameworks_ignores_items_tagged_by_other_frameworks() {
             ],
         },
     ]);
-    let expected = commands(&[
-
-    ]);
+    let expected = commands(&[]);
     assert_eq!(resolve_test_commands(items), expected);
 }

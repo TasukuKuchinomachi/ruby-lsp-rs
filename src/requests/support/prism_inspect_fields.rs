@@ -12,7 +12,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "AliasGlobalVariableNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("new_name", Some(typed_node.new_name())),
                     Field::Child("old_name", Some(typed_node.old_name())),
                     Field::Value("keyword_loc", inspector.location(typed_node.keyword_loc())),
@@ -24,7 +30,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "AliasMethodNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("new_name", Some(typed_node.new_name())),
                     Field::Child("old_name", Some(typed_node.old_name())),
                     Field::Value("keyword_loc", inspector.location(typed_node.keyword_loc())),
@@ -36,7 +48,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "AlternationPatternNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("left", Some(typed_node.left())),
                     Field::Child("right", Some(typed_node.right())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -48,7 +66,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "AndNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("left", Some(typed_node.left())),
                     Field::Child("right", Some(typed_node.right())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -60,7 +84,18 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ArgumentsNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_contains_forwarding(), "contains_forwarding"), (typed_node.is_contains_keywords(), "contains_keywords"), (typed_node.is_contains_keyword_splat(), "contains_keyword_splat"), (typed_node.is_contains_splat(), "contains_splat"), (typed_node.is_contains_multiple_splats(), "contains_multiple_splats")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_contains_forwarding(), "contains_forwarding"),
+                            (typed_node.is_contains_keywords(), "contains_keywords"),
+                            (typed_node.is_contains_keyword_splat(), "contains_keyword_splat"),
+                            (typed_node.is_contains_splat(), "contains_splat"),
+                            (typed_node.is_contains_multiple_splats(), "contains_multiple_splats"),
+                        ]),
+                    ),
                     Field::Children("arguments", typed_node.arguments().iter().collect()),
                 ],
             )
@@ -70,7 +105,14 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ArrayNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_contains_splat(), "contains_splat")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_contains_splat(), "contains_splat"),
+                        ]),
+                    ),
                     Field::Children("elements", typed_node.elements().iter().collect()),
                     Field::Value("opening_loc", inspector.optional_location(typed_node.opening_loc())),
                     Field::Value("closing_loc", inspector.optional_location(typed_node.closing_loc())),
@@ -82,7 +124,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ArrayPatternNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("constant", typed_node.constant()),
                     Field::Children("requireds", typed_node.requireds().iter().collect()),
                     Field::Child("rest", typed_node.rest()),
@@ -97,7 +145,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "AssocNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("key", Some(typed_node.key())),
                     Field::Child("value", Some(typed_node.value())),
                     Field::Value("operator_loc", inspector.optional_location(typed_node.operator_loc())),
@@ -109,7 +163,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "AssocSplatNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("value", typed_node.value()),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
                 ],
@@ -120,7 +180,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "BackReferenceReadNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                 ],
             )
@@ -130,13 +196,25 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "BeginNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
-                    Field::Value("begin_keyword_loc", inspector.optional_location(typed_node.begin_keyword_loc())),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
+                    Field::Value(
+                        "begin_keyword_loc",
+                        inspector.optional_location(typed_node.begin_keyword_loc()),
+                    ),
                     Field::Child("statements", typed_node.statements().map(|child| child.as_node())),
                     Field::Child("rescue_clause", typed_node.rescue_clause().map(|child| child.as_node())),
                     Field::Child("else_clause", typed_node.else_clause().map(|child| child.as_node())),
                     Field::Child("ensure_clause", typed_node.ensure_clause().map(|child| child.as_node())),
-                    Field::Value("end_keyword_loc", inspector.optional_location(typed_node.end_keyword_loc())),
+                    Field::Value(
+                        "end_keyword_loc",
+                        inspector.optional_location(typed_node.end_keyword_loc()),
+                    ),
                 ],
             )
         }
@@ -145,7 +223,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "BlockArgumentNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("expression", typed_node.expression()),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
                 ],
@@ -156,7 +240,14 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "BlockLocalVariableNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_repeated_parameter(), "repeated_parameter")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_repeated_parameter(), "repeated_parameter"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                 ],
             )
@@ -166,7 +257,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "BlockNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("locals", inspect_constant_list(&typed_node.locals())),
                     Field::Child("parameters", typed_node.parameters()),
                     Field::Child("body", typed_node.body()),
@@ -180,7 +277,14 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "BlockParameterNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_repeated_parameter(), "repeated_parameter")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_repeated_parameter(), "repeated_parameter"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_optional_constant(typed_node.name())),
                     Field::Value("name_loc", inspector.optional_location(typed_node.name_loc())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -192,7 +296,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "BlockParametersNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("parameters", typed_node.parameters().map(|child| child.as_node())),
                     Field::Children("locals", typed_node.locals().iter().collect()),
                     Field::Value("opening_loc", inspector.optional_location(typed_node.opening_loc())),
@@ -205,7 +315,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "BreakNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("arguments", typed_node.arguments().map(|child| child.as_node())),
                     Field::Value("keyword_loc", inspector.location(typed_node.keyword_loc())),
                 ],
@@ -216,9 +332,22 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "CallAndWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_safe_navigation(), "safe_navigation"), (typed_node.is_variable_call(), "variable_call"), (typed_node.is_attribute_write(), "attribute_write"), (typed_node.is_ignore_visibility(), "ignore_visibility")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_safe_navigation(), "safe_navigation"),
+                            (typed_node.is_variable_call(), "variable_call"),
+                            (typed_node.is_attribute_write(), "attribute_write"),
+                            (typed_node.is_ignore_visibility(), "ignore_visibility"),
+                        ]),
+                    ),
                     Field::Child("receiver", typed_node.receiver()),
-                    Field::Value("call_operator_loc", inspector.optional_location(typed_node.call_operator_loc())),
+                    Field::Value(
+                        "call_operator_loc",
+                        inspector.optional_location(typed_node.call_operator_loc()),
+                    ),
                     Field::Value("message_loc", inspector.optional_location(typed_node.message_loc())),
                     Field::Value("read_name", inspect_constant(&typed_node.read_name())),
                     Field::Value("write_name", inspect_constant(&typed_node.write_name())),
@@ -232,9 +361,22 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "CallNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_safe_navigation(), "safe_navigation"), (typed_node.is_variable_call(), "variable_call"), (typed_node.is_attribute_write(), "attribute_write"), (typed_node.is_ignore_visibility(), "ignore_visibility")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_safe_navigation(), "safe_navigation"),
+                            (typed_node.is_variable_call(), "variable_call"),
+                            (typed_node.is_attribute_write(), "attribute_write"),
+                            (typed_node.is_ignore_visibility(), "ignore_visibility"),
+                        ]),
+                    ),
                     Field::Child("receiver", typed_node.receiver()),
-                    Field::Value("call_operator_loc", inspector.optional_location(typed_node.call_operator_loc())),
+                    Field::Value(
+                        "call_operator_loc",
+                        inspector.optional_location(typed_node.call_operator_loc()),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("message_loc", inspector.optional_location(typed_node.message_loc())),
                     Field::Value("opening_loc", inspector.optional_location(typed_node.opening_loc())),
@@ -250,14 +392,30 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "CallOperatorWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_safe_navigation(), "safe_navigation"), (typed_node.is_variable_call(), "variable_call"), (typed_node.is_attribute_write(), "attribute_write"), (typed_node.is_ignore_visibility(), "ignore_visibility")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_safe_navigation(), "safe_navigation"),
+                            (typed_node.is_variable_call(), "variable_call"),
+                            (typed_node.is_attribute_write(), "attribute_write"),
+                            (typed_node.is_ignore_visibility(), "ignore_visibility"),
+                        ]),
+                    ),
                     Field::Child("receiver", typed_node.receiver()),
-                    Field::Value("call_operator_loc", inspector.optional_location(typed_node.call_operator_loc())),
+                    Field::Value(
+                        "call_operator_loc",
+                        inspector.optional_location(typed_node.call_operator_loc()),
+                    ),
                     Field::Value("message_loc", inspector.optional_location(typed_node.message_loc())),
                     Field::Value("read_name", inspect_constant(&typed_node.read_name())),
                     Field::Value("write_name", inspect_constant(&typed_node.write_name())),
                     Field::Value("binary_operator", inspect_constant(&typed_node.binary_operator())),
-                    Field::Value("binary_operator_loc", inspector.location(typed_node.binary_operator_loc())),
+                    Field::Value(
+                        "binary_operator_loc",
+                        inspector.location(typed_node.binary_operator_loc()),
+                    ),
                     Field::Child("value", Some(typed_node.value())),
                 ],
             )
@@ -267,9 +425,22 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "CallOrWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_safe_navigation(), "safe_navigation"), (typed_node.is_variable_call(), "variable_call"), (typed_node.is_attribute_write(), "attribute_write"), (typed_node.is_ignore_visibility(), "ignore_visibility")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_safe_navigation(), "safe_navigation"),
+                            (typed_node.is_variable_call(), "variable_call"),
+                            (typed_node.is_attribute_write(), "attribute_write"),
+                            (typed_node.is_ignore_visibility(), "ignore_visibility"),
+                        ]),
+                    ),
                     Field::Child("receiver", typed_node.receiver()),
-                    Field::Value("call_operator_loc", inspector.optional_location(typed_node.call_operator_loc())),
+                    Field::Value(
+                        "call_operator_loc",
+                        inspector.optional_location(typed_node.call_operator_loc()),
+                    ),
                     Field::Value("message_loc", inspector.optional_location(typed_node.message_loc())),
                     Field::Value("read_name", inspect_constant(&typed_node.read_name())),
                     Field::Value("write_name", inspect_constant(&typed_node.write_name())),
@@ -283,7 +454,17 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "CallTargetNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_safe_navigation(), "safe_navigation"), (typed_node.is_variable_call(), "variable_call"), (typed_node.is_attribute_write(), "attribute_write"), (typed_node.is_ignore_visibility(), "ignore_visibility")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_safe_navigation(), "safe_navigation"),
+                            (typed_node.is_variable_call(), "variable_call"),
+                            (typed_node.is_attribute_write(), "attribute_write"),
+                            (typed_node.is_ignore_visibility(), "ignore_visibility"),
+                        ]),
+                    ),
                     Field::Child("receiver", Some(typed_node.receiver())),
                     Field::Value("call_operator_loc", inspector.location(typed_node.call_operator_loc())),
                     Field::Value("name", inspect_constant(&typed_node.name())),
@@ -296,7 +477,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "CapturePatternNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("value", Some(typed_node.value())),
                     Field::Child("target", Some(typed_node.target().as_node())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -308,7 +495,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "CaseMatchNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("predicate", typed_node.predicate()),
                     Field::Children("conditions", typed_node.conditions().iter().collect()),
                     Field::Child("else_clause", typed_node.else_clause().map(|child| child.as_node())),
@@ -322,7 +515,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "CaseNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("predicate", typed_node.predicate()),
                     Field::Children("conditions", typed_node.conditions().iter().collect()),
                     Field::Child("else_clause", typed_node.else_clause().map(|child| child.as_node())),
@@ -336,11 +535,20 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ClassNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("locals", inspect_constant_list(&typed_node.locals())),
                     Field::Value("class_keyword_loc", inspector.location(typed_node.class_keyword_loc())),
                     Field::Child("constant_path", Some(typed_node.constant_path())),
-                    Field::Value("inheritance_operator_loc", inspector.optional_location(typed_node.inheritance_operator_loc())),
+                    Field::Value(
+                        "inheritance_operator_loc",
+                        inspector.optional_location(typed_node.inheritance_operator_loc()),
+                    ),
                     Field::Child("superclass", typed_node.superclass()),
                     Field::Child("body", typed_node.body()),
                     Field::Value("end_keyword_loc", inspector.location(typed_node.end_keyword_loc())),
@@ -353,7 +561,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ClassVariableAndWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -362,14 +576,25 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             )
         }
         Node::ClassVariableOperatorWriteNode { .. } => {
-            let typed_node = node.as_class_variable_operator_write_node().expect("variant was matched");
+            let typed_node = node
+                .as_class_variable_operator_write_node()
+                .expect("variant was matched");
             (
                 "ClassVariableOperatorWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
-                    Field::Value("binary_operator_loc", inspector.location(typed_node.binary_operator_loc())),
+                    Field::Value(
+                        "binary_operator_loc",
+                        inspector.location(typed_node.binary_operator_loc()),
+                    ),
                     Field::Child("value", Some(typed_node.value())),
                     Field::Value("binary_operator", inspect_constant(&typed_node.binary_operator())),
                 ],
@@ -380,7 +605,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ClassVariableOrWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -393,7 +624,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ClassVariableReadNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                 ],
             )
@@ -403,7 +640,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ClassVariableTargetNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                 ],
             )
@@ -413,7 +656,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ClassVariableWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
                     Field::Child("value", Some(typed_node.value())),
@@ -426,7 +675,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ConstantAndWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -439,10 +694,19 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ConstantOperatorWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
-                    Field::Value("binary_operator_loc", inspector.location(typed_node.binary_operator_loc())),
+                    Field::Value(
+                        "binary_operator_loc",
+                        inspector.location(typed_node.binary_operator_loc()),
+                    ),
                     Field::Child("value", Some(typed_node.value())),
                     Field::Value("binary_operator", inspect_constant(&typed_node.binary_operator())),
                 ],
@@ -453,7 +717,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ConstantOrWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -466,7 +736,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ConstantPathAndWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("target", Some(typed_node.target().as_node())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
                     Field::Child("value", Some(typed_node.value())),
@@ -478,7 +754,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ConstantPathNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("parent", typed_node.parent()),
                     Field::Value("name", inspect_optional_constant(typed_node.name())),
                     Field::Value("delimiter_loc", inspector.location(typed_node.delimiter_loc())),
@@ -487,13 +769,24 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             )
         }
         Node::ConstantPathOperatorWriteNode { .. } => {
-            let typed_node = node.as_constant_path_operator_write_node().expect("variant was matched");
+            let typed_node = node
+                .as_constant_path_operator_write_node()
+                .expect("variant was matched");
             (
                 "ConstantPathOperatorWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("target", Some(typed_node.target().as_node())),
-                    Field::Value("binary_operator_loc", inspector.location(typed_node.binary_operator_loc())),
+                    Field::Value(
+                        "binary_operator_loc",
+                        inspector.location(typed_node.binary_operator_loc()),
+                    ),
                     Field::Child("value", Some(typed_node.value())),
                     Field::Value("binary_operator", inspect_constant(&typed_node.binary_operator())),
                 ],
@@ -504,7 +797,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ConstantPathOrWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("target", Some(typed_node.target().as_node())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
                     Field::Child("value", Some(typed_node.value())),
@@ -516,7 +815,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ConstantPathTargetNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("parent", typed_node.parent()),
                     Field::Value("name", inspect_optional_constant(typed_node.name())),
                     Field::Value("delimiter_loc", inspector.location(typed_node.delimiter_loc())),
@@ -529,7 +834,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ConstantPathWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("target", Some(typed_node.target().as_node())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
                     Field::Child("value", Some(typed_node.value())),
@@ -541,7 +852,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ConstantReadNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                 ],
             )
@@ -551,7 +868,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ConstantTargetNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                 ],
             )
@@ -561,7 +884,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ConstantWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
                     Field::Child("value", Some(typed_node.value())),
@@ -574,7 +903,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "DefNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
                     Field::Child("receiver", typed_node.receiver()),
@@ -586,7 +921,10 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
                     Field::Value("lparen_loc", inspector.optional_location(typed_node.lparen_loc())),
                     Field::Value("rparen_loc", inspector.optional_location(typed_node.rparen_loc())),
                     Field::Value("equal_loc", inspector.optional_location(typed_node.equal_loc())),
-                    Field::Value("end_keyword_loc", inspector.optional_location(typed_node.end_keyword_loc())),
+                    Field::Value(
+                        "end_keyword_loc",
+                        inspector.optional_location(typed_node.end_keyword_loc()),
+                    ),
                 ],
             )
         }
@@ -595,7 +933,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "DefinedNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("lparen_loc", inspector.optional_location(typed_node.lparen_loc())),
                     Field::Child("value", Some(typed_node.value())),
                     Field::Value("rparen_loc", inspector.optional_location(typed_node.rparen_loc())),
@@ -608,10 +952,19 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ElseNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("else_keyword_loc", inspector.location(typed_node.else_keyword_loc())),
                     Field::Child("statements", typed_node.statements().map(|child| child.as_node())),
-                    Field::Value("end_keyword_loc", inspector.optional_location(typed_node.end_keyword_loc())),
+                    Field::Value(
+                        "end_keyword_loc",
+                        inspector.optional_location(typed_node.end_keyword_loc()),
+                    ),
                 ],
             )
         }
@@ -620,7 +973,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "EmbeddedStatementsNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("opening_loc", inspector.location(typed_node.opening_loc())),
                     Field::Child("statements", typed_node.statements().map(|child| child.as_node())),
                     Field::Value("closing_loc", inspector.location(typed_node.closing_loc())),
@@ -632,7 +991,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "EmbeddedVariableNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
                     Field::Child("variable", Some(typed_node.variable())),
                 ],
@@ -643,8 +1008,17 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "EnsureNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
-                    Field::Value("ensure_keyword_loc", inspector.location(typed_node.ensure_keyword_loc())),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
+                    Field::Value(
+                        "ensure_keyword_loc",
+                        inspector.location(typed_node.ensure_keyword_loc()),
+                    ),
                     Field::Child("statements", typed_node.statements().map(|child| child.as_node())),
                     Field::Value("end_keyword_loc", inspector.location(typed_node.end_keyword_loc())),
                 ],
@@ -654,9 +1028,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             let typed_node = node.as_false_node().expect("variant was matched");
             (
                 "FalseNode",
-                vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
-                ],
+                vec![Field::Value(
+                    "flags",
+                    inspect_flags(&[
+                        (typed_node.flags() & 1 != 0, "newline"),
+                        (typed_node.flags() & 2 != 0, "static_literal"),
+                    ]),
+                )],
             )
         }
         Node::FindPatternNode { .. } => {
@@ -664,7 +1042,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "FindPatternNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("constant", typed_node.constant()),
                     Field::Child("left", Some(typed_node.left().as_node())),
                     Field::Children("requireds", typed_node.requireds().iter().collect()),
@@ -679,7 +1063,14 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "FlipFlopNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_exclude_end(), "exclude_end")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_exclude_end(), "exclude_end"),
+                        ]),
+                    ),
                     Field::Child("left", typed_node.left()),
                     Field::Child("right", typed_node.right()),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -691,7 +1082,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "FloatNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("value", inspect_float(typed_node.value())),
                 ],
             )
@@ -701,13 +1098,22 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ForNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("index", Some(typed_node.index())),
                     Field::Child("collection", Some(typed_node.collection())),
                     Field::Child("statements", typed_node.statements().map(|child| child.as_node())),
                     Field::Value("for_keyword_loc", inspector.location(typed_node.for_keyword_loc())),
                     Field::Value("in_keyword_loc", inspector.location(typed_node.in_keyword_loc())),
-                    Field::Value("do_keyword_loc", inspector.optional_location(typed_node.do_keyword_loc())),
+                    Field::Value(
+                        "do_keyword_loc",
+                        inspector.optional_location(typed_node.do_keyword_loc()),
+                    ),
                     Field::Value("end_keyword_loc", inspector.location(typed_node.end_keyword_loc())),
                 ],
             )
@@ -716,18 +1122,26 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             let typed_node = node.as_forwarding_arguments_node().expect("variant was matched");
             (
                 "ForwardingArgumentsNode",
-                vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
-                ],
+                vec![Field::Value(
+                    "flags",
+                    inspect_flags(&[
+                        (typed_node.flags() & 1 != 0, "newline"),
+                        (typed_node.flags() & 2 != 0, "static_literal"),
+                    ]),
+                )],
             )
         }
         Node::ForwardingParameterNode { .. } => {
             let typed_node = node.as_forwarding_parameter_node().expect("variant was matched");
             (
                 "ForwardingParameterNode",
-                vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
-                ],
+                vec![Field::Value(
+                    "flags",
+                    inspect_flags(&[
+                        (typed_node.flags() & 1 != 0, "newline"),
+                        (typed_node.flags() & 2 != 0, "static_literal"),
+                    ]),
+                )],
             )
         }
         Node::ForwardingSuperNode { .. } => {
@@ -735,7 +1149,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ForwardingSuperNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("block", typed_node.block().map(|child| child.as_node())),
                 ],
             )
@@ -745,7 +1165,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "GlobalVariableAndWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -754,14 +1180,25 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             )
         }
         Node::GlobalVariableOperatorWriteNode { .. } => {
-            let typed_node = node.as_global_variable_operator_write_node().expect("variant was matched");
+            let typed_node = node
+                .as_global_variable_operator_write_node()
+                .expect("variant was matched");
             (
                 "GlobalVariableOperatorWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
-                    Field::Value("binary_operator_loc", inspector.location(typed_node.binary_operator_loc())),
+                    Field::Value(
+                        "binary_operator_loc",
+                        inspector.location(typed_node.binary_operator_loc()),
+                    ),
                     Field::Child("value", Some(typed_node.value())),
                     Field::Value("binary_operator", inspect_constant(&typed_node.binary_operator())),
                 ],
@@ -772,7 +1209,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "GlobalVariableOrWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -785,7 +1228,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "GlobalVariableReadNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                 ],
             )
@@ -795,7 +1244,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "GlobalVariableTargetNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                 ],
             )
@@ -805,7 +1260,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "GlobalVariableWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
                     Field::Child("value", Some(typed_node.value())),
@@ -818,7 +1279,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "HashNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("opening_loc", inspector.location(typed_node.opening_loc())),
                     Field::Children("elements", typed_node.elements().iter().collect()),
                     Field::Value("closing_loc", inspector.location(typed_node.closing_loc())),
@@ -830,7 +1297,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "HashPatternNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("constant", typed_node.constant()),
                     Field::Children("elements", typed_node.elements().iter().collect()),
                     Field::Child("rest", typed_node.rest()),
@@ -844,13 +1317,28 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "IfNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
-                    Field::Value("if_keyword_loc", inspector.optional_location(typed_node.if_keyword_loc())),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
+                    Field::Value(
+                        "if_keyword_loc",
+                        inspector.optional_location(typed_node.if_keyword_loc()),
+                    ),
                     Field::Child("predicate", Some(typed_node.predicate())),
-                    Field::Value("then_keyword_loc", inspector.optional_location(typed_node.then_keyword_loc())),
+                    Field::Value(
+                        "then_keyword_loc",
+                        inspector.optional_location(typed_node.then_keyword_loc()),
+                    ),
                     Field::Child("statements", typed_node.statements().map(|child| child.as_node())),
                     Field::Child("subsequent", typed_node.subsequent()),
-                    Field::Value("end_keyword_loc", inspector.optional_location(typed_node.end_keyword_loc())),
+                    Field::Value(
+                        "end_keyword_loc",
+                        inspector.optional_location(typed_node.end_keyword_loc()),
+                    ),
                 ],
             )
         }
@@ -859,7 +1347,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ImaginaryNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("numeric", Some(typed_node.numeric())),
                 ],
             )
@@ -869,7 +1363,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ImplicitNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("value", Some(typed_node.value())),
                 ],
             )
@@ -878,9 +1378,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             let typed_node = node.as_implicit_rest_node().expect("variant was matched");
             (
                 "ImplicitRestNode",
-                vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
-                ],
+                vec![Field::Value(
+                    "flags",
+                    inspect_flags(&[
+                        (typed_node.flags() & 1 != 0, "newline"),
+                        (typed_node.flags() & 2 != 0, "static_literal"),
+                    ]),
+                )],
             )
         }
         Node::InNode { .. } => {
@@ -888,7 +1392,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "InNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("pattern", Some(typed_node.pattern())),
                     Field::Child("statements", typed_node.statements().map(|child| child.as_node())),
                     Field::Value("in_loc", inspector.location(typed_node.in_loc())),
@@ -901,9 +1411,22 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "IndexAndWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_safe_navigation(), "safe_navigation"), (typed_node.is_variable_call(), "variable_call"), (typed_node.is_attribute_write(), "attribute_write"), (typed_node.is_ignore_visibility(), "ignore_visibility")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_safe_navigation(), "safe_navigation"),
+                            (typed_node.is_variable_call(), "variable_call"),
+                            (typed_node.is_attribute_write(), "attribute_write"),
+                            (typed_node.is_ignore_visibility(), "ignore_visibility"),
+                        ]),
+                    ),
                     Field::Child("receiver", typed_node.receiver()),
-                    Field::Value("call_operator_loc", inspector.optional_location(typed_node.call_operator_loc())),
+                    Field::Value(
+                        "call_operator_loc",
+                        inspector.optional_location(typed_node.call_operator_loc()),
+                    ),
                     Field::Value("opening_loc", inspector.location(typed_node.opening_loc())),
                     Field::Child("arguments", typed_node.arguments().map(|child| child.as_node())),
                     Field::Value("closing_loc", inspector.location(typed_node.closing_loc())),
@@ -918,15 +1441,31 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "IndexOperatorWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_safe_navigation(), "safe_navigation"), (typed_node.is_variable_call(), "variable_call"), (typed_node.is_attribute_write(), "attribute_write"), (typed_node.is_ignore_visibility(), "ignore_visibility")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_safe_navigation(), "safe_navigation"),
+                            (typed_node.is_variable_call(), "variable_call"),
+                            (typed_node.is_attribute_write(), "attribute_write"),
+                            (typed_node.is_ignore_visibility(), "ignore_visibility"),
+                        ]),
+                    ),
                     Field::Child("receiver", typed_node.receiver()),
-                    Field::Value("call_operator_loc", inspector.optional_location(typed_node.call_operator_loc())),
+                    Field::Value(
+                        "call_operator_loc",
+                        inspector.optional_location(typed_node.call_operator_loc()),
+                    ),
                     Field::Value("opening_loc", inspector.location(typed_node.opening_loc())),
                     Field::Child("arguments", typed_node.arguments().map(|child| child.as_node())),
                     Field::Value("closing_loc", inspector.location(typed_node.closing_loc())),
                     Field::Child("block", typed_node.block().map(|child| child.as_node())),
                     Field::Value("binary_operator", inspect_constant(&typed_node.binary_operator())),
-                    Field::Value("binary_operator_loc", inspector.location(typed_node.binary_operator_loc())),
+                    Field::Value(
+                        "binary_operator_loc",
+                        inspector.location(typed_node.binary_operator_loc()),
+                    ),
                     Field::Child("value", Some(typed_node.value())),
                 ],
             )
@@ -936,9 +1475,22 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "IndexOrWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_safe_navigation(), "safe_navigation"), (typed_node.is_variable_call(), "variable_call"), (typed_node.is_attribute_write(), "attribute_write"), (typed_node.is_ignore_visibility(), "ignore_visibility")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_safe_navigation(), "safe_navigation"),
+                            (typed_node.is_variable_call(), "variable_call"),
+                            (typed_node.is_attribute_write(), "attribute_write"),
+                            (typed_node.is_ignore_visibility(), "ignore_visibility"),
+                        ]),
+                    ),
                     Field::Child("receiver", typed_node.receiver()),
-                    Field::Value("call_operator_loc", inspector.optional_location(typed_node.call_operator_loc())),
+                    Field::Value(
+                        "call_operator_loc",
+                        inspector.optional_location(typed_node.call_operator_loc()),
+                    ),
                     Field::Value("opening_loc", inspector.location(typed_node.opening_loc())),
                     Field::Child("arguments", typed_node.arguments().map(|child| child.as_node())),
                     Field::Value("closing_loc", inspector.location(typed_node.closing_loc())),
@@ -953,7 +1505,17 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "IndexTargetNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_safe_navigation(), "safe_navigation"), (typed_node.is_variable_call(), "variable_call"), (typed_node.is_attribute_write(), "attribute_write"), (typed_node.is_ignore_visibility(), "ignore_visibility")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_safe_navigation(), "safe_navigation"),
+                            (typed_node.is_variable_call(), "variable_call"),
+                            (typed_node.is_attribute_write(), "attribute_write"),
+                            (typed_node.is_ignore_visibility(), "ignore_visibility"),
+                        ]),
+                    ),
                     Field::Child("receiver", Some(typed_node.receiver())),
                     Field::Value("opening_loc", inspector.location(typed_node.opening_loc())),
                     Field::Child("arguments", typed_node.arguments().map(|child| child.as_node())),
@@ -967,7 +1529,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "InstanceVariableAndWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -976,14 +1544,25 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             )
         }
         Node::InstanceVariableOperatorWriteNode { .. } => {
-            let typed_node = node.as_instance_variable_operator_write_node().expect("variant was matched");
+            let typed_node = node
+                .as_instance_variable_operator_write_node()
+                .expect("variant was matched");
             (
                 "InstanceVariableOperatorWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
-                    Field::Value("binary_operator_loc", inspector.location(typed_node.binary_operator_loc())),
+                    Field::Value(
+                        "binary_operator_loc",
+                        inspector.location(typed_node.binary_operator_loc()),
+                    ),
                     Field::Child("value", Some(typed_node.value())),
                     Field::Value("binary_operator", inspect_constant(&typed_node.binary_operator())),
                 ],
@@ -994,7 +1573,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "InstanceVariableOrWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -1007,7 +1592,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "InstanceVariableReadNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                 ],
             )
@@ -1017,7 +1608,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "InstanceVariableTargetNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                 ],
             )
@@ -1027,7 +1624,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "InstanceVariableWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
                     Field::Child("value", Some(typed_node.value())),
@@ -1040,17 +1643,46 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "IntegerNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_binary(), "binary"), (typed_node.is_decimal(), "decimal"), (typed_node.is_octal(), "octal"), (typed_node.is_hexadecimal(), "hexadecimal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_binary(), "binary"),
+                            (typed_node.is_decimal(), "decimal"),
+                            (typed_node.is_octal(), "octal"),
+                            (typed_node.is_hexadecimal(), "hexadecimal"),
+                        ]),
+                    ),
                     Field::Value("value", inspect_integer(&typed_node.value())),
                 ],
             )
         }
         Node::InterpolatedMatchLastLineNode { .. } => {
-            let typed_node = node.as_interpolated_match_last_line_node().expect("variant was matched");
+            let typed_node = node
+                .as_interpolated_match_last_line_node()
+                .expect("variant was matched");
             (
                 "InterpolatedMatchLastLineNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_ignore_case(), "ignore_case"), (typed_node.is_extended(), "extended"), (typed_node.is_multi_line(), "multi_line"), (typed_node.is_once(), "once"), (typed_node.is_euc_jp(), "euc_jp"), (typed_node.is_ascii_8bit(), "ascii_8bit"), (typed_node.is_windows_31j(), "windows_31j"), (typed_node.is_utf_8(), "utf_8"), (typed_node.is_forced_utf8_encoding(), "forced_utf8_encoding"), (typed_node.is_forced_binary_encoding(), "forced_binary_encoding"), (typed_node.is_forced_us_ascii_encoding(), "forced_us_ascii_encoding")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_ignore_case(), "ignore_case"),
+                            (typed_node.is_extended(), "extended"),
+                            (typed_node.is_multi_line(), "multi_line"),
+                            (typed_node.is_once(), "once"),
+                            (typed_node.is_euc_jp(), "euc_jp"),
+                            (typed_node.is_ascii_8bit(), "ascii_8bit"),
+                            (typed_node.is_windows_31j(), "windows_31j"),
+                            (typed_node.is_utf_8(), "utf_8"),
+                            (typed_node.is_forced_utf8_encoding(), "forced_utf8_encoding"),
+                            (typed_node.is_forced_binary_encoding(), "forced_binary_encoding"),
+                            (typed_node.is_forced_us_ascii_encoding(), "forced_us_ascii_encoding"),
+                        ]),
+                    ),
                     Field::Value("opening_loc", inspector.location(typed_node.opening_loc())),
                     Field::Children("parts", typed_node.parts().iter().collect()),
                     Field::Value("closing_loc", inspector.location(typed_node.closing_loc())),
@@ -1058,11 +1690,30 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             )
         }
         Node::InterpolatedRegularExpressionNode { .. } => {
-            let typed_node = node.as_interpolated_regular_expression_node().expect("variant was matched");
+            let typed_node = node
+                .as_interpolated_regular_expression_node()
+                .expect("variant was matched");
             (
                 "InterpolatedRegularExpressionNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_ignore_case(), "ignore_case"), (typed_node.is_extended(), "extended"), (typed_node.is_multi_line(), "multi_line"), (typed_node.is_once(), "once"), (typed_node.is_euc_jp(), "euc_jp"), (typed_node.is_ascii_8bit(), "ascii_8bit"), (typed_node.is_windows_31j(), "windows_31j"), (typed_node.is_utf_8(), "utf_8"), (typed_node.is_forced_utf8_encoding(), "forced_utf8_encoding"), (typed_node.is_forced_binary_encoding(), "forced_binary_encoding"), (typed_node.is_forced_us_ascii_encoding(), "forced_us_ascii_encoding")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_ignore_case(), "ignore_case"),
+                            (typed_node.is_extended(), "extended"),
+                            (typed_node.is_multi_line(), "multi_line"),
+                            (typed_node.is_once(), "once"),
+                            (typed_node.is_euc_jp(), "euc_jp"),
+                            (typed_node.is_ascii_8bit(), "ascii_8bit"),
+                            (typed_node.is_windows_31j(), "windows_31j"),
+                            (typed_node.is_utf_8(), "utf_8"),
+                            (typed_node.is_forced_utf8_encoding(), "forced_utf8_encoding"),
+                            (typed_node.is_forced_binary_encoding(), "forced_binary_encoding"),
+                            (typed_node.is_forced_us_ascii_encoding(), "forced_us_ascii_encoding"),
+                        ]),
+                    ),
                     Field::Value("opening_loc", inspector.location(typed_node.opening_loc())),
                     Field::Children("parts", typed_node.parts().iter().collect()),
                     Field::Value("closing_loc", inspector.location(typed_node.closing_loc())),
@@ -1074,7 +1725,15 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "InterpolatedStringNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_frozen(), "frozen"), (typed_node.is_mutable(), "mutable")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_frozen(), "frozen"),
+                            (typed_node.is_mutable(), "mutable"),
+                        ]),
+                    ),
                     Field::Value("opening_loc", inspector.optional_location(typed_node.opening_loc())),
                     Field::Children("parts", typed_node.parts().iter().collect()),
                     Field::Value("closing_loc", inspector.optional_location(typed_node.closing_loc())),
@@ -1086,7 +1745,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "InterpolatedSymbolNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("opening_loc", inspector.optional_location(typed_node.opening_loc())),
                     Field::Children("parts", typed_node.parts().iter().collect()),
                     Field::Value("closing_loc", inspector.optional_location(typed_node.closing_loc())),
@@ -1098,7 +1763,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "InterpolatedXStringNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("opening_loc", inspector.location(typed_node.opening_loc())),
                     Field::Children("parts", typed_node.parts().iter().collect()),
                     Field::Value("closing_loc", inspector.location(typed_node.closing_loc())),
@@ -1109,18 +1780,26 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             let typed_node = node.as_it_local_variable_read_node().expect("variant was matched");
             (
                 "ItLocalVariableReadNode",
-                vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
-                ],
+                vec![Field::Value(
+                    "flags",
+                    inspect_flags(&[
+                        (typed_node.flags() & 1 != 0, "newline"),
+                        (typed_node.flags() & 2 != 0, "static_literal"),
+                    ]),
+                )],
             )
         }
         Node::ItParametersNode { .. } => {
             let typed_node = node.as_it_parameters_node().expect("variant was matched");
             (
                 "ItParametersNode",
-                vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
-                ],
+                vec![Field::Value(
+                    "flags",
+                    inspect_flags(&[
+                        (typed_node.flags() & 1 != 0, "newline"),
+                        (typed_node.flags() & 2 != 0, "static_literal"),
+                    ]),
+                )],
             )
         }
         Node::KeywordHashNode { .. } => {
@@ -1128,7 +1807,14 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "KeywordHashNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_symbol_keys(), "symbol_keys")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_symbol_keys(), "symbol_keys"),
+                        ]),
+                    ),
                     Field::Children("elements", typed_node.elements().iter().collect()),
                 ],
             )
@@ -1138,7 +1824,14 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "KeywordRestParameterNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_repeated_parameter(), "repeated_parameter")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_repeated_parameter(), "repeated_parameter"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_optional_constant(typed_node.name())),
                     Field::Value("name_loc", inspector.optional_location(typed_node.name_loc())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -1150,7 +1843,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "LambdaNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("locals", inspect_constant_list(&typed_node.locals())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
                     Field::Value("opening_loc", inspector.location(typed_node.opening_loc())),
@@ -1165,7 +1864,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "LocalVariableAndWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
                     Field::Child("value", Some(typed_node.value())),
@@ -1175,13 +1880,24 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             )
         }
         Node::LocalVariableOperatorWriteNode { .. } => {
-            let typed_node = node.as_local_variable_operator_write_node().expect("variant was matched");
+            let typed_node = node
+                .as_local_variable_operator_write_node()
+                .expect("variant was matched");
             (
                 "LocalVariableOperatorWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
-                    Field::Value("binary_operator_loc", inspector.location(typed_node.binary_operator_loc())),
+                    Field::Value(
+                        "binary_operator_loc",
+                        inspector.location(typed_node.binary_operator_loc()),
+                    ),
                     Field::Child("value", Some(typed_node.value())),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("binary_operator", inspect_constant(&typed_node.binary_operator())),
@@ -1194,7 +1910,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "LocalVariableOrWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
                     Field::Child("value", Some(typed_node.value())),
@@ -1208,7 +1930,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "LocalVariableReadNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("depth", typed_node.depth().to_string()),
                 ],
@@ -1219,7 +1947,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "LocalVariableTargetNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("depth", typed_node.depth().to_string()),
                 ],
@@ -1230,7 +1964,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "LocalVariableWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("depth", typed_node.depth().to_string()),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
@@ -1244,11 +1984,31 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "MatchLastLineNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_ignore_case(), "ignore_case"), (typed_node.is_extended(), "extended"), (typed_node.is_multi_line(), "multi_line"), (typed_node.is_once(), "once"), (typed_node.is_euc_jp(), "euc_jp"), (typed_node.is_ascii_8bit(), "ascii_8bit"), (typed_node.is_windows_31j(), "windows_31j"), (typed_node.is_utf_8(), "utf_8"), (typed_node.is_forced_utf8_encoding(), "forced_utf8_encoding"), (typed_node.is_forced_binary_encoding(), "forced_binary_encoding"), (typed_node.is_forced_us_ascii_encoding(), "forced_us_ascii_encoding")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_ignore_case(), "ignore_case"),
+                            (typed_node.is_extended(), "extended"),
+                            (typed_node.is_multi_line(), "multi_line"),
+                            (typed_node.is_once(), "once"),
+                            (typed_node.is_euc_jp(), "euc_jp"),
+                            (typed_node.is_ascii_8bit(), "ascii_8bit"),
+                            (typed_node.is_windows_31j(), "windows_31j"),
+                            (typed_node.is_utf_8(), "utf_8"),
+                            (typed_node.is_forced_utf8_encoding(), "forced_utf8_encoding"),
+                            (typed_node.is_forced_binary_encoding(), "forced_binary_encoding"),
+                            (typed_node.is_forced_us_ascii_encoding(), "forced_us_ascii_encoding"),
+                        ]),
+                    ),
                     Field::Value("opening_loc", inspector.location(typed_node.opening_loc())),
                     Field::Value("content_loc", inspector.location(typed_node.content_loc())),
                     Field::Value("closing_loc", inspector.location(typed_node.closing_loc())),
-                    Field::Value("unescaped", inspect_string(typed_node.unescaped(), typed_node.is_forced_binary_encoding())),
+                    Field::Value(
+                        "unescaped",
+                        inspect_string(typed_node.unescaped(), typed_node.is_forced_binary_encoding()),
+                    ),
                 ],
             )
         }
@@ -1257,7 +2017,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "MatchPredicateNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("value", Some(typed_node.value())),
                     Field::Child("pattern", Some(typed_node.pattern())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -1269,7 +2035,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "MatchRequiredNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("value", Some(typed_node.value())),
                     Field::Child("pattern", Some(typed_node.pattern())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -1281,7 +2053,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "MatchWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("call", Some(typed_node.call().as_node())),
                     Field::Children("targets", typed_node.targets().iter().collect()),
                 ],
@@ -1291,9 +2069,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             let typed_node = node.as_missing_node().expect("variant was matched");
             (
                 "MissingNode",
-                vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
-                ],
+                vec![Field::Value(
+                    "flags",
+                    inspect_flags(&[
+                        (typed_node.flags() & 1 != 0, "newline"),
+                        (typed_node.flags() & 2 != 0, "static_literal"),
+                    ]),
+                )],
             )
         }
         Node::ModuleNode { .. } => {
@@ -1301,9 +2083,18 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ModuleNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("locals", inspect_constant_list(&typed_node.locals())),
-                    Field::Value("module_keyword_loc", inspector.location(typed_node.module_keyword_loc())),
+                    Field::Value(
+                        "module_keyword_loc",
+                        inspector.location(typed_node.module_keyword_loc()),
+                    ),
                     Field::Child("constant_path", Some(typed_node.constant_path())),
                     Field::Child("body", typed_node.body()),
                     Field::Value("end_keyword_loc", inspector.location(typed_node.end_keyword_loc())),
@@ -1316,7 +2107,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "MultiTargetNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Children("lefts", typed_node.lefts().iter().collect()),
                     Field::Child("rest", typed_node.rest()),
                     Field::Children("rights", typed_node.rights().iter().collect()),
@@ -1330,7 +2127,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "MultiWriteNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Children("lefts", typed_node.lefts().iter().collect()),
                     Field::Child("rest", typed_node.rest()),
                     Field::Children("rights", typed_node.rights().iter().collect()),
@@ -1346,7 +2149,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "NextNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("arguments", typed_node.arguments().map(|child| child.as_node())),
                     Field::Value("keyword_loc", inspector.location(typed_node.keyword_loc())),
                 ],
@@ -1356,9 +2165,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             let typed_node = node.as_nil_node().expect("variant was matched");
             (
                 "NilNode",
-                vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
-                ],
+                vec![Field::Value(
+                    "flags",
+                    inspect_flags(&[
+                        (typed_node.flags() & 1 != 0, "newline"),
+                        (typed_node.flags() & 2 != 0, "static_literal"),
+                    ]),
+                )],
             )
         }
         Node::NoKeywordsParameterNode { .. } => {
@@ -1366,7 +2179,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "NoKeywordsParameterNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
                     Field::Value("keyword_loc", inspector.location(typed_node.keyword_loc())),
                 ],
@@ -1377,7 +2196,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "NumberedParametersNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("maximum", typed_node.maximum().to_string()),
                 ],
             )
@@ -1387,7 +2212,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "NumberedReferenceReadNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("number", typed_node.number().to_string()),
                 ],
             )
@@ -1397,7 +2228,14 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "OptionalKeywordParameterNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_repeated_parameter(), "repeated_parameter")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_repeated_parameter(), "repeated_parameter"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
                     Field::Child("value", Some(typed_node.value())),
@@ -1409,7 +2247,14 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "OptionalParameterNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_repeated_parameter(), "repeated_parameter")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_repeated_parameter(), "repeated_parameter"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -1422,7 +2267,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "OrNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("left", Some(typed_node.left())),
                     Field::Child("right", Some(typed_node.right())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -1434,7 +2285,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ParametersNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Children("requireds", typed_node.requireds().iter().collect()),
                     Field::Children("optionals", typed_node.optionals().iter().collect()),
                     Field::Child("rest", typed_node.rest()),
@@ -1450,7 +2307,14 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ParenthesesNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_multiple_statements(), "multiple_statements")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_multiple_statements(), "multiple_statements"),
+                        ]),
+                    ),
                     Field::Child("body", typed_node.body()),
                     Field::Value("opening_loc", inspector.location(typed_node.opening_loc())),
                     Field::Value("closing_loc", inspector.location(typed_node.closing_loc())),
@@ -1462,7 +2326,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "PinnedExpressionNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("expression", Some(typed_node.expression())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
                     Field::Value("lparen_loc", inspector.location(typed_node.lparen_loc())),
@@ -1475,7 +2345,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "PinnedVariableNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("variable", Some(typed_node.variable())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
                 ],
@@ -1486,7 +2362,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "PostExecutionNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("statements", typed_node.statements().map(|child| child.as_node())),
                     Field::Value("keyword_loc", inspector.location(typed_node.keyword_loc())),
                     Field::Value("opening_loc", inspector.location(typed_node.opening_loc())),
@@ -1499,7 +2381,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "PreExecutionNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("statements", typed_node.statements().map(|child| child.as_node())),
                     Field::Value("keyword_loc", inspector.location(typed_node.keyword_loc())),
                     Field::Value("opening_loc", inspector.location(typed_node.opening_loc())),
@@ -1512,7 +2400,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ProgramNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("locals", inspect_constant_list(&typed_node.locals())),
                     Field::Child("statements", Some(typed_node.statements().as_node())),
                 ],
@@ -1523,7 +2417,14 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "RangeNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_exclude_end(), "exclude_end")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_exclude_end(), "exclude_end"),
+                        ]),
+                    ),
                     Field::Child("left", typed_node.left()),
                     Field::Child("right", typed_node.right()),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -1535,7 +2436,17 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "RationalNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_binary(), "binary"), (typed_node.is_decimal(), "decimal"), (typed_node.is_octal(), "octal"), (typed_node.is_hexadecimal(), "hexadecimal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_binary(), "binary"),
+                            (typed_node.is_decimal(), "decimal"),
+                            (typed_node.is_octal(), "octal"),
+                            (typed_node.is_hexadecimal(), "hexadecimal"),
+                        ]),
+                    ),
                     Field::Value("numerator", inspect_integer(&typed_node.numerator())),
                     Field::Value("denominator", inspect_integer(&typed_node.denominator())),
                 ],
@@ -1545,9 +2456,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             let typed_node = node.as_redo_node().expect("variant was matched");
             (
                 "RedoNode",
-                vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
-                ],
+                vec![Field::Value(
+                    "flags",
+                    inspect_flags(&[
+                        (typed_node.flags() & 1 != 0, "newline"),
+                        (typed_node.flags() & 2 != 0, "static_literal"),
+                    ]),
+                )],
             )
         }
         Node::RegularExpressionNode { .. } => {
@@ -1555,11 +2470,31 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "RegularExpressionNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_ignore_case(), "ignore_case"), (typed_node.is_extended(), "extended"), (typed_node.is_multi_line(), "multi_line"), (typed_node.is_once(), "once"), (typed_node.is_euc_jp(), "euc_jp"), (typed_node.is_ascii_8bit(), "ascii_8bit"), (typed_node.is_windows_31j(), "windows_31j"), (typed_node.is_utf_8(), "utf_8"), (typed_node.is_forced_utf8_encoding(), "forced_utf8_encoding"), (typed_node.is_forced_binary_encoding(), "forced_binary_encoding"), (typed_node.is_forced_us_ascii_encoding(), "forced_us_ascii_encoding")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_ignore_case(), "ignore_case"),
+                            (typed_node.is_extended(), "extended"),
+                            (typed_node.is_multi_line(), "multi_line"),
+                            (typed_node.is_once(), "once"),
+                            (typed_node.is_euc_jp(), "euc_jp"),
+                            (typed_node.is_ascii_8bit(), "ascii_8bit"),
+                            (typed_node.is_windows_31j(), "windows_31j"),
+                            (typed_node.is_utf_8(), "utf_8"),
+                            (typed_node.is_forced_utf8_encoding(), "forced_utf8_encoding"),
+                            (typed_node.is_forced_binary_encoding(), "forced_binary_encoding"),
+                            (typed_node.is_forced_us_ascii_encoding(), "forced_us_ascii_encoding"),
+                        ]),
+                    ),
                     Field::Value("opening_loc", inspector.location(typed_node.opening_loc())),
                     Field::Value("content_loc", inspector.location(typed_node.content_loc())),
                     Field::Value("closing_loc", inspector.location(typed_node.closing_loc())),
-                    Field::Value("unescaped", inspect_string(typed_node.unescaped(), typed_node.is_forced_binary_encoding())),
+                    Field::Value(
+                        "unescaped",
+                        inspect_string(typed_node.unescaped(), typed_node.is_forced_binary_encoding()),
+                    ),
                 ],
             )
         }
@@ -1568,7 +2503,14 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "RequiredKeywordParameterNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_repeated_parameter(), "repeated_parameter")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_repeated_parameter(), "repeated_parameter"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                     Field::Value("name_loc", inspector.location(typed_node.name_loc())),
                 ],
@@ -1579,7 +2521,14 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "RequiredParameterNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_repeated_parameter(), "repeated_parameter")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_repeated_parameter(), "repeated_parameter"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_constant(&typed_node.name())),
                 ],
             )
@@ -1589,7 +2538,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "RescueModifierNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Child("expression", Some(typed_node.expression())),
                     Field::Value("keyword_loc", inspector.location(typed_node.keyword_loc())),
                     Field::Child("rescue_expression", Some(typed_node.rescue_expression())),
@@ -1601,12 +2556,21 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "RescueNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("keyword_loc", inspector.location(typed_node.keyword_loc())),
                     Field::Children("exceptions", typed_node.exceptions().iter().collect()),
                     Field::Value("operator_loc", inspector.optional_location(typed_node.operator_loc())),
                     Field::Child("reference", typed_node.reference()),
-                    Field::Value("then_keyword_loc", inspector.optional_location(typed_node.then_keyword_loc())),
+                    Field::Value(
+                        "then_keyword_loc",
+                        inspector.optional_location(typed_node.then_keyword_loc()),
+                    ),
                     Field::Child("statements", typed_node.statements().map(|child| child.as_node())),
                     Field::Child("subsequent", typed_node.subsequent().map(|child| child.as_node())),
                 ],
@@ -1617,7 +2581,14 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "RestParameterNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_repeated_parameter(), "repeated_parameter")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_repeated_parameter(), "repeated_parameter"),
+                        ]),
+                    ),
                     Field::Value("name", inspect_optional_constant(typed_node.name())),
                     Field::Value("name_loc", inspector.optional_location(typed_node.name_loc())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -1628,9 +2599,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             let typed_node = node.as_retry_node().expect("variant was matched");
             (
                 "RetryNode",
-                vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
-                ],
+                vec![Field::Value(
+                    "flags",
+                    inspect_flags(&[
+                        (typed_node.flags() & 1 != 0, "newline"),
+                        (typed_node.flags() & 2 != 0, "static_literal"),
+                    ]),
+                )],
             )
         }
         Node::ReturnNode { .. } => {
@@ -1638,7 +2613,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ReturnNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("keyword_loc", inspector.location(typed_node.keyword_loc())),
                     Field::Child("arguments", typed_node.arguments().map(|child| child.as_node())),
                 ],
@@ -1648,9 +2629,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             let typed_node = node.as_self_node().expect("variant was matched");
             (
                 "SelfNode",
-                vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
-                ],
+                vec![Field::Value(
+                    "flags",
+                    inspect_flags(&[
+                        (typed_node.flags() & 1 != 0, "newline"),
+                        (typed_node.flags() & 2 != 0, "static_literal"),
+                    ]),
+                )],
             )
         }
         Node::ShareableConstantNode { .. } => {
@@ -1658,7 +2643,16 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "ShareableConstantNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_literal(), "literal"), (typed_node.is_experimental_everything(), "experimental_everything"), (typed_node.is_experimental_copy(), "experimental_copy")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_literal(), "literal"),
+                            (typed_node.is_experimental_everything(), "experimental_everything"),
+                            (typed_node.is_experimental_copy(), "experimental_copy"),
+                        ]),
+                    ),
                     Field::Child("write", Some(typed_node.write())),
                 ],
             )
@@ -1668,7 +2662,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "SingletonClassNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("locals", inspect_constant_list(&typed_node.locals())),
                     Field::Value("class_keyword_loc", inspector.location(typed_node.class_keyword_loc())),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
@@ -1682,9 +2682,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             let typed_node = node.as_source_encoding_node().expect("variant was matched");
             (
                 "SourceEncodingNode",
-                vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
-                ],
+                vec![Field::Value(
+                    "flags",
+                    inspect_flags(&[
+                        (typed_node.flags() & 1 != 0, "newline"),
+                        (typed_node.flags() & 2 != 0, "static_literal"),
+                    ]),
+                )],
             )
         }
         Node::SourceFileNode { .. } => {
@@ -1692,8 +2696,21 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "SourceFileNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_forced_utf8_encoding(), "forced_utf8_encoding"), (typed_node.is_forced_binary_encoding(), "forced_binary_encoding"), (typed_node.is_frozen(), "frozen"), (typed_node.is_mutable(), "mutable")])),
-                    Field::Value("filepath", inspect_string(typed_node.filepath(), typed_node.is_forced_binary_encoding())),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_forced_utf8_encoding(), "forced_utf8_encoding"),
+                            (typed_node.is_forced_binary_encoding(), "forced_binary_encoding"),
+                            (typed_node.is_frozen(), "frozen"),
+                            (typed_node.is_mutable(), "mutable"),
+                        ]),
+                    ),
+                    Field::Value(
+                        "filepath",
+                        inspect_string(typed_node.filepath(), typed_node.is_forced_binary_encoding()),
+                    ),
                 ],
             )
         }
@@ -1701,9 +2718,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             let typed_node = node.as_source_line_node().expect("variant was matched");
             (
                 "SourceLineNode",
-                vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
-                ],
+                vec![Field::Value(
+                    "flags",
+                    inspect_flags(&[
+                        (typed_node.flags() & 1 != 0, "newline"),
+                        (typed_node.flags() & 2 != 0, "static_literal"),
+                    ]),
+                )],
             )
         }
         Node::SplatNode { .. } => {
@@ -1711,7 +2732,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "SplatNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("operator_loc", inspector.location(typed_node.operator_loc())),
                     Field::Child("expression", typed_node.expression()),
                 ],
@@ -1722,7 +2749,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "StatementsNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Children("body", typed_node.body().iter().collect()),
                 ],
             )
@@ -1732,11 +2765,24 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "StringNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_forced_utf8_encoding(), "forced_utf8_encoding"), (typed_node.is_forced_binary_encoding(), "forced_binary_encoding"), (typed_node.is_frozen(), "frozen"), (typed_node.is_mutable(), "mutable")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_forced_utf8_encoding(), "forced_utf8_encoding"),
+                            (typed_node.is_forced_binary_encoding(), "forced_binary_encoding"),
+                            (typed_node.is_frozen(), "frozen"),
+                            (typed_node.is_mutable(), "mutable"),
+                        ]),
+                    ),
                     Field::Value("opening_loc", inspector.optional_location(typed_node.opening_loc())),
                     Field::Value("content_loc", inspector.location(typed_node.content_loc())),
                     Field::Value("closing_loc", inspector.optional_location(typed_node.closing_loc())),
-                    Field::Value("unescaped", inspect_string(typed_node.unescaped(), typed_node.is_forced_binary_encoding())),
+                    Field::Value(
+                        "unescaped",
+                        inspect_string(typed_node.unescaped(), typed_node.is_forced_binary_encoding()),
+                    ),
                 ],
             )
         }
@@ -1745,7 +2791,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "SuperNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("keyword_loc", inspector.location(typed_node.keyword_loc())),
                     Field::Value("lparen_loc", inspector.optional_location(typed_node.lparen_loc())),
                     Field::Child("arguments", typed_node.arguments().map(|child| child.as_node())),
@@ -1759,11 +2811,23 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "SymbolNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_forced_utf8_encoding(), "forced_utf8_encoding"), (typed_node.is_forced_binary_encoding(), "forced_binary_encoding"), (typed_node.is_forced_us_ascii_encoding(), "forced_us_ascii_encoding")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_forced_utf8_encoding(), "forced_utf8_encoding"),
+                            (typed_node.is_forced_binary_encoding(), "forced_binary_encoding"),
+                            (typed_node.is_forced_us_ascii_encoding(), "forced_us_ascii_encoding"),
+                        ]),
+                    ),
                     Field::Value("opening_loc", inspector.optional_location(typed_node.opening_loc())),
                     Field::Value("value_loc", inspector.optional_location(typed_node.value_loc())),
                     Field::Value("closing_loc", inspector.optional_location(typed_node.closing_loc())),
-                    Field::Value("unescaped", inspect_string(typed_node.unescaped(), typed_node.is_forced_binary_encoding())),
+                    Field::Value(
+                        "unescaped",
+                        inspect_string(typed_node.unescaped(), typed_node.is_forced_binary_encoding()),
+                    ),
                 ],
             )
         }
@@ -1771,9 +2835,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             let typed_node = node.as_true_node().expect("variant was matched");
             (
                 "TrueNode",
-                vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
-                ],
+                vec![Field::Value(
+                    "flags",
+                    inspect_flags(&[
+                        (typed_node.flags() & 1 != 0, "newline"),
+                        (typed_node.flags() & 2 != 0, "static_literal"),
+                    ]),
+                )],
             )
         }
         Node::UndefNode { .. } => {
@@ -1781,7 +2849,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "UndefNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Children("names", typed_node.names().iter().collect()),
                     Field::Value("keyword_loc", inspector.location(typed_node.keyword_loc())),
                 ],
@@ -1792,13 +2866,25 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "UnlessNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("keyword_loc", inspector.location(typed_node.keyword_loc())),
                     Field::Child("predicate", Some(typed_node.predicate())),
-                    Field::Value("then_keyword_loc", inspector.optional_location(typed_node.then_keyword_loc())),
+                    Field::Value(
+                        "then_keyword_loc",
+                        inspector.optional_location(typed_node.then_keyword_loc()),
+                    ),
                     Field::Child("statements", typed_node.statements().map(|child| child.as_node())),
                     Field::Child("else_clause", typed_node.else_clause().map(|child| child.as_node())),
-                    Field::Value("end_keyword_loc", inspector.optional_location(typed_node.end_keyword_loc())),
+                    Field::Value(
+                        "end_keyword_loc",
+                        inspector.optional_location(typed_node.end_keyword_loc()),
+                    ),
                 ],
             )
         }
@@ -1807,9 +2893,19 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "UntilNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_begin_modifier(), "begin_modifier")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_begin_modifier(), "begin_modifier"),
+                        ]),
+                    ),
                     Field::Value("keyword_loc", inspector.location(typed_node.keyword_loc())),
-                    Field::Value("do_keyword_loc", inspector.optional_location(typed_node.do_keyword_loc())),
+                    Field::Value(
+                        "do_keyword_loc",
+                        inspector.optional_location(typed_node.do_keyword_loc()),
+                    ),
                     Field::Value("closing_loc", inspector.optional_location(typed_node.closing_loc())),
                     Field::Child("predicate", Some(typed_node.predicate())),
                     Field::Child("statements", typed_node.statements().map(|child| child.as_node())),
@@ -1821,10 +2917,19 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "WhenNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("keyword_loc", inspector.location(typed_node.keyword_loc())),
                     Field::Children("conditions", typed_node.conditions().iter().collect()),
-                    Field::Value("then_keyword_loc", inspector.optional_location(typed_node.then_keyword_loc())),
+                    Field::Value(
+                        "then_keyword_loc",
+                        inspector.optional_location(typed_node.then_keyword_loc()),
+                    ),
                     Field::Child("statements", typed_node.statements().map(|child| child.as_node())),
                 ],
             )
@@ -1834,9 +2939,19 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "WhileNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_begin_modifier(), "begin_modifier")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_begin_modifier(), "begin_modifier"),
+                        ]),
+                    ),
                     Field::Value("keyword_loc", inspector.location(typed_node.keyword_loc())),
-                    Field::Value("do_keyword_loc", inspector.optional_location(typed_node.do_keyword_loc())),
+                    Field::Value(
+                        "do_keyword_loc",
+                        inspector.optional_location(typed_node.do_keyword_loc()),
+                    ),
                     Field::Value("closing_loc", inspector.optional_location(typed_node.closing_loc())),
                     Field::Child("predicate", Some(typed_node.predicate())),
                     Field::Child("statements", typed_node.statements().map(|child| child.as_node())),
@@ -1848,11 +2963,22 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "XStringNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal"), (typed_node.is_forced_utf8_encoding(), "forced_utf8_encoding"), (typed_node.is_forced_binary_encoding(), "forced_binary_encoding")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                            (typed_node.is_forced_utf8_encoding(), "forced_utf8_encoding"),
+                            (typed_node.is_forced_binary_encoding(), "forced_binary_encoding"),
+                        ]),
+                    ),
                     Field::Value("opening_loc", inspector.location(typed_node.opening_loc())),
                     Field::Value("content_loc", inspector.location(typed_node.content_loc())),
                     Field::Value("closing_loc", inspector.location(typed_node.closing_loc())),
-                    Field::Value("unescaped", inspect_string(typed_node.unescaped(), typed_node.is_forced_binary_encoding())),
+                    Field::Value(
+                        "unescaped",
+                        inspect_string(typed_node.unescaped(), typed_node.is_forced_binary_encoding()),
+                    ),
                 ],
             )
         }
@@ -1861,7 +2987,13 @@ pub fn node_fields<'pr>(inspector: &Inspector<'_>, node: &Node<'pr>) -> (&'stati
             (
                 "YieldNode",
                 vec![
-                    Field::Value("flags", inspect_flags(&[(typed_node.flags() & 1 != 0, "newline"), (typed_node.flags() & 2 != 0, "static_literal")])),
+                    Field::Value(
+                        "flags",
+                        inspect_flags(&[
+                            (typed_node.flags() & 1 != 0, "newline"),
+                            (typed_node.flags() & 2 != 0, "static_literal"),
+                        ]),
+                    ),
                     Field::Value("keyword_loc", inspector.location(typed_node.keyword_loc())),
                     Field::Value("lparen_loc", inspector.optional_location(typed_node.lparen_loc())),
                     Field::Child("arguments", typed_node.arguments().map(|child| child.as_node())),

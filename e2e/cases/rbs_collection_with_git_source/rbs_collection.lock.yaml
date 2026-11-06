@@ -1,0 +1,11 @@
+---
+path: vendor/installed_collection
+gems:
+- name: greeting
+  version: '1.0'
+  source:
+    type: git
+    name: example/rbs_collection
+    revision: 0123456789abcdef0123456789abcdef01234567
+    remote: https://example.com/rbs_collection.git
+    repo_dir: gems

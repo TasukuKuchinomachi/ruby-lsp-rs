@@ -1,0 +1,5 @@
+class Config
+  def self.load: () -> Config
+
+  def self.reload: () -> Config
+end

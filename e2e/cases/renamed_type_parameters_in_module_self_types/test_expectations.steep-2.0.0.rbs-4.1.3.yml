@@ -1,0 +1,25 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 3
+        character: 9
+      end:
+        line: 3
+        character: 23
+    severity: ERROR
+    message: Type `B` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 6
+        character: 6
+      end:
+        line: 6
+        character: 10
+    severity: ERROR
+    message: |-
+      Cannot allow method body have type `B` because declared as type `A`
+        B <: A
+    code: Ruby::MethodBodyTypeMismatch

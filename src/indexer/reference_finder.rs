@@ -28,15 +28,28 @@ pub fn find_references(
     include_declarations: bool,
 ) -> Vec<Reference> {
     let parse_result = ruby_prism::parse(source);
-    let line_index = LineIndex::new(source, super::index::indexer_column_encoding(index.configuration.encoding));
-    let mut finder = ReferenceFinder { target, index, uri, line_index, stack: Vec::new(), references: Vec::new() };
+    let line_index = LineIndex::new(
+        source,
+        super::index::indexer_column_encoding(index.configuration.encoding),
+    );
+    let mut finder = ReferenceFinder {
+        target,
+        index,
+        uri,
+        line_index,
+        stack: Vec::new(),
+        references: Vec::new(),
+    };
     finder.visit(&parse_result.node());
 
     let references = finder.references;
     if include_declarations {
         references
     } else {
-        references.into_iter().filter(|reference| !reference.declaration).collect()
+        references
+            .into_iter()
+            .filter(|reference| !reference.declaration)
+            .collect()
     }
 }
 
@@ -51,7 +64,8 @@ struct ReferenceFinder<'target, 'index, 'source> {
 
 impl ReferenceFinder<'_, '_, '_> {
     fn location(&self, location: &ruby_prism::Location<'_>) -> Location {
-        self.line_index.location_of(location.start_offset(), location.end_offset())
+        self.line_index
+            .location_of(location.start_offset(), location.end_offset())
     }
 
     fn singleton_name(&self) -> String {
@@ -59,8 +73,12 @@ impl ReferenceFinder<'_, '_, '_> {
     }
 
     fn collect_constant_references(&mut self, name: &str, location: &ruby_prism::Location<'_>) {
-        let Target::Constant { fully_qualified_name } = self.target else { return };
-        let Some(entries) = self.index.resolve(name, &self.stack) else { return };
+        let Target::Constant { fully_qualified_name } = self.target else {
+            return;
+        };
+        let Some(entries) = self.index.resolve(name, &self.stack) else {
+            return;
+        };
         let location = self.location(location);
 
         let mut has_matching_entry = false;
@@ -84,28 +102,52 @@ impl ReferenceFinder<'_, '_, '_> {
         }
 
         if has_matching_entry {
-            self.references.push(Reference { name: name.to_string(), location, declaration });
+            self.references.push(Reference {
+                name: name.to_string(),
+                location,
+                declaration,
+            });
         }
     }
 
-    fn collect_instance_variable_references(&mut self, name: &str, location: &ruby_prism::Location<'_>, declaration: bool) {
-        let Target::InstanceVariable { name: target_name, owner_ancestors } = self.target else { return };
+    fn collect_instance_variable_references(
+        &mut self,
+        name: &str,
+        location: &ruby_prism::Location<'_>,
+        declaration: bool,
+    ) {
+        let Target::InstanceVariable {
+            name: target_name,
+            owner_ancestors,
+        } = self.target
+        else {
+            return;
+        };
         if name != target_name {
             return;
         }
         let receiver_type = actual_nesting(&self.stack, None).join("::");
         if owner_ancestors.contains(&receiver_type) {
             let location = self.location(location);
-            self.references.push(Reference { name: name.to_string(), location, declaration });
+            self.references.push(Reference {
+                name: name.to_string(),
+                location,
+                declaration,
+            });
         }
     }
 
     fn collect_constant_path_write(&mut self, target: &ruby_prism::ConstantPathNode<'_>) {
-        if target.parent().is_some_and(|parent| parent.as_constant_read_node().is_none()) {
+        if target
+            .parent()
+            .is_some_and(|parent| parent.as_constant_read_node().is_none())
+        {
             return;
         }
         let target_node = target.as_node();
-        let Some(name) = constant_name(&target_node) else { return };
+        let Some(name) = constant_name(&target_node) else {
+            return;
+        };
         self.collect_constant_references(&name, &target.location());
     }
 }
@@ -212,10 +254,16 @@ impl<'pr> Visit<'pr> for ReferenceFinder<'_, '_, '_> {
             let name = constant_id_name(&node.name());
             if name == *method_name {
                 let location = self.location(&node.name_loc());
-                self.references.push(Reference { name, location, declaration: true });
+                self.references.push(Reference {
+                    name,
+                    location,
+                    declaration: true,
+                });
             }
         }
-        let singleton = node.receiver().is_some_and(|receiver| receiver.as_self_node().is_some());
+        let singleton = node
+            .receiver()
+            .is_some_and(|receiver| receiver.as_self_node().is_some());
         if singleton {
             let name = self.singleton_name();
             self.stack.push(name);
@@ -248,7 +296,11 @@ impl<'pr> Visit<'pr> for ReferenceFinder<'_, '_, '_> {
                 && let Some(message_location) = node.message_loc()
             {
                 let location = self.location(&message_location);
-                self.references.push(Reference { name, location, declaration: false });
+                self.references.push(Reference {
+                    name,
+                    location,
+                    declaration: false,
+                });
             }
         }
         ruby_prism::visit_call_node(self, node);

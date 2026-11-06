@@ -1,0 +1,63 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 6
+      end:
+        line: 2
+        character: 12
+    severity: ERROR
+    message: |-
+      Cannot allow method body have type `::String` because declared as type `::Shapes::Circle`
+        ::String <: ::Shapes::Circle
+          ::Object <: ::Shapes::Circle
+            ::BasicObject <: ::Shapes::Circle
+    code: Ruby::MethodBodyTypeMismatch
+  - range:
+      start:
+        line: 10
+        character: 6
+      end:
+        line: 10
+        character: 10
+    severity: ERROR
+    message: |-
+      Cannot allow method body have type `::Shapes::Circle` because declared as type `::Shapes::Nested::Leaf`
+        ::Shapes::Circle <: ::Shapes::Nested::Leaf
+          ::Object <: ::Shapes::Nested::Leaf
+            ::BasicObject <: ::Shapes::Nested::Leaf
+    code: Ruby::MethodBodyTypeMismatch
+  - range:
+      start:
+        line: 15
+        character: 22
+      end:
+        line: 15
+        character: 36
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 16
+        character: 17
+      end:
+        line: 16
+        character: 31
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+- file: sig/app.rbs
+  diagnostics:
+  - range:
+      start:
+        line: 11
+        character: 30
+      end:
+        line: 11
+        character: 42
+    severity: ERROR
+    message: Cannot find type `::UnknownShape`
+    code: RBS::UnknownTypeName

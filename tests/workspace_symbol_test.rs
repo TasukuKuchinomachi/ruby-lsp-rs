@@ -11,12 +11,22 @@ const CONSTRUCTOR: u64 = 9;
 const CONSTANT: u64 = 14;
 
 fn server() -> TestServer {
-    with_server(None, support::DEFAULT_URI, TestOptions { stub_no_typechecker: true, ..TestOptions::default() })
+    with_server(
+        None,
+        support::DEFAULT_URI,
+        TestOptions {
+            stub_no_typechecker: true,
+            ..TestOptions::default()
+        },
+    )
 }
 
 fn workspace_symbol(server: &mut TestServer, query: &str) -> Vec<Value> {
     let result = server.result("workspace/symbol", json!({ "query": query }));
-    result.as_array().cloned().unwrap_or_else(|| panic!("Expected an array, got {result}"))
+    result
+        .as_array()
+        .cloned()
+        .unwrap_or_else(|| panic!("Expected an array, got {result}"))
 }
 
 fn assert_first(server: &mut TestServer, query: &str, name: &str, kind: u64) {
@@ -66,7 +76,11 @@ fn does_not_include_symbols_from_dependencies() {
     let mut server = with_server(
         None,
         support::DEFAULT_URI,
-        TestOptions { stub_no_typechecker: true, rubylibdir: Some(rubylibdir.clone()), ..TestOptions::default() },
+        TestOptions {
+            stub_no_typechecker: true,
+            rubylibdir: Some(rubylibdir.clone()),
+            ..TestOptions::default()
+        },
     );
     server.index_file(&std::path::Path::new(&rubylibdir).join("pathname.rb"), None);
 
@@ -76,7 +90,10 @@ fn does_not_include_symbols_from_dependencies() {
 #[test]
 fn does_not_include_private_constants() {
     let mut server = server();
-    server.index_source("file:///fake.rb", "class Foo\n  CONSTANT = 1\n  private_constant(:CONSTANT)\nend\n");
+    server.index_source(
+        "file:///fake.rb",
+        "class Foo\n  CONSTANT = 1\n  private_constant(:CONSTANT)\nend\n",
+    );
 
     let result = workspace_symbol(&mut server, "Foo::CONSTANT");
     assert_eq!(result.len(), 1);

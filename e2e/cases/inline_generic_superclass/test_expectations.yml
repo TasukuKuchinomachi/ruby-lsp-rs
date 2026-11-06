@@ -1,0 +1,28 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 8
+        character: 21
+      end:
+        line: 8
+        character: 35
+    severity: ERROR
+    message: Type `::String` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 9
+        character: 15
+      end:
+        line: 9
+        character: 16
+    severity: ERROR
+    message: |-
+      Cannot pass a value of type `::Integer` as an argument of type `::String`
+        ::Integer <: ::String
+          ::Numeric <: ::String
+            ::Object <: ::String
+              ::BasicObject <: ::String
+    code: Ruby::ArgumentTypeMismatch

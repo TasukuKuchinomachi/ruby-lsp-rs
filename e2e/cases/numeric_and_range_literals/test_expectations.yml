@@ -1,0 +1,103 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 4
+      end:
+        line: 1
+        character: 18
+    severity: ERROR
+    message: Type `::Float` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 2
+        character: 3
+      end:
+        line: 2
+        character: 17
+    severity: ERROR
+    message: Type `::Rational` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 3
+        character: 3
+      end:
+        line: 3
+        character: 17
+    severity: ERROR
+    message: Type `::Complex` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 4
+        character: 4
+      end:
+        line: 4
+        character: 18
+    severity: ERROR
+    message: Type `::Float` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 5
+        character: 5
+      end:
+        line: 5
+        character: 19
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 7
+        character: 8
+      end:
+        line: 7
+        character: 22
+    severity: ERROR
+    message: Type `::Range[::Integer]` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 8
+        character: 6
+      end:
+        line: 8
+        character: 20
+    severity: ERROR
+    message: Type `::Range[(::Integer | nil)]` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 9
+        character: 6
+      end:
+        line: 9
+        character: 20
+    severity: ERROR
+    message: Type `::Range[(nil | ::Integer)]` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 10
+        character: 11
+      end:
+        line: 10
+        character: 25
+    severity: ERROR
+    message: Type `::Range[::String]` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 11
+        character: 9
+      end:
+        line: 11
+        character: 23
+    severity: ERROR
+    message: Type `::Range[(::Integer | ::String)]` does not have method `no_such_method`
+    code: Ruby::NoMethod

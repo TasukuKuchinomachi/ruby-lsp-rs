@@ -22,13 +22,20 @@ struct FlatSelectionRange {
 pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult {
     let params: SelectionRangeParams = parse_params(params)?;
     let document = context.store.get(&params.text_document.uri)?;
-    let ranges = if document.is_ruby_or_erb() { flat_selection_ranges(&document.parse()) } else { Vec::new() };
+    let ranges = if document.is_ruby_or_erb() {
+        flat_selection_ranges(&document.parse())
+    } else {
+        Vec::new()
+    };
 
     let response: Vec<Option<SelectionRange>> = params
         .positions
         .iter()
         .map(|position| {
-            ranges.iter().rposition(|range| covers(&range.range, *position)).map(|index| build_selection_range(&ranges, index))
+            ranges
+                .iter()
+                .rposition(|range| covers(&range.range, *position))
+                .map(|index| build_selection_range(&ranges, index))
         })
         .collect();
     to_result(response)
@@ -39,7 +46,10 @@ fn flat_selection_ranges(parsed: &ParsedDocument<'_>) -> Vec<FlatSelectionRange>
     let mut stack = vec![(parsed.ast(), None)];
     while let Some((node, parent)) = stack.pop() {
         let index = ranges.len();
-        ranges.push(FlatSelectionRange { range: parsed.range_from_node(&node), parent });
+        ranges.push(FlatSelectionRange {
+            range: parsed.range_from_node(&node),
+            parent,
+        });
         stack.extend(child_nodes(&node).into_iter().rev().map(|child| (child, Some(index))));
     }
     ranges
@@ -47,5 +57,10 @@ fn flat_selection_ranges(parsed: &ParsedDocument<'_>) -> Vec<FlatSelectionRange>
 
 fn build_selection_range(ranges: &[FlatSelectionRange], index: usize) -> SelectionRange {
     let flat = &ranges[index];
-    SelectionRange { range: flat.range, parent: flat.parent.map(|parent| Box::new(build_selection_range(ranges, parent))) }
+    SelectionRange {
+        range: flat.range,
+        parent: flat
+            .parent
+            .map(|parent| Box::new(build_selection_range(ranges, parent))),
+    }
 }

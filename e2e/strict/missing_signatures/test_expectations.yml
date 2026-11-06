@@ -1,0 +1,53 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 8
+        character: 10
+      end:
+        line: 8
+        character: 24
+    severity: ERROR
+    message: Type `::Array[untyped]` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 9
+        character: 10
+      end:
+        line: 9
+        character: 24
+    severity: ERROR
+    message: Type `::Hash[untyped, untyped]` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 41
+        character: 25
+      end:
+        line: 41
+        character: 39
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 68
+        character: 10
+      end:
+        line: 68
+        character: 24
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 84
+        character: 11
+      end:
+        line: 84
+        character: 25
+    severity: ERROR
+    message: Type `[]` does not have method `no_such_method`
+    code: Ruby::NoMethod

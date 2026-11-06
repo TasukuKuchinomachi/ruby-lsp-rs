@@ -19,15 +19,22 @@ pub struct TestStyle {
 
 impl TestStyle {
     pub fn new() -> TestStyle {
-        TestStyle { base: TestDiscovery::new(), framework: "minitest", parent_stack: vec![Some(Vec::new())] }
+        TestStyle {
+            base: TestDiscovery::new(),
+            framework: "minitest",
+            parent_stack: vec![Some(Vec::new())],
+        }
     }
 
     pub fn on_enter(&mut self, node: &Node<'_>, context: &mut DiscoveryContext<'_, '_>) {
         match node {
-            Node::ClassNode { .. } => self.on_class_node_enter(&node.as_class_node().expect("matched a class node"), node, context),
+            Node::ClassNode { .. } => {
+                self.on_class_node_enter(&node.as_class_node().expect("matched a class node"), node, context)
+            }
             Node::ModuleNode { .. } => {
                 self.parent_stack.push(None);
-                self.base.on_module_node_enter(&node.as_module_node().expect("matched a module node"));
+                self.base
+                    .on_module_node_enter(&node.as_module_node().expect("matched a module node"));
             }
             Node::DefNode { .. } => self.on_def_node_enter(node, context),
             Node::CallNode { .. } => {
@@ -65,8 +72,13 @@ impl TestStyle {
         }
 
         if self.framework == "test_unit" || non_declarative_minitest(context.index, ancestors, name) {
-            let test_item =
-                TestItem::new(name.clone(), name.clone(), context.uri, context.parsed.range_from_node(node), self.framework);
+            let test_item = TestItem::new(
+                name.clone(),
+                name.clone(),
+                context.uri,
+                context.parsed.range_from_node(node),
+                self.framework,
+            );
             let parent_path = self.last_test_group();
             let item_path = context.collection.add_at(&parent_path, test_item);
             self.parent_stack.push(item_path);
@@ -88,7 +100,9 @@ impl TestStyle {
         }
 
         let current_group_name = self.base.calc_fully_qualified_name(None);
-        let Some(Some(parent_path)) = self.parent_stack.last() else { return };
+        let Some(Some(parent_path)) = self.parent_stack.last() else {
+            return;
+        };
         if parent_path.is_empty() {
             return;
         }
@@ -112,7 +126,11 @@ impl TestStyle {
     }
 
     fn last_test_group(&self) -> Vec<String> {
-        self.parent_stack.iter().rev().find_map(Clone::clone).unwrap_or_default()
+        self.parent_stack
+            .iter()
+            .rev()
+            .find_map(Clone::clone)
+            .unwrap_or_default()
     }
 }
 
@@ -131,9 +149,15 @@ fn non_declarative_minitest(index: &mut Index, attached_ancestors: &[String], fu
     while name_parts.last() == Some(&"") {
         name_parts.pop();
     }
-    let singleton_name = format!("{}::<Class:{}>", name_parts.join("::"), name_parts.last().unwrap_or(&""));
+    let singleton_name = format!(
+        "{}::<Class:{}>",
+        name_parts.join("::"),
+        name_parts.last().unwrap_or(&"")
+    );
     match index.linearized_ancestors_of(&singleton_name) {
-        Ok(ancestors) => !ancestors.iter().any(|ancestor| ancestor == "ActiveSupport::Testing::Declarative"),
+        Ok(ancestors) => !ancestors
+            .iter()
+            .any(|ancestor| ancestor == "ActiveSupport::Testing::Declarative"),
         Err(_) => true,
     }
 }
@@ -145,7 +169,10 @@ struct AggregatedGroup {
 }
 
 fn string_tags(item: &Value) -> IndexSet<String> {
-    item["tags"].as_array().map(|tags| tags.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default()
+    item["tags"]
+        .as_array()
+        .map(|tags| tags.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .unwrap_or_default()
 }
 
 fn is_spec(path: &str) -> bool {
@@ -165,13 +192,19 @@ pub fn resolve_test_commands(items: &[Value], workspace_path: &str) -> Vec<Strin
         }
 
         let children: Vec<Value> = item["children"].as_array().cloned().unwrap_or_default();
-        let Some(path) = item["uri"].as_str().and_then(crate::uri::to_path) else { continue };
+        let Some(path) = item["uri"].as_str().and_then(crate::uri::to_path) else {
+            continue;
+        };
         let id = item["id"].as_str().unwrap_or_default().to_string();
 
         if tags.contains("test_dir") {
             if children.is_empty() {
                 let pattern = format!("{path}/**/{{*_test,test_*,*_spec}}.rb");
-                full_files.extend(glob(&pattern, std::path::Path::new("/")).iter().map(|file| shell_escape(file)));
+                full_files.extend(
+                    glob(&pattern, std::path::Path::new("/"))
+                        .iter()
+                        .map(|file| shell_escape(file)),
+                );
             }
         } else if tags.contains("test_file") {
             if children.is_empty() {
@@ -181,16 +214,23 @@ pub fn resolve_test_commands(items: &[Value], workspace_path: &str) -> Vec<Strin
             let all_children_are_groups =
                 !children.is_empty() && children.iter().all(|child| string_tags(child).contains("test_group"));
             if !all_children_are_groups {
-                aggregated_tests
-                    .entry(path.clone())
-                    .or_default()
-                    .insert(id.clone(), AggregatedGroup { tags: tags.clone(), examples: Vec::new() });
+                aggregated_tests.entry(path.clone()).or_default().insert(
+                    id.clone(),
+                    AggregatedGroup {
+                        tags: tags.clone(),
+                        examples: Vec::new(),
+                    },
+                );
             }
         } else {
             let mut parts = id.split('#');
             let class_name = parts.next().unwrap_or_default().to_string();
             let method_name = parts.next().unwrap_or_default().to_string();
-            let group = aggregated_tests.entry(path.clone()).or_default().entry(class_name).or_default();
+            let group = aggregated_tests
+                .entry(path.clone())
+                .or_default()
+                .entry(class_name)
+                .or_default();
             group.examples.push(method_name);
             group.tags.extend(tags.iter().cloned());
         }
@@ -201,8 +241,9 @@ pub fn resolve_test_commands(items: &[Value], workspace_path: &str) -> Vec<Strin
     let mut commands = Vec::new();
 
     for (file_path, groups_and_examples) in &aggregated_tests {
-        let (minitest_groups, test_unit_groups): (Vec<_>, Vec<_>) =
-            groups_and_examples.iter().partition(|(_, info)| info.tags.contains("framework:minitest"));
+        let (minitest_groups, test_unit_groups): (Vec<_>, Vec<_>) = groups_and_examples
+            .iter()
+            .partition(|(_, info)| info.tags.contains("framework:minitest"));
 
         if !minitest_groups.is_empty() {
             commands.push(handle_minitest_groups(&command, file_path, &minitest_groups));
@@ -215,10 +256,16 @@ pub fn resolve_test_commands(items: &[Value], workspace_path: &str) -> Vec<Strin
     if !full_files.is_empty() {
         let (specs, tests): (Vec<String>, Vec<String>) = full_files.into_iter().partition(|path| is_spec(path));
         if !tests.is_empty() {
-            commands.push(format!("{command} -Itest -e \"ARGV.each {{ |f| require f }}\" {}", tests.join(" ")));
+            commands.push(format!(
+                "{command} -Itest -e \"ARGV.each {{ |f| require f }}\" {}",
+                tests.join(" ")
+            ));
         }
         if !specs.is_empty() {
-            commands.push(format!("{command} -Ispec -e \"ARGV.each {{ |f| require f }}\" {}", specs.join(" ")));
+            commands.push(format!(
+                "{command} -Ispec -e \"ARGV.each {{ |f| require f }}\" {}",
+                specs.join(" ")
+            ));
         }
     }
 
@@ -248,12 +295,19 @@ fn replace_example_numbers(example: &str) -> String {
     result
 }
 
-fn handle_minitest_groups(command: &str, file_path: &str, groups_and_examples: &[(&String, &AggregatedGroup)]) -> String {
+fn handle_minitest_groups(
+    command: &str,
+    file_path: &str,
+    groups_and_examples: &[(&String, &AggregatedGroup)],
+) -> String {
     let regexes: Vec<String> = groups_and_examples
         .iter()
         .map(|(group, info)| {
-            let examples: Vec<String> =
-                info.examples.iter().map(|example| replace_example_numbers(&shell_escape(example))).collect();
+            let examples: Vec<String> = info
+                .examples
+                .iter()
+                .map(|example| replace_example_numbers(&shell_escape(example)))
+                .collect();
             let group_regex = group_regex(group);
             match examples.len() {
                 0 => format!("^{group_regex}(#|::)"),
@@ -263,7 +317,11 @@ fn handle_minitest_groups(command: &str, file_path: &str, groups_and_examples: &
         })
         .collect();
 
-    let regex = if regexes.len() == 1 { regexes[0].clone() } else { format!("({})", regexes.join("|")) };
+    let regex = if regexes.len() == 1 {
+        regexes[0].clone()
+    } else {
+        format!("({})", regexes.join("|"))
+    };
     let load_path = if is_spec(file_path) { "-Ispec" } else { "-Itest" };
     format!("{command} {load_path} {} --name \"/{regex}/\"", shell_escape(file_path))
 }
@@ -276,8 +334,11 @@ fn handle_test_unit_groups(
     groups_and_examples
         .iter()
         .map(|(group, info)| {
-            let mut group_command =
-                format!("{command} -Itest {} --testcase \"/^{}\\$/\"", shell_escape(file_path), group_regex(group));
+            let mut group_command = format!(
+                "{command} -Itest {} --testcase \"/^{}\\$/\"",
+                shell_escape(file_path),
+                group_regex(group)
+            );
             match info.examples.len() {
                 0 => {}
                 1 => group_command.push_str(&format!(" --name \"/{}\\$/\"", info.examples[0])),

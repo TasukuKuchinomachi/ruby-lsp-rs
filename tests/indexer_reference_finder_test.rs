@@ -12,29 +12,48 @@ fn find(target: Target, source: &str) -> Vec<Reference> {
 }
 
 fn find_const_references(const_name: &str, source: &str) -> Vec<Reference> {
-    find(Target::Constant { fully_qualified_name: const_name.to_string() }, source)
+    find(
+        Target::Constant {
+            fully_qualified_name: const_name.to_string(),
+        },
+        source,
+    )
 }
 
 fn find_method_references(method_name: &str, source: &str) -> Vec<Reference> {
-    find(Target::Method { method_name: method_name.to_string() }, source)
+    find(
+        Target::Method {
+            method_name: method_name.to_string(),
+        },
+        source,
+    )
 }
 
 fn find_instance_variable_references(name: &str, owner_ancestors: &[&str], source: &str) -> Vec<Reference> {
     let owner_ancestors = owner_ancestors.iter().map(|ancestor| ancestor.to_string()).collect();
-    find(Target::InstanceVariable { name: name.to_string(), owner_ancestors }, source)
+    find(
+        Target::InstanceVariable {
+            name: name.to_string(),
+            owner_ancestors,
+        },
+        source,
+    )
 }
 
 fn names_and_lines(references: &[Reference]) -> Vec<(&str, u32)> {
-    references.iter().map(|reference| (reference.name.as_str(), reference.location.start_line)).collect()
+    references
+        .iter()
+        .map(|reference| (reference.name.as_str(), reference.location.start_line))
+        .collect()
 }
 
 #[test]
 fn test_finds_constant_references() {
-    let refs = find_const_references(
-        "Foo::Bar",
-        "module Foo\n  class Bar\n  end\n\n  Bar\nend\n\nFoo::Bar\n",
+    let refs = find_const_references("Foo::Bar", "module Foo\n  class Bar\n  end\n\n  Bar\nend\n\nFoo::Bar\n");
+    assert_eq!(
+        vec![("Bar", 2), ("Bar", 5), ("Foo::Bar", 8)],
+        names_and_lines(&refs[..3])
     );
-    assert_eq!(vec![("Bar", 2), ("Bar", 5), ("Foo::Bar", 8)], names_and_lines(&refs[..3]));
 }
 
 #[test]
@@ -52,7 +71,10 @@ fn test_finds_top_level_constant_references() {
         "Bar",
         "class Bar\nend\n\nclass Foo\n  ::Bar\n\n  class << self\n    ::Bar\n  end\nend\n",
     );
-    assert_eq!(vec![("Bar", 1), ("::Bar", 5), ("::Bar", 8)], names_and_lines(&refs[..3]));
+    assert_eq!(
+        vec![("Bar", 1), ("::Bar", 5), ("::Bar", 8)],
+        names_and_lines(&refs[..3])
+    );
 }
 
 #[test]
@@ -81,7 +103,10 @@ fn test_matches_writers() {
 
 #[test]
 fn test_find_inherited_methods() {
-    let refs = find_method_references("foo", "class Bar\n  def foo\n  end\nend\n\nclass Baz < Bar\n  super.foo\nend\n");
+    let refs = find_method_references(
+        "foo",
+        "class Bar\n  def foo\n  end\nend\n\nclass Baz < Bar\n  super.foo\nend\n",
+    );
     assert_eq!(vec![("foo", 2), ("foo", 7)], names_and_lines(&refs));
 }
 
@@ -120,7 +145,10 @@ fn test_finds_instance_variable_write_references() {
         &["Foo"],
         "class Foo\n  def write\n    @foo = 1\n    @foo &&= 2\n    @foo ||= 3\n    @foo += 4\n    @foo, @bar = []\n  end\nend\n",
     );
-    assert_eq!(vec![("@foo", 3), ("@foo", 4), ("@foo", 5), ("@foo", 6), ("@foo", 7)], names_and_lines(&refs));
+    assert_eq!(
+        vec![("@foo", 3), ("@foo", 4), ("@foo", 5), ("@foo", 6), ("@foo", 7)],
+        names_and_lines(&refs)
+    );
 }
 
 #[test]
@@ -128,7 +156,15 @@ fn test_finds_instance_variable_references_in_owner_ancestors() {
     let source = "module Base\n  def change_name(name)\n    @name = name\n  end\n  def name\n    @name\n  end\n\n  module ::Top\n    def name\n      @name\n    end\n  end\nend\n\nclass Parent\n  def initialize\n    @name = \"parent\"\n  end\n  def name_capital\n    @name[0]\n  end\nend\n\nclass Foo < Parent\n  include Base\n  def initialize\n    @name = \"foo\"\n  end\n  def name\n    @name\n  end\nend\n\nclass Bar\n  def name\n    @name = \"bar\"\n  end\nend\n";
     let refs = find_instance_variable_references("@name", &["Foo", "Base", "Top", "Parent"], source);
     assert_eq!(
-        vec![("@name", 3), ("@name", 6), ("@name", 11), ("@name", 18), ("@name", 21), ("@name", 28), ("@name", 31)],
+        vec![
+            ("@name", 3),
+            ("@name", 6),
+            ("@name", 11),
+            ("@name", 18),
+            ("@name", 21),
+            ("@name", 28),
+            ("@name", 31)
+        ],
         names_and_lines(&refs)
     );
 }

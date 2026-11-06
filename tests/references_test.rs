@@ -15,7 +15,10 @@ fn find_references(fixture_name: &str, line: u32, character: u32) -> Vec<Value> 
         "textDocument/references",
         json!({ "textDocument": { "uri": uri }, "position": { "line": line, "character": character } }),
     );
-    result.as_array().cloned().unwrap_or_else(|| panic!("Expected an array, got {result}"))
+    result
+        .as_array()
+        .cloned()
+        .unwrap_or_else(|| panic!("Expected an array, got {result}"))
 }
 
 #[test]
@@ -44,12 +47,23 @@ fn finds_method_references_across_documents() {
         .iter()
         .filter(|location| {
             let uri = location["uri"].as_str().unwrap();
-            !uri.contains("/tests/") && !uri.contains("/target/")
+            ["/tests/", "/target/", "/e2e/", "/fixtures/", "/crates/"]
+                .iter()
+                .all(|directory| !uri.contains(directory))
         })
-        .map(|location| (location["uri"].as_str().unwrap().to_string(), location["range"]["start"]["line"].as_u64().unwrap()))
+        .map(|location| {
+            (
+                location["uri"].as_str().unwrap().to_string(),
+                location["range"]["start"]["line"].as_u64().unwrap(),
+            )
+        })
         .collect();
     assert_eq!(
-        vec![("file:///first.rb".to_string(), 0), ("file:///first.rb".to_string(), 1), ("untitled:Untitled-1".to_string(), 0)],
+        vec![
+            ("file:///first.rb".to_string(), 0),
+            ("file:///first.rb".to_string(), 1),
+            ("untitled:Untitled-1".to_string(), 0)
+        ],
         locations
     );
 }

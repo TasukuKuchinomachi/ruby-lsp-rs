@@ -1,0 +1,7 @@
+sources:
+  - type: rubygems
+
+path: .gem_rbs_collection
+
+gems:
+  - name: rbs

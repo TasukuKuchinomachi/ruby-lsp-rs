@@ -8,7 +8,10 @@ use serde_json::{Value, json};
 use support::{DEFAULT_URI, TestOptions, TestServer, rbs_core_path, with_server};
 
 fn no_typechecker() -> TestOptions {
-    TestOptions { stub_no_typechecker: true, ..TestOptions::default() }
+    TestOptions {
+        stub_no_typechecker: true,
+        ..TestOptions::default()
+    }
 }
 
 fn completion_at(server: &mut TestServer, uri: &str, line: u32, character: u32) -> Vec<Value> {
@@ -16,7 +19,10 @@ fn completion_at(server: &mut TestServer, uri: &str, line: u32, character: u32) 
         "textDocument/completion",
         json!({ "textDocument": { "uri": uri }, "position": { "line": line, "character": character } }),
     );
-    result.as_array().cloned().unwrap_or_else(|| panic!("Expected an array, got {result}"))
+    result
+        .as_array()
+        .cloned()
+        .unwrap_or_else(|| panic!("Expected an array, got {result}"))
 }
 
 fn completion(server: &mut TestServer, line: u32, character: u32) -> Vec<Value> {
@@ -25,7 +31,15 @@ fn completion(server: &mut TestServer, line: u32, character: u32) -> Vec<Value> 
 }
 
 fn strings(items: &[Value], pointer: &str) -> Vec<String> {
-    items.iter().map(|item| item.pointer(pointer).and_then(Value::as_str).unwrap_or_default().to_string()).collect()
+    items
+        .iter()
+        .map(|item| {
+            item.pointer(pointer)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        })
+        .collect()
 }
 
 fn labels(items: &[Value]) -> Vec<String> {
@@ -45,7 +59,9 @@ fn descriptions(items: &[Value]) -> Vec<String> {
 }
 
 fn index_ruby_core(server: &TestServer) -> bool {
-    let Some(rbs_core_path) = rbs_core_path() else { return false };
+    let Some(rbs_core_path) = rbs_core_path() else {
+        return false;
+    };
     RbsIndexer::new(&mut server.index()).index_core_directory(&rbs_core_path);
     true
 }
@@ -70,7 +86,14 @@ fn with_file_structure(server: &TestServer) -> FileStructure {
     ));
     std::fs::create_dir_all(directory.join("foo/support")).unwrap();
     let load_path_entry = directory.to_string_lossy().into_owned();
-    for relative_path in ["foo/bar.rb", "foo/baz.rb", "foo/quux.rb", "foo/support/bar.rb", "foo/support/baz.rb", "foo/support/quux.rb"] {
+    for relative_path in [
+        "foo/bar.rb",
+        "foo/baz.rb",
+        "foo/quux.rb",
+        "foo/support/bar.rb",
+        "foo/support/baz.rb",
+        "foo/support/quux.rb",
+    ] {
         let path = directory.join(relative_path);
         std::fs::write(&path, "").unwrap();
         let require_path = ruby_lsp_rs::uri::require_path(&path.to_string_lossy(), &load_path_entry);
@@ -116,13 +139,21 @@ fn assert_require_completion(source: &str, expected_paths: &[&str]) {
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
     let _structure = with_file_structure(&server);
     let result = completion(&mut server, 0, end_character);
-    let expected: Vec<Value> =
-        expected_paths.iter().map(|path| path_completion(path, start_character, end_character)).collect();
+    let expected: Vec<Value> = expected_paths
+        .iter()
+        .map(|path| path_completion(path, start_character, end_character))
+        .collect();
     assert_eq!(result, expected);
 }
 
-const ALL_FOO_PATHS: &[&str] =
-    &["foo/bar", "foo/baz", "foo/quux", "foo/support/bar", "foo/support/baz", "foo/support/quux"];
+const ALL_FOO_PATHS: &[&str] = &[
+    "foo/bar",
+    "foo/baz",
+    "foo/quux",
+    "foo/support/bar",
+    "foo/support/baz",
+    "foo/support/quux",
+];
 
 #[test]
 fn completion_command() {
@@ -141,7 +172,10 @@ fn completion_command_call() {
 
 #[test]
 fn completion_with_partial_path() {
-    assert_require_completion("require \"foo/suppo\"\n", &["foo/support/bar", "foo/support/baz", "foo/support/quux"]);
+    assert_require_completion(
+        "require \"foo/suppo\"\n",
+        &["foo/support/bar", "foo/support/baz", "foo/support/quux"],
+    );
 }
 
 #[test]
@@ -170,7 +204,10 @@ fn completion_for_fully_qualified_paths_inside_namespace() {
     let source = "module Foo\n  module Bar\n    class Baz\n    end\n\n    Foo::\n  end\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, no_typechecker());
     let _structure = with_file_structure(&server);
-    assert_eq!(labels(&completion(&mut server, 5, 9)), vec!["Foo::Bar", "Foo::Bar::Baz"]);
+    assert_eq!(
+        labels(&completion(&mut server, 5, 9)),
+        vec!["Foo::Bar", "Foo::Bar::Baz"]
+    );
 }
 
 #[test]
@@ -334,8 +371,10 @@ fn completion_for_methods_invoked_on_explicit_self() {
     assert_eq!(labels(&result), vec!["baz", "bar"]);
     assert_eq!(filter_texts(&result), vec!["baz", "bar"]);
     assert_eq!(new_texts(&result), vec!["baz", "bar"]);
-    let start_characters: Vec<u64> =
-        result.iter().map(|item| item["textEdit"]["range"]["start"]["character"].as_u64().unwrap()).collect();
+    let start_characters: Vec<u64> = result
+        .iter()
+        .map(|item| item["textEdit"]["range"]["start"]["character"].as_u64().unwrap())
+        .collect();
     assert_eq!(start_characters, vec![9, 9]);
 }
 
@@ -352,7 +391,8 @@ fn completion_for_methods_named_with_uppercase_characters() {
 
 #[test]
 fn completion_for_attributes() {
-    let source = "class Foo\n  attr_accessor :qux\n\n  def bar\n    q\n    self.q\n  end\nend\n\nfoo = Foo.new\nfoo.q\n";
+    let source =
+        "class Foo\n  attr_accessor :qux\n\n  def bar\n    q\n    self.q\n  end\nend\n\nfoo = Foo.new\nfoo.q\n";
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
     let _structure = with_file_structure(&server);
 
@@ -393,7 +433,10 @@ fn completion_for_inherited_methods() {
     let source = "module Foo\n  module First\n    def method1; end\n  end\n\n  class Bar\n    def method2; end\n  end\n\n  class Baz < Bar\n    include First\n\n    def do_it\n      m\n    end\n  end\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
     let _structure = with_file_structure(&server);
-    assert_eq!(labels(&completion(&mut server, 13, 7)), vec!["module", "method2", "method1"]);
+    assert_eq!(
+        labels(&completion(&mut server, 13, 7)),
+        vec!["module", "method2", "method1"]
+    );
 }
 
 fn assert_relative_completion(source: &str, opened_relative_path: &str, expected_paths: &[&str]) {
@@ -402,8 +445,10 @@ fn assert_relative_completion(source: &str, opened_relative_path: &str, expected
     let structure = with_file_structure(&server);
     let uri = open(&server, &structure.directory.join(opened_relative_path), source);
     let result = completion_at(&mut server, &uri, 0, end_character);
-    let expected: Vec<Value> =
-        expected_paths.iter().map(|path| path_completion(path, start_character, end_character)).collect();
+    let expected: Vec<Value> = expected_paths
+        .iter()
+        .map(|path| path_completion(path, start_character, end_character))
+        .collect();
     assert_eq!(result, expected);
 }
 
@@ -421,7 +466,14 @@ fn relative_completion_call() {
     assert_relative_completion(
         "require_relative(\"../\")\n",
         "foo/fake.rb",
-        &["../foo/bar", "../foo/baz", "../foo/quux", "../foo/support/bar", "../foo/support/baz", "../foo/support/quux"],
+        &[
+            "../foo/bar",
+            "../foo/baz",
+            "../foo/quux",
+            "../foo/support/bar",
+            "../foo/support/baz",
+            "../foo/support/quux",
+        ],
     );
 }
 
@@ -458,14 +510,20 @@ fn completion_for_global_variables() {
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
     let core_indexed = index_ruby_core(&server);
 
-    assert_eq!(labels(&completion(&mut server, 6, 2)), vec!["$qoo", "$qorge", "$quux", "$qux", "$qaz", "$qar"]);
+    assert_eq!(
+        labels(&completion(&mut server, 6, 2)),
+        vec!["$qoo", "$qorge", "$quux", "$qux", "$qaz", "$qar"]
+    );
     if !core_indexed {
         return;
     }
 
     let result = completion(&mut server, 7, 5);
     assert_eq!(labels(&result), vec!["$LOAD_PATH", "$LOADED_FEATURES"]);
-    assert_eq!(descriptions(&result), vec!["global_variables.rbs", "global_variables.rbs"]);
+    assert_eq!(
+        descriptions(&result),
+        vec!["global_variables.rbs", "global_variables.rbs"]
+    );
 
     assert!(completion(&mut server, 8, 1).len() > 40);
 }
@@ -489,7 +547,8 @@ fn completion_for_class_variables() {
 
 #[test]
 fn completion_for_class_variables_node() {
-    let source = "class Foo\n  def set_variables\n    @@foo = 1\n    @@foobar = 2\n  end\n\n  def bar\n    @@\n  end\nend\n";
+    let source =
+        "class Foo\n  def set_variables\n    @@foo = 1\n    @@foobar = 2\n  end\n\n  def bar\n    @@\n  end\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, no_typechecker());
     assert_eq!(labels(&completion(&mut server, 7, 6)), vec!["@@foo", "@@foobar"]);
 }
@@ -512,7 +571,10 @@ fn completion_for_class_variables_show_only_unique_entries() {
 fn completion_for_class_variables_in_different_context() {
     let source = "class Foo\n  @@a = 1\n\n  class << self\n    @@b = 2\n\n    def foo\n      @@c = 3\n    end\n  end\n\n  def bar\n    @\n  end\n\n  def baz\n    @@ = 4\n  end\n\n  def self.foobar\n    @@d = 5\n  end\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, no_typechecker());
-    assert_eq!(labels(&completion(&mut server, 12, 5)), vec!["@@d", "@@c", "@@b", "@@a"]);
+    assert_eq!(
+        labels(&completion(&mut server, 12, 5)),
+        vec!["@@d", "@@c", "@@b", "@@a"]
+    );
 }
 
 #[test]
@@ -541,10 +603,14 @@ fn instance_variable_completion_shows_only_uniq_entries() {
 
 #[test]
 fn completion_for_singleton_methods() {
-    let source = "class Foo\n  def self.baz; end\n\n  class << self\n    def bar\n      b\n    end\n  end\nend\n\nFoo.\n";
+    let source =
+        "class Foo\n  def self.baz; end\n\n  class << self\n    def bar\n      b\n    end\n  end\nend\n\nFoo.\n";
     let mut server = with_server(Some(source), DEFAULT_URI, no_typechecker());
     assert_eq!(labels(&completion(&mut server, 10, 4)), vec!["bar", "baz"]);
-    assert_eq!(labels(&completion(&mut server, 5, 7)), vec!["begin", "break", "bar", "baz"]);
+    assert_eq!(
+        labels(&completion(&mut server, 5, 7)),
+        vec!["begin", "break", "bar", "baz"]
+    );
 }
 
 #[test]
@@ -559,15 +625,24 @@ fn completion_for_class_instance_variables() {
 fn completion_for_aliased_methods() {
     let source = "class Parent\n  def bar(a); end\nend\n\nclass Child < Parent\n  alias baz bar\n\n  def do_something\n    b\n  end\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, no_typechecker());
-    assert_eq!(labels(&completion(&mut server, 8, 5)), vec!["begin", "break", "baz", "bar"]);
+    assert_eq!(
+        labels(&completion(&mut server, 8, 5)),
+        vec!["begin", "break", "baz", "bar"]
+    );
 }
 
 #[test]
 fn completion_for_locals() {
     let source = "class Child\n  abc0 = 42\n\n  def do_something(abc1, abc2, abc3)\n    a\n\n    [].each do |abc4, abc5|\n      a\n    end\n  end\n\n  a\nend\n\nabc = 12\na\n";
     let mut server = with_server(Some(source), DEFAULT_URI, no_typechecker());
-    assert_eq!(labels(&completion(&mut server, 4, 5)), vec!["abc1", "abc2", "abc3", "alias", "and"]);
-    assert_eq!(labels(&completion(&mut server, 7, 7)), vec!["abc1", "abc2", "abc3", "abc4", "abc5", "alias", "and"]);
+    assert_eq!(
+        labels(&completion(&mut server, 4, 5)),
+        vec!["abc1", "abc2", "abc3", "alias", "and"]
+    );
+    assert_eq!(
+        labels(&completion(&mut server, 7, 7)),
+        vec!["abc1", "abc2", "abc3", "abc4", "abc5", "alias", "and"]
+    );
     assert_eq!(labels(&completion(&mut server, 11, 3)), vec!["abc0", "alias", "and"]);
     assert_eq!(labels(&completion(&mut server, 15, 1)), vec!["abc", "alias", "and"]);
 }
@@ -602,7 +677,8 @@ fn keyword_completion_is_disabled_on_typed_true() {
 
 #[test]
 fn instance_variable_completion_is_disabled_on_typed_strict() {
-    let source = "# typed: strict\nclass Foo\n  def initialize\n    @hello = 123\n  end\n\n  def bar\n    @\n  end\nend\n";
+    let source =
+        "# typed: strict\nclass Foo\n  def initialize\n    @hello = 123\n  end\n\n  def bar\n    @\n  end\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
     assert!(completion(&mut server, 7, 5).is_empty());
 }
@@ -626,7 +702,10 @@ fn guessed_type_name_is_only_included_for_guessed_types() {
     let items = completion(&mut server, 0, 4);
     assert!(!items.is_empty());
     for item in items {
-        assert!(matches!(item["data"]["guessed_type"], Value::Null | Value::Bool(false)), "{item}");
+        assert!(
+            matches!(item["data"]["guessed_type"], Value::Null | Value::Bool(false)),
+            "{item}"
+        );
     }
 }
 

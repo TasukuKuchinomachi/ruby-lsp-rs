@@ -48,7 +48,9 @@ fn test_instance_variable_or_write() {
 #[test]
 fn test_instance_variable_target() {
     let mut test = TestCase::new();
-    test.index("module Foo\n  class Bar\n    def initialize\n      # Hello\n      @a, @b = [1, 2]\n    end\n  end\nend\n");
+    test.index(
+        "module Foo\n  class Bar\n    def initialize\n      # Hello\n      @a, @b = [1, 2]\n    end\n  end\nend\n",
+    );
     test.assert_entry("@a", "InstanceVariable", "/fake/path/foo.rb:4-6:4-8");
     test.assert_entry("@b", "InstanceVariable", "/fake/path/foo.rb:4-10:4-12");
     assert_eq!(owned_by("Class", "Foo::Bar"), test.owner_of("@a"));
@@ -75,7 +77,10 @@ fn test_class_instance_variables() {
     assert_eq!(owned_by("SingletonClass", "Foo::Bar::<Class:Bar>"), test.owner_of("@b"));
 
     test.assert_entry("@c", "InstanceVariable", "/fake/path/foo.rb:9-6:9-8");
-    assert_eq!(owned_by("SingletonClass", "Foo::Bar::<Class:Bar>::<Class:<Class:Bar>>"), test.owner_of("@c"));
+    assert_eq!(
+        owned_by("SingletonClass", "Foo::Bar::<Class:Bar>::<Class:<Class:Bar>>"),
+        test.owner_of("@c")
+    );
 }
 
 #[test]

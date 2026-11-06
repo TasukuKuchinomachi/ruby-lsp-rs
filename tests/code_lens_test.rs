@@ -5,9 +5,17 @@ use serde_json::{Value, json};
 use test_discovery_support::bundled_server;
 
 fn code_lens(source: &str, uri: &str, test_library: &str) -> Vec<Value> {
-    let mut server = bundled_server(Some(source), uri, test_library, json!({ "experimentalFeaturesEnabled": true }));
+    let mut server = bundled_server(
+        Some(source),
+        uri,
+        test_library,
+        json!({ "experimentalFeaturesEnabled": true }),
+    );
     let result = server.result("textDocument/codeLens", json!({ "textDocument": { "uri": uri } }));
-    result.as_array().cloned().unwrap_or_else(|| panic!("Expected an array, got {result}"))
+    result
+        .as_array()
+        .cloned()
+        .unwrap_or_else(|| panic!("Expected an array, got {result}"))
 }
 
 fn title(code_lens: &Value) -> &str {
@@ -25,9 +33,15 @@ fn command_generation_for_minitest() {
 
     assert_eq!(response.len(), 6);
     assert_eq!(title(&response[1]), "▶ Run In Terminal");
-    assert_eq!(command(&response[1]), "bundle exec ruby -Itest /test/fake.rb --name \"/^FooTest(#|::)/\"");
+    assert_eq!(
+        command(&response[1]),
+        "bundle exec ruby -Itest /test/fake.rb --name \"/^FooTest(#|::)/\""
+    );
     assert_eq!(title(&response[4]), "▶ Run In Terminal");
-    assert_eq!(command(&response[4]), "bundle exec ruby -Itest /test/fake.rb --name FooTest#test_bar");
+    assert_eq!(
+        command(&response[4]),
+        "bundle exec ruby -Itest /test/fake.rb --name FooTest#test_bar"
+    );
 }
 
 #[test]
@@ -37,11 +51,20 @@ fn command_generation_for_minitest_spec() {
 
     assert_eq!(response.len(), 9);
     assert_eq!(title(&response[1]), "▶ Run In Terminal");
-    assert_eq!(command(&response[1]), "bundle exec ruby -Ispec /spec/fake.rb --name \"/^FooTest(#|::)/\"");
+    assert_eq!(
+        command(&response[1]),
+        "bundle exec ruby -Ispec /spec/fake.rb --name \"/^FooTest(#|::)/\""
+    );
     assert_eq!(title(&response[4]), "▶ Run In Terminal");
-    assert_eq!(command(&response[4]), "bundle exec ruby -Ispec /spec/fake.rb --name \"/^FooTest::a(#|::)/\"");
+    assert_eq!(
+        command(&response[4]),
+        "bundle exec ruby -Ispec /spec/fake.rb --name \"/^FooTest::a(#|::)/\""
+    );
     assert_eq!(title(&response[7]), "▶ Run In Terminal");
-    assert_eq!(command(&response[7]), "bundle exec ruby -Ispec /spec/fake.rb --name \"/^FooTest::a#test_0001_b$/\"");
+    assert_eq!(
+        command(&response[7]),
+        "bundle exec ruby -Ispec /spec/fake.rb --name \"/^FooTest::a#test_0001_b$/\""
+    );
 }
 
 #[test]
@@ -59,9 +82,15 @@ fn command_generation_for_test_unit() {
 
     assert_eq!(response.len(), 6);
     assert_eq!(title(&response[1]), "▶ Run In Terminal");
-    assert_eq!(command(&response[1]), "bundle exec ruby -Itest /test/fake.rb --testcase /FooTest/");
+    assert_eq!(
+        command(&response[1]),
+        "bundle exec ruby -Itest /test/fake.rb --testcase /FooTest/"
+    );
     assert_eq!(title(&response[4]), "▶ Run In Terminal");
-    assert_eq!(command(&response[4]), "bundle exec ruby -Itest /test/fake.rb --testcase /FooTest/ --name test_bar");
+    assert_eq!(
+        command(&response[4]),
+        "bundle exec ruby -Itest /test/fake.rb --testcase /FooTest/ --name test_bar"
+    );
 }
 
 #[test]

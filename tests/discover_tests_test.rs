@@ -28,7 +28,10 @@ fn fixture(name: &str) -> String {
 
 fn discover_tests(server: &mut TestServer, uri: &str) -> Vec<Value> {
     let result = server.result("rubyLsp/discoverTests", json!({ "textDocument": { "uri": uri } }));
-    result.as_array().cloned().unwrap_or_else(|| panic!("Expected an array, got {result}"))
+    result
+        .as_array()
+        .cloned()
+        .unwrap_or_else(|| panic!("Expected an array, got {result}"))
 }
 
 fn discover_with_stub(source: &str, stub: &str) -> Vec<Value> {
@@ -50,7 +53,10 @@ fn with_minitest_spec_configured(source: &str) -> Vec<Value> {
 }
 
 fn values(items: &[Value], key: &str) -> Vec<String> {
-    items.iter().map(|item| item[key].as_str().unwrap().to_string()).collect()
+    items
+        .iter()
+        .map(|item| item[key].as_str().unwrap().to_string())
+        .collect()
 }
 
 fn labels(items: &[Value]) -> Vec<String> {
@@ -67,8 +73,16 @@ fn children(item: &Value) -> Vec<Value> {
 
 fn assert_all_items_tagged_with(items: &[Value], tag: &str) {
     for item in items {
-        let tags: Vec<&str> = item["tags"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
-        assert!(tags.contains(&format!("framework:{tag}").as_str()), "{item} is not tagged with {tag}");
+        let tags: Vec<&str> = item["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert!(
+            tags.contains(&format!("framework:{tag}").as_str()),
+            "{item} is not tagged with {tag}"
+        );
         assert_all_items_tagged_with(&children(item), tag);
     }
 }
@@ -79,7 +93,13 @@ fn minitest() {
     assert_eq!(labels(&items), ["Test", "AnotherTest"]);
     assert_eq!(
         labels(&children(&items[0])),
-        ["test_public", "test_public_command", "test_another_public", "test_public_vcall", "test_with_q?"]
+        [
+            "test_public",
+            "test_public_command",
+            "test_another_public",
+            "test_public_vcall",
+            "test_with_q?"
+        ]
     );
     assert_eq!(labels(&children(&items[1])), ["test_public", "test_public_2"]);
     assert_all_items_tagged_with(&items, "minitest");
@@ -90,10 +110,19 @@ fn minitest_with_nested_classes_and_modules() {
     let items = with_minitest_test(&fixture("minitest_nested_classes_and_modules.rb"));
     assert_eq!(
         labels(&items),
-        ["Foo::FooTest", "Foo::Bar::BarTest", "Foo::Baz::BazTest", "Foo::Bar::FooBarTest", "Foo::Bar::FooBar::Test"]
+        [
+            "Foo::FooTest",
+            "Foo::Bar::BarTest",
+            "Foo::Baz::BazTest",
+            "Foo::Bar::FooBarTest",
+            "Foo::Bar::FooBar::Test"
+        ]
     );
     assert_eq!(labels(&children(&items[0])), ["test_foo", "test_foo_2"]);
-    assert_eq!(labels(&children(&items[1])), ["test_bar", "Foo::Bar::BarTest::Baz::BazTest"]);
+    assert_eq!(
+        labels(&children(&items[1])),
+        ["test_bar", "Foo::Bar::BarTest::Baz::BazTest"]
+    );
     assert_eq!(labels(&children(&children(&items[1])[1])), ["test_baz", "test_baz_2"]);
     assert_eq!(labels(&children(&items[2])), ["test_baz"]);
     assert_eq!(labels(&children(&items[3])), ["test_foo_bar", "test_foo_bar_2"]);
@@ -117,7 +146,10 @@ end
 ";
     let items = with_minitest_test(source);
     assert_eq!(ids(&items), ["First::MyTest"]);
-    assert_eq!(ids(&children(&items[0])), ["First::MyTest#test_something", "First::MyTest::Random::NestedTest"]);
+    assert_eq!(
+        ids(&children(&items[0])),
+        ["First::MyTest#test_something", "First::MyTest::Random::NestedTest"]
+    );
     assert_eq!(
         ids(&children(&children(&items[0])[1])),
         ["First::MyTest::Random::NestedTest#test_something_else"]
@@ -128,10 +160,20 @@ end
 #[test]
 fn minitest_with_dynamic_constant_path() {
     let items = with_minitest_test(&fixture("minitest_with_dynamic_constant_path.rb"));
-    assert_eq!(labels(&items), ["<dynamic_reference>::Baz::Test", "<dynamic_reference>::Baz::SomeOtherTest"]);
+    assert_eq!(
+        labels(&items),
+        [
+            "<dynamic_reference>::Baz::Test",
+            "<dynamic_reference>::Baz::SomeOtherTest"
+        ]
+    );
     assert_eq!(
         labels(&children(&items[0])),
-        ["test_something", "test_something_else", "<dynamic_reference>::Baz::Test::NestedTest"]
+        [
+            "test_something",
+            "test_something_else",
+            "<dynamic_reference>::Baz::Test::NestedTest"
+        ]
     );
     assert_eq!(labels(&children(&children(&items[0])[2])), ["test_nested"]);
     assert_eq!(labels(&children(&items[1])), ["test_stuff", "test_other_stuff"]);
@@ -156,7 +198,10 @@ end
 ";
     let items = with_test_unit(source);
     assert_eq!(labels(&items), ["Foo::MyTest"]);
-    assert_eq!(labels(&children(&items[0])), ["test_something", "Foo::MyTest::NestedTest"]);
+    assert_eq!(
+        labels(&children(&items[0])),
+        ["test_something", "Foo::MyTest::NestedTest"]
+    );
     assert_eq!(labels(&children(&children(&items[0])[1])), ["test_hello"]);
     assert_all_items_tagged_with(&items, "test_unit");
 }
@@ -175,7 +220,10 @@ fn code_lens_with_full_test_discovery(path: &str, initialization_options: Value)
     let mut server = with_server(
         Some(CODE_LENS_SOURCE),
         &uri,
-        TestOptions { initialization_options: Some(initialization_options), ..TestOptions::default() },
+        TestOptions {
+            initialization_options: Some(initialization_options),
+            ..TestOptions::default()
+        },
     );
     server.index_source("file:///other_file.rb", TEST_UNIT_STUB);
     let result = server.result("textDocument/codeLens", json!({ "textDocument": { "uri": uri } }));
@@ -253,7 +301,13 @@ module Foo
 end
 ";
     let items = with_minitest_test(source);
-    assert_eq!(labels(&items), ["<dynamic_reference>::Namespace::MyTest", "Foo::<dynamic_reference>::OtherTest"]);
+    assert_eq!(
+        labels(&items),
+        [
+            "<dynamic_reference>::Namespace::MyTest",
+            "Foo::<dynamic_reference>::OtherTest"
+        ]
+    );
     assert_eq!(labels(&children(&items[0])), ["test_something"]);
     assert_eq!(labels(&children(&items[1])), ["test_something"]);
     assert_all_items_tagged_with(&items, "minitest");
@@ -276,7 +330,13 @@ module Foo
 end
 ";
     let items = with_minitest_test(source);
-    assert_eq!(labels(&items), ["<dynamic_reference>::Namespace::MyTest", "Foo::<dynamic_reference>::OtherTest"]);
+    assert_eq!(
+        labels(&items),
+        [
+            "<dynamic_reference>::Namespace::MyTest",
+            "Foo::<dynamic_reference>::OtherTest"
+        ]
+    );
     assert_eq!(labels(&children(&items[0])), ["test_something"]);
     assert_eq!(labels(&children(&items[1])), ["test_something"]);
     assert_all_items_tagged_with(&items, "test_unit");
@@ -287,7 +347,11 @@ fn files_are_indexed_lazily_if_needed() {
     let directory = std::env::temp_dir().join(format!("ruby-lsp-rs-discover-tests-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
     let path = directory.join("foo.rb");
-    std::fs::write(&path, "class FooTest < Test::Unit::TestCase\n  def test_something; end\nend\n").unwrap();
+    std::fs::write(
+        &path,
+        "class FooTest < Test::Unit::TestCase\n  def test_something; end\nend\n",
+    )
+    .unwrap();
 
     let mut server = with_server(None, DEFAULT_URI, TestOptions::default());
     server.index_source(DEFAULT_URI, TEST_UNIT_STUB);
@@ -354,7 +418,11 @@ fn discovers_specs_without_class() {
     assert_eq!(ids(&items), ["Foo", "Foo::Bar", "Baz"]);
     assert_eq!(
         ids(&children(&items[0])),
-        ["Foo#test_0001_it_level_one", "Foo::nested", "Foo#test_0013_it_level_one_again"]
+        [
+            "Foo#test_0001_it_level_one",
+            "Foo::nested",
+            "Foo#test_0013_it_level_one_again"
+        ]
     );
     assert_all_items_tagged_with(&items, "minitest");
 }
@@ -362,7 +430,10 @@ fn discovers_specs_without_class() {
 #[test]
 fn discovers_dynamic_spec_names() {
     let items = with_minitest_spec_configured(&fixture("minitest_spec_dynamic_name.rb"));
-    assert_eq!(ids(&children(&children(&items[0])[0])), ["BogusSpec::First Spec#test_0004_dynamic_name"]);
+    assert_eq!(
+        ids(&children(&children(&items[0])[0])),
+        ["BogusSpec::First Spec#test_0004_dynamic_name"]
+    );
     assert_all_items_tagged_with(&items, "minitest");
 }
 
@@ -384,7 +455,10 @@ end
 ";
     let items = with_minitest_spec_configured(source);
     assert_eq!(ids(&items), ["FooSpec"]);
-    assert_eq!(ids(&children(&items[0])), ["FooSpec#test_0001_does something", "FooSpec#test_also_valid"]);
+    assert_eq!(
+        ids(&children(&items[0])),
+        ["FooSpec#test_0001_does something", "FooSpec#test_also_valid"]
+    );
     assert_all_items_tagged_with(&items, "minitest");
 }
 
@@ -438,7 +512,10 @@ end
     assert_eq!(ids(&items), [top_class]);
     assert_eq!(
         ids(&children(&items[0])),
-        [format!("{top_class}::when something is true"), format!("{top_class}::NestedSpec")]
+        [
+            format!("{top_class}::when something is true"),
+            format!("{top_class}::NestedSpec")
+        ]
     );
     assert_eq!(
         ids(&children(&children(&items[0])[0])),
@@ -450,7 +527,9 @@ end
     );
     assert_eq!(
         ids(&children(&children(&children(&items[0])[0])[0])),
-        [format!("{top_class}::when something is true::and other thing is false#test_0006_does what's expected")]
+        [format!(
+            "{top_class}::when something is true::and other thing is false#test_0006_does what's expected"
+        )]
     );
     assert_all_items_tagged_with(&items, "minitest");
 }

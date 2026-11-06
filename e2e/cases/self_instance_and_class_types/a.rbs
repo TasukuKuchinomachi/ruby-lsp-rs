@@ -1,0 +1,11 @@
+class Builder
+  def with_name: (String) -> self
+
+  def copy: () -> instance
+
+  def kind: () -> class
+end
+
+class HtmlBuilder < Builder
+  def render: () -> String
+end

@@ -1,0 +1,14 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 7
+      end:
+        line: 2
+        character: 36
+    severity: ERROR
+    message: 'Assertion cannot hold: no relationship between inferred type (`::Array[::Integer]`)
+      and asserted type (`::Hash[::Symbol, ::String]`)'
+    code: Ruby::FalseAssertion

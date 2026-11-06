@@ -1,0 +1,43 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 15
+      end:
+        line: 1
+        character: 19
+    severity: ERROR
+    message: Proc type is expected but `::callback` is specified
+    code: Ruby::ProcTypeExpected
+  - range:
+      start:
+        line: 6
+        character: 15
+      end:
+        line: 6
+        character: 19
+    severity: ERROR
+    message: Proc type is expected but `(::callback | nil)` is specified
+    code: Ruby::ProcTypeExpected
+  - range:
+      start:
+        line: 11
+        character: 15
+      end:
+        line: 11
+        character: 19
+    severity: ERROR
+    message: Proc type is expected but `::optional_callback` is specified
+    code: Ruby::ProcTypeExpected
+  - range:
+      start:
+        line: 21
+        character: 15
+      end:
+        line: 21
+        character: 19
+    severity: ERROR
+    message: Proc type is expected but `::not_proc` is specified
+    code: Ruby::ProcTypeExpected

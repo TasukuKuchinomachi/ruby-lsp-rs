@@ -1,0 +1,3 @@
+class Object
+  def forward_rest: (*untyped, **untyped) -> untyped
+end

@@ -25,7 +25,12 @@ pub fn workspace_options(workspace: &Path, initialization_options: Value) -> Val
     })
 }
 
-pub fn bundled_server(source: Option<&str>, uri: &str, test_library: &str, initialization_options: Value) -> TestServer {
+pub fn bundled_server(
+    source: Option<&str>,
+    uri: &str,
+    test_library: &str,
+    initialization_options: Value,
+) -> TestServer {
     with_server(
         source,
         uri,

@@ -1,0 +1,25 @@
+---
+- file: with_collection.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 24
+      end:
+        line: 1
+        character: 38
+    severity: ERROR
+    message: Type `::String` does not have method `no_such_method`
+    code: Ruby::NoMethod
+- file: without_collection.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 0
+      end:
+        line: 1
+        character: 8
+    severity: ERROR
+    message: 'Cannot find the declaration of constant: `Greeting`'
+    code: Ruby::UnknownConstant

@@ -1,0 +1,183 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 6
+        character: 12
+      end:
+        line: 6
+        character: 21
+    severity: ERROR
+    message: Steep types the type variable `E` in the return type of `new` as untyped because nothing constrains it
+    code: Strict::UnconstrainedTypeVariable
+  - range:
+      start:
+        line: 7
+        character: 12
+      end:
+        line: 7
+        character: 20
+    severity: ERROR
+    message: Steep types the type variables `K`, `V` in the return type of `new` as untyped because nothing constrains them
+    code: Strict::UnconstrainedTypeVariable
+  - range:
+      start:
+        line: 8
+        character: 10
+      end:
+        line: 8
+        character: 24
+    severity: ERROR
+    message: Type `::Array[untyped]` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 9
+        character: 10
+      end:
+        line: 9
+        character: 24
+    severity: ERROR
+    message: Type `::Hash[untyped, untyped]` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 20
+        character: 25
+      end:
+        line: 20
+        character: 30
+    severity: ERROR
+    message: Steep types the parameter `count` as untyped because the method type of `untyped_parameters` takes `(?)`
+    code: Strict::UntypedMethodParameter
+  - range:
+      start:
+        line: 20
+        character: 32
+      end:
+        line: 20
+        character: 41
+    severity: ERROR
+    message: Steep types the parameter `limit` as untyped because the method type of `untyped_parameters` takes `(?)`
+    code: Strict::UntypedMethodParameter
+  - range:
+      start:
+        line: 25
+        character: 23
+      end:
+        line: 25
+        character: 28
+    severity: ERROR
+    message: Steep types the parameter `count` as untyped because an overload of `untyped_overload` takes `(?)`
+    code: Strict::UntypedMethodParameter
+  - range:
+      start:
+        line: 32
+        character: 30
+      end:
+        line: 32
+        character: 34
+    severity: ERROR
+    message: Steep types the parameter `key` as untyped because the method type of `untyped_keywords` takes `(?)`
+    code: Strict::UntypedMethodParameter
+  - range:
+      start:
+        line: 41
+        character: 4
+      end:
+        line: 41
+        character: 45
+    severity: ERROR
+    message: Steep does not check the arguments of `untyped_parameters` against its parameters because its method type takes `(?)`
+    code: Strict::UntypedCallArguments
+  - range:
+      start:
+        line: 41
+        character: 25
+      end:
+        line: 41
+        character: 39
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 46
+        character: 12
+      end:
+        line: 46
+        character: 22
+    severity: ERROR
+    message: Steep types `yield` as untyped without checking its arguments because the method type of `yield_untyped` takes `(?)` and declares no block
+    code: Strict::UntypedYieldArguments
+  - range:
+      start:
+        line: 51
+        character: 4
+      end:
+        line: 51
+        character: 17
+    severity: ERROR
+    message: Steep does not check the arguments of `yield` because the block type of `yield_untyped_block` takes `(?)`
+    code: Strict::UntypedYieldArguments
+  - range:
+      start:
+        line: 62
+        character: 14
+      end:
+        line: 62
+        character: 17
+    severity: ERROR
+    message: Steep does not check the arguments forwarded with `...` because the method type of `forward` takes `(?)`
+    code: Strict::UntypedMethodParameter
+  - range:
+      start:
+        line: 63
+        character: 4
+      end:
+        line: 63
+        character: 27
+    severity: ERROR
+    message: Steep does not check the arguments of `untyped_parameters` against its parameters because its method type takes `(?)`
+    code: Strict::UntypedCallArguments
+  - range:
+      start:
+        line: 66
+        character: 33
+      end:
+        line: 66
+        character: 38
+    severity: ERROR
+    message: Steep types the parameter `other` as untyped because the method type of `annotated_parameter` takes `(?)`
+    code: Strict::UntypedMethodParameter
+  - range:
+      start:
+        line: 68
+        character: 10
+      end:
+        line: 68
+        character: 24
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 83
+        character: 10
+      end:
+        line: 83
+        character: 24
+    severity: ERROR
+    message: '`first` is untyped, so Steep types the calls on it as untyped without type checking their arguments and blocks against any method type (reported at the first call in each method)'
+    code: Strict::UntypedReceiver
+  - range:
+      start:
+        line: 84
+        character: 11
+      end:
+        line: 84
+        character: 25
+    severity: ERROR
+    message: Type `[]` does not have method `no_such_method`
+    code: Ruby::NoMethod

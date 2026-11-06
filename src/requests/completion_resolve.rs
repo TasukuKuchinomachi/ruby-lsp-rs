@@ -1,7 +1,6 @@
 use serde_json::{Value, json};
 
 use super::support::common::markdown_from_index_entries;
-use super::support::receiver_methods;
 use super::support::static_docs::{GUESSED_TYPES_URL, keyword_documentation, keyword_documentation_uri};
 use super::{RequestContext, RequestResult};
 use crate::indexer::{EntryId, EntryKind};
@@ -18,18 +17,17 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
         return Ok(item);
     }
 
-    let mut label = item.get("label").and_then(Value::as_str).unwrap_or_default().to_string();
+    let mut label = item
+        .get("label")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
     if is_truthy(&data["keyword"]) {
         keyword_resolve(&mut item, &label);
         return Ok(item);
     }
 
     let global_state = &*context.global_state;
-    let signature_markdown = truthy_string(&data["receiver_type"]).and_then(|receiver_type| {
-        let environment = global_state.type_checking.environment_for(data["uri"].as_str()?)?;
-        receiver_methods::method_markdown(environment, receiver_type, &label)
-    });
-
     let mut index = global_state.index();
     let mut entries: Vec<EntryId> = index.get_owned(&label).unwrap_or_default();
 
@@ -39,7 +37,9 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
             let kind_matches = entry.is_member()
                 || matches!(
                     entry.kind,
-                    EntryKind::InstanceVariable { .. } | EntryKind::MethodAlias { .. } | EntryKind::ClassVariable { .. }
+                    EntryKind::InstanceVariable { .. }
+                        | EntryKind::MethodAlias { .. }
+                        | EntryKind::ClassVariable { .. }
                 );
             kind_matches && entry.owner() == Some(owner_name)
         });
@@ -57,18 +57,30 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
         format!("[Learn more about guessed types]({GUESSED_TYPES_URL})")
     });
 
-    if let Some(signature_markdown) = signature_markdown {
-        let index_markdown = (!entries.is_empty()).then(|| {
-            markdown_from_index_entries(&mut index, &label, &entries, Some(MAX_DOCUMENTATION_ENTRIES), extra_links.as_deref())
-        });
-        let value = type_checking::merge_hover(Some(signature_markdown), index_markdown);
-        item["documentation"] = json!({ "kind": "markdown", "value": value });
+    if is_truthy(&data["type_checker"]) {
+        if !entries.is_empty() {
+            let index_markdown = markdown_from_index_entries(
+                &mut index,
+                &label,
+                &entries,
+                Some(MAX_DOCUMENTATION_ENTRIES),
+                extra_links.as_deref(),
+            );
+            let type_markdown = item["documentation"]["value"].as_str().map(str::to_string);
+            let value = type_checking::merge_hover(type_markdown, Some(index_markdown));
+            item["documentation"] = json!({ "kind": "markdown", "value": value });
+        }
         return Ok(item);
     }
 
     if item.get("kind").and_then(Value::as_u64) != Some(u64::from(completion_item_kind::FILE)) {
-        let value =
-            markdown_from_index_entries(&mut index, &label, &entries, Some(MAX_DOCUMENTATION_ENTRIES), extra_links.as_deref());
+        let value = markdown_from_index_entries(
+            &mut index,
+            &label,
+            &entries,
+            Some(MAX_DOCUMENTATION_ENTRIES),
+            extra_links.as_deref(),
+        );
         item["documentation"] = json!({ "kind": "markdown", "value": value });
     }
 
@@ -76,7 +88,9 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
 }
 
 fn keyword_resolve(item: &mut Value, keyword: &str) {
-    let Some(content) = keyword_documentation(keyword) else { return };
+    let Some(content) = keyword_documentation(keyword) else {
+        return;
+    };
     let documentation_uri = keyword_documentation_uri(keyword);
     item["documentation"] = json!({
         "kind": "markdown",

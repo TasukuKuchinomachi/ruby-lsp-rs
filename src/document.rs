@@ -42,7 +42,9 @@ impl LanguageId {
     }
 
     pub fn from_path(path: &str) -> LanguageId {
-        let extension = std::path::Path::new(path).extension().map(|extension| extension.to_string_lossy().into_owned());
+        let extension = std::path::Path::new(path)
+            .extension()
+            .map(|extension| extension.to_string_lossy().into_owned());
         match extension.as_deref() {
             Some("erb") | Some("rhtml") => LanguageId::Erb,
             Some("rbs") => LanguageId::Rbs,
@@ -324,7 +326,11 @@ impl<'a> ParsedDocument<'a> {
         self.line_index.offset_of(position)
     }
 
-    pub fn locate_node(&self, position: Position, node_types: &[&str]) -> Result<NodeContext<'_>, InvalidLocationError> {
+    pub fn locate_node(
+        &self,
+        position: Position,
+        node_types: &[&str],
+    ) -> Result<NodeContext<'_>, InvalidLocationError> {
         let offset = self.offset_of(position)?;
         Ok(node_context::locate(&self.ast(), offset, node_types))
     }
@@ -333,7 +339,11 @@ impl<'a> ParsedDocument<'a> {
         node_context::locate(&self.ast(), offset, node_types)
     }
 
-    pub fn locate_first_within_range(&self, range: Range, node_types: &[&str]) -> Result<Option<Node<'_>>, InvalidLocationError> {
+    pub fn locate_first_within_range(
+        &self,
+        range: Range,
+        node_types: &[&str],
+    ) -> Result<Option<Node<'_>>, InvalidLocationError> {
         let start = self.offset_of(range.start)?;
         let end = self.offset_of(range.end)?;
         let mut queue: std::collections::VecDeque<Node<'_>> = child_nodes(&self.ast()).into();
@@ -383,7 +393,9 @@ impl<'a> ParsedDocument<'a> {
     }
 
     fn position_may_impact_declarations(&self, position: Position) -> bool {
-        let Ok(node_context) = self.locate_node(position, &[]) else { return false };
+        let Ok(node_context) = self.locate_node(position, &[]) else {
+            return false;
+        };
         let mut node_at_edit = node_context.node;
 
         if node_at_edit
@@ -423,9 +435,9 @@ impl<'a> ParsedDocument<'a> {
                 let mut targets: Vec<Node<'_>> = multi_write.lefts().iter().collect();
                 targets.extend(multi_write.rest());
                 targets.extend(multi_write.rights().iter());
-                targets
-                    .iter()
-                    .any(|target| target.as_constant_target_node().is_some() || target.as_constant_path_target_node().is_some())
+                targets.iter().any(|target| {
+                    target.as_constant_target_node().is_some() || target.as_constant_path_target_node().is_some()
+                })
             }
             "CallNode" => {
                 let call = node.as_call_node().expect("type name was checked");
@@ -501,7 +513,9 @@ pub fn scan_erb(source: &str) -> (String, String) {
         position += 1;
     }
 
-    let to_string = |bytes: Vec<u8>| String::from_utf8(bytes).unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
+    let to_string = |bytes: Vec<u8>| {
+        String::from_utf8(bytes).unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned())
+    };
     (to_string(ruby), to_string(host_language))
 }
 
@@ -535,7 +549,9 @@ mod tests {
     fn pushing_edit_on_empty_file() {
         for encoding in [Encoding::Utf8, Encoding::Utf16, Encoding::Utf32] {
             let mut document = ruby_document("", encoding);
-            document.push_edits(&[change((0, 0), (0, 0), "def foo\nend\n")], 2).unwrap();
+            document
+                .push_edits(&[change((0, 0), (0, 0), "def foo\nend\n")], 2)
+                .unwrap();
             assert_eq!(document.source(), "def foo\nend\n");
         }
     }
@@ -590,7 +606,10 @@ mod tests {
         let mut document = ruby_document("", Encoding::Utf16);
         assert_eq!(document.cache_get("textDocument/semanticHighlighting"), None);
         document.cache_set("textDocument/semanticHighlighting", serde_json::json!([1, 2]));
-        assert_eq!(document.cache_get("textDocument/semanticHighlighting"), Some(&serde_json::json!([1, 2])));
+        assert_eq!(
+            document.cache_get("textDocument/semanticHighlighting"),
+            Some(&serde_json::json!([1, 2]))
+        );
         document.push_edits(&[change((0, 0), (0, 0), "a")], 2).unwrap();
         assert_eq!(document.cache_get("textDocument/semanticHighlighting"), None);
     }
@@ -614,7 +633,10 @@ mod tests {
         let (ruby, host_language) = scan_erb(source);
         assert_eq!(ruby.len(), source.len());
         assert_eq!(host_language.len(), source.len());
-        assert_eq!(ruby, "    \n   @items.each do |ö|   \n          ö        \n   end    \n     ");
+        assert_eq!(
+            ruby,
+            "    \n   @items.each do |ö|   \n          ö        \n   end    \n     "
+        );
         assert!(host_language.starts_with("<ul>\n"));
     }
 }

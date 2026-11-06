@@ -21,15 +21,16 @@ pub fn unescape(text: &str) -> String {
     let mut decoded = Vec::with_capacity(bytes.len());
     let mut index = 0;
     while index < bytes.len() {
-        if bytes[index] == b'%' && index + 2 < bytes.len()
+        if bytes[index] == b'%'
+            && index + 2 < bytes.len()
             && let Some(value) = std::str::from_utf8(&bytes[index + 1..index + 3])
                 .ok()
                 .and_then(|hex| u8::from_str_radix(hex, 16).ok())
-            {
-                decoded.push(value);
-                index += 3;
-                continue;
-            }
+        {
+            decoded.push(value);
+            index += 3;
+            continue;
+        }
         decoded.push(bytes[index]);
         index += 1;
     }

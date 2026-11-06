@@ -1,8 +1,10 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-const STATIC_DOCS: &[(&str, &str)] =
-    &[("break.md", include_str!("../../../static_docs/break.md")), ("yield.md", include_str!("../../../static_docs/yield.md"))];
+const STATIC_DOCS: &[(&str, &str)] = &[
+    ("break.md", include_str!("../../../static_docs/break.md")),
+    ("yield.md", include_str!("../../../static_docs/yield.md")),
+];
 
 pub const GUESSED_TYPES_URL: &str = "https://shopify.github.io/ruby-lsp/#guessed-types";
 

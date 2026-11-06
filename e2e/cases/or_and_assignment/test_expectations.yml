@@ -1,0 +1,105 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 8
+        character: 10
+      end:
+        line: 8
+        character: 24
+    severity: ERROR
+    message: Type `::String` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 11
+        character: 10
+      end:
+        line: 11
+        character: 24
+    severity: ERROR
+    message: Type `(::String | nil)` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 12
+        character: 4
+      end:
+        line: 12
+        character: 9
+    severity: ERROR
+    message: |-
+      Cannot assign a value of type `::Integer` to a variable of type `(::String | nil)`
+        ::Integer <: (::String | nil)
+          ::Integer <: ::String
+            ::Numeric <: ::String
+              ::Object <: ::String
+                ::BasicObject <: ::String
+    code: Ruby::IncompatibleAssignment
+  - range:
+      start:
+        line: 15
+        character: 22
+      end:
+        line: 15
+        character: 28
+    severity: ERROR
+    message: Type `(::String | nil)` does not have method `upcase`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 16
+        character: 4
+      end:
+        line: 16
+        character: 10
+    severity: ERROR
+    message: |-
+      Cannot assign a value of type `::Integer` to a variable of type `(::String | nil)`
+        ::Integer <: (::String | nil)
+          ::Integer <: ::String
+            ::Numeric <: ::String
+              ::Object <: ::String
+                ::BasicObject <: ::String
+    code: Ruby::IncompatibleAssignment
+  - range:
+      start:
+        line: 19
+        character: 19
+      end:
+        line: 19
+        character: 20
+    severity: ERROR
+    message: |-
+      Cannot pass a value of type `::Integer` as an argument of type `(::String | nil)`
+        ::Integer <: (::String | nil)
+          ::Integer <: ::String
+            ::Numeric <: ::String
+              ::Object <: ::String
+                ::BasicObject <: ::String
+    code: Ruby::ArgumentTypeMismatch
+  - range:
+      start:
+        line: 23
+        character: 19
+      end:
+        line: 23
+        character: 26
+    severity: ERROR
+    message: |-
+      Cannot pass a value of type `::String` as an argument of type `::Integer`
+        ::String <: ::Integer
+          ::Object <: ::Integer
+            ::BasicObject <: ::Integer
+    code: Ruby::ArgumentTypeMismatch
+  - range:
+      start:
+        line: 27
+        character: 9
+      end:
+        line: 27
+        character: 23
+    severity: ERROR
+    message: Type `::Symbol` does not have method `no_such_method`
+    code: Ruby::NoMethod

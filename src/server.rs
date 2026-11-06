@@ -2,12 +2,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender, select};
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response, ResponseError};
 use ruby_environment::RubyEnvironment;
-use ruby_type_check::project;
 use serde_json::{Value, json};
 
 use crate::document::{ContentChange, LanguageId};
@@ -15,12 +13,12 @@ use crate::global_state::{GlobalState, message_type};
 use crate::indexer::{Index, indexing};
 use crate::requests::{self, AUTOMATIC_REQUESTS, Outgoing, RequestContext, RequestError};
 use crate::store::Store;
-use crate::type_checking::{self, EnvironmentLoadOutcome};
+use crate::type_checking::worker::{Command as TypeCheckCommand, Event as TypeCheckEvent, LoadRequest};
+use crate::type_checking::{self, ServiceStatus, TypeCheckClient};
 
 pub const RUBY_LSP_VERSION: &str = "0.26.11";
 const INDEXING_PROGRESS_TOKEN: &str = "indexing-progress";
 const TYPE_CHECKER_PROGRESS_TOKEN: &str = "type-checker-progress";
-const ENVIRONMENT_RELOAD_DELAY: Duration = Duration::from_millis(300);
 
 pub mod file_change_type {
     pub const CREATED: u8 = 1;
@@ -31,6 +29,7 @@ pub mod file_change_type {
 #[derive(Debug, Clone, Default)]
 pub struct ServerOptions {
     pub test_mode: bool,
+    pub rbs_gem_directory: Option<PathBuf>,
 }
 
 type IndexingOutcome = Result<Index, String>;
@@ -50,17 +49,12 @@ pub struct Server {
     next_outgoing_request_id: i32,
     shutdown_requested: bool,
     initialized: bool,
-    environment_sender: Sender<EnvironmentLoadOutcome>,
-    environment_receiver: Receiver<EnvironmentLoadOutcome>,
-    environment_loading: bool,
-    environment_reload_pending: bool,
-    environment_reload_deadline: Option<Instant>,
+    type_checker_events: Receiver<TypeCheckEvent>,
 }
 
 impl Server {
     pub fn new(connection: Connection, options: ServerOptions) -> Server {
         let (indexing_sender, indexing_receiver) = crossbeam_channel::unbounded();
-        let (environment_sender, environment_receiver) = crossbeam_channel::unbounded();
         Server {
             receiver: connection.receiver,
             outgoing: Outgoing::new(connection.sender),
@@ -76,11 +70,7 @@ impl Server {
             next_outgoing_request_id: 1,
             shutdown_requested: false,
             initialized: false,
-            environment_sender,
-            environment_receiver,
-            environment_loading: false,
-            environment_reload_pending: false,
-            environment_reload_deadline: None,
+            type_checker_events: crossbeam_channel::never(),
         }
     }
 
@@ -101,10 +91,6 @@ impl Server {
     pub fn run(mut self) -> i32 {
         loop {
             if self.pending_messages.is_empty() {
-                let reload_timer = match self.environment_reload_deadline {
-                    Some(deadline) => crossbeam_channel::at(deadline),
-                    None => crossbeam_channel::never(),
-                };
                 select! {
                     recv(self.receiver) -> message => match message {
                         Ok(message) => self.enqueue(message),
@@ -115,12 +101,11 @@ impl Server {
                             self.finish_initial_indexing(outcome);
                         }
                     },
-                    recv(self.environment_receiver) -> outcome => {
-                        if let Ok(outcome) = outcome {
-                            self.finish_environment_load(outcome);
+                    recv(self.type_checker_events) -> event => {
+                        if let Ok(event) = event {
+                            self.handle_type_checker_event(event);
                         }
                     },
-                    recv(reload_timer) -> _ => {},
                 }
             }
 
@@ -130,12 +115,13 @@ impl Server {
             while let Ok(outcome) = self.indexing_receiver.try_recv() {
                 self.finish_initial_indexing(outcome);
             }
-            while let Ok(outcome) = self.environment_receiver.try_recv() {
-                self.finish_environment_load(outcome);
+            while let Ok(event) = self.type_checker_events.try_recv() {
+                self.handle_type_checker_event(event);
             }
-            self.start_due_environment_reload();
 
-            let Some(message) = self.pending_messages.pop_front() else { continue };
+            let Some(message) = self.pending_messages.pop_front() else {
+                continue;
+            };
             if let Some(exit_code) = self.process_message(message) {
                 return exit_code;
             }
@@ -190,7 +176,12 @@ impl Server {
 
     fn process_request(&mut self, request: Request) {
         if self.cancelled_requests.remove(&request.id) {
-            self.send_error(request.id.clone(), ErrorCode::RequestCanceled as i32, format!("Request {} was cancelled", request.id), None);
+            self.send_error(
+                request.id.clone(),
+                ErrorCode::RequestCanceled as i32,
+                format!("Request {} was cancelled", request.id),
+                None,
+            );
             return;
         }
 
@@ -201,20 +192,29 @@ impl Server {
                 if let Err(payload) = outcome {
                     let message = panic_message(&payload);
                     self.send_error(id, ErrorCode::InternalError as i32, message.clone(), None);
-                    self.outgoing.log_message(&format!("Error processing initialize: {message}"), message_type::ERROR);
+                    self.outgoing
+                        .log_message(&format!("Error processing initialize: {message}"), message_type::ERROR);
                 }
             }
             "shutdown" => {
                 self.outgoing.log("Shutting down Ruby LSP...");
                 self.shutdown_requested = true;
-                self.pending_messages.retain(|message| matches!(message, Message::Notification(notification) if notification.method == "exit"));
+                self.pending_messages.retain(
+                    |message| matches!(message, Message::Notification(notification) if notification.method == "exit"),
+                );
                 self.cancelled_requests.clear();
                 self.store.clear();
-                self.outgoing.send(Message::Response(Response::new_ok(request.id, Value::Null)));
+                self.outgoing
+                    .send(Message::Response(Response::new_ok(request.id, Value::Null)));
             }
             method => {
                 let Some(handler) = requests::handler_for(method) else {
-                    self.send_error(request.id, ErrorCode::MethodNotFound as i32, format!("Method not found: {method}"), None);
+                    self.send_error(
+                        request.id,
+                        ErrorCode::MethodNotFound as i32,
+                        format!("Method not found: {method}"),
+                        None,
+                    );
                     return;
                 };
 
@@ -233,18 +233,25 @@ impl Server {
 
                 match outcome {
                     Ok(Ok(result)) => self.outgoing.send(Message::Response(Response::new_ok(id, result))),
-                    Ok(Err(RequestError::Delegate)) => {
-                        self.send_error(id, RequestError::Delegate.code(), RequestError::Delegate.message(), None)
-                    }
+                    Ok(Err(RequestError::Delegate)) => self.send_error(
+                        id,
+                        RequestError::Delegate.code(),
+                        RequestError::Delegate.message(),
+                        None,
+                    ),
                     Ok(Err(error)) => {
                         self.send_error(id, error.code(), error.message(), None);
-                        self.outgoing.log_message(&format!("Error processing {method}: {}", error.message()), message_type::ERROR);
+                        self.outgoing.log_message(
+                            &format!("Error processing {method}: {}", error.message()),
+                            message_type::ERROR,
+                        );
                     }
                     Err(payload) => {
                         let message = panic_message(&payload);
                         let data = json!({ "errorClass": "Panic", "errorMessage": message, "backtrace": "" });
                         self.send_error(id, ErrorCode::InternalError as i32, message.clone(), Some(data));
-                        self.outgoing.log_message(&format!("Error processing {method}: {message}"), message_type::ERROR);
+                        self.outgoing
+                            .log_message(&format!("Error processing {method}: {message}"), message_type::ERROR);
                     }
                 }
             }
@@ -252,7 +259,9 @@ impl Server {
     }
 
     fn prepare_document(&mut self, method: &str, params: &Value) {
-        let Some(uri) = params["textDocument"]["uri"].as_str() else { return };
+        let Some(uri) = params["textDocument"]["uri"].as_str() else {
+            return;
+        };
 
         let supports_request_delegation = self.global_state.client_capabilities.supports_request_delegation;
         if let Ok(document) = self.store.get(uri)
@@ -284,7 +293,8 @@ impl Server {
 
         let document_uri = document.uri().to_string();
         let source = document.source().to_string();
-        self.outgoing.log(&format!("Determined that document should be indexed: {document_uri}"));
+        self.outgoing
+            .log(&format!("Determined that document should be indexed: {document_uri}"));
         self.global_state.index().handle_change(&document_uri, |index| {
             index.delete(&document_uri, true);
             indexing::index_single(index, &document_uri, &source, true);
@@ -306,13 +316,17 @@ impl Server {
     }
 
     fn send_error(&self, id: RequestId, code: i32, message: String, data: Option<Value>) {
-        self.outgoing.send(Message::Response(Response { id, response_result: Err(ResponseError { code, message, data }) }));
+        self.outgoing.send(Message::Response(Response {
+            id,
+            response_result: Err(ResponseError { code, message, data }),
+        }));
     }
 
     fn send_request(&mut self, method: &str, params: Value) {
         let id = RequestId::from(self.next_outgoing_request_id);
         self.next_outgoing_request_id += 1;
-        self.outgoing.send(Message::Request(Request::new(id, method.to_string(), params)));
+        self.outgoing
+            .send(Message::Request(Request::new(id, method.to_string(), params)));
     }
 
     fn run_initialize(&mut self, request: Request) {
@@ -324,7 +338,8 @@ impl Server {
 
         let workspace_path = GlobalState::workspace_path_from_options(&options)
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")));
-        let environment = self.detect_ruby_environment(&workspace_path, &options["initializationOptions"]["rubyCommand"]);
+        let environment =
+            self.detect_ruby_environment(&workspace_path, &options["initializationOptions"]["rubyCommand"]);
         let environment_errors = environment.errors.clone();
         let global_state_notifications = self.global_state.apply_options(&options, Arc::new(environment));
         self.store.encoding = self.global_state.encoding;
@@ -333,7 +348,8 @@ impl Server {
             self.store.client_name = client_name.to_string();
         }
 
-        let enabled_features = EnabledFeatures::from_configuration(&options["initializationOptions"]["enabledFeatures"]);
+        let enabled_features =
+            EnabledFeatures::from_configuration(&options["initializationOptions"]["enabledFeatures"]);
         let bundle_env = read_bundle_env(Path::new(&self.global_state.workspace_path()));
         let response = json!({
             "capabilities": self.server_capabilities(&enabled_features),
@@ -342,7 +358,8 @@ impl Server {
             "degraded_mode": false,
             "bundle_env": bundle_env,
         });
-        self.outgoing.send(Message::Response(Response::new_ok(request.id, response)));
+        self.outgoing
+            .send(Message::Response(Response::new_ok(request.id, response)));
 
         if self.global_state.supports_watching_files() {
             self.register_watched_files("**/*.rb", "workspace-watcher");
@@ -376,13 +393,21 @@ impl Server {
         }
         let command: Vec<String> = ruby_command
             .as_array()
-            .map(|parts| parts.iter().filter_map(|part| part.as_str().map(str::to_string)).collect())
+            .map(|parts| {
+                parts
+                    .iter()
+                    .filter_map(|part| part.as_str().map(str::to_string))
+                    .collect()
+            })
             .filter(|parts: &Vec<String>| !parts.is_empty())
             .unwrap_or_else(|| vec!["ruby".to_string()]);
         match RubyEnvironment::detect(workspace_path, &command) {
             Ok(environment) => environment,
             Err(error) => {
-                self.outgoing.log_message(&format!("Failed to detect the Ruby environment: {error}"), message_type::ERROR);
+                self.outgoing.log_message(
+                    &format!("Failed to detect the Ruby environment: {error}"),
+                    message_type::ERROR,
+                );
                 RubyEnvironment::default()
             }
         }
@@ -402,15 +427,30 @@ impl Server {
         set("selectionRangeProvider", json!(enabled.is_enabled("selectionRanges")));
         set("hoverProvider", enabled.provider("hover", json!({})));
         set("documentSymbolProvider", enabled.provider("documentSymbols", json!({})));
-        set("documentLinkProvider", enabled.provider("documentLink", json!({ "resolveProvider": false })));
+        set(
+            "documentLinkProvider",
+            enabled.provider("documentLink", json!({ "resolveProvider": false })),
+        );
         set("foldingRangeProvider", enabled.provider("foldingRanges", json!(true)));
-        set("semanticTokensProvider", enabled.provider("semanticHighlighting", semantic_tokens_provider()));
+        set(
+            "semanticTokensProvider",
+            enabled.provider("semanticHighlighting", semantic_tokens_provider()),
+        );
         set(
             "documentFormattingProvider",
             json!(enabled.is_enabled("formatting") && self.global_state.formatter != "none"),
         );
-        set("documentHighlightProvider", json!(enabled.is_enabled("documentHighlights")));
-        set("codeActionProvider", enabled.provider("codeActions", json!({ "documentSelector": null, "resolveProvider": true })));
+        set(
+            "documentHighlightProvider",
+            json!(enabled.is_enabled("documentHighlights")),
+        );
+        set(
+            "codeActionProvider",
+            enabled.provider(
+                "codeActions",
+                json!({ "documentSelector": null, "resolveProvider": true }),
+            ),
+        );
         set(
             "documentOnTypeFormattingProvider",
             enabled.provider(
@@ -425,7 +465,10 @@ impl Server {
                 json!({ "documentSelector": null, "interFileDependencies": false, "workspaceDiagnostics": false }),
             ),
         );
-        set("inlayHintProvider", enabled.provider("inlayHint", json!({ "resolveProvider": false })));
+        set(
+            "inlayHintProvider",
+            enabled.provider("inlayHint", json!({ "resolveProvider": false })),
+        );
         set(
             "completionProvider",
             enabled.provider(
@@ -437,14 +480,31 @@ impl Server {
                 }),
             ),
         );
-        set("codeLensProvider", enabled.provider("codeLens", json!({ "resolveProvider": true })));
+        set(
+            "codeLensProvider",
+            enabled.provider("codeLens", json!({ "resolveProvider": true })),
+        );
         set("definitionProvider", json!(enabled.is_enabled("definition")));
         set("declarationProvider", json!(true));
         set("typeDefinitionProvider", json!(true));
-        set("workspaceSymbolProvider", json!(enabled.is_enabled("workspaceSymbol") && !has_type_checker));
-        set("signatureHelpProvider", enabled.provider("signatureHelp", json!({ "triggerCharacters": ["(", " ", ","] })));
+        set("implementationProvider", json!(true));
+        set(
+            "workspaceSymbolProvider",
+            json!(enabled.is_enabled("workspaceSymbol") && !has_type_checker),
+        );
+        set(
+            "signatureHelpProvider",
+            enabled.provider("signatureHelp", json!({ "triggerCharacters": ["(", " ", ","] })),
+        );
         set("typeHierarchyProvider", enabled.provider("typeHierarchy", json!({})));
-        set("renameProvider", if has_type_checker { Value::Null } else { json!({ "prepareProvider": true }) });
+        set(
+            "renameProvider",
+            if has_type_checker {
+                Value::Null
+            } else {
+                json!({ "prepareProvider": true })
+            },
+        );
         set("referencesProvider", json!(!has_type_checker));
         set("documentRangeFormattingProvider", json!(true));
         set(
@@ -491,9 +551,10 @@ impl Server {
                             message_type::WARNING,
                         ));
                     }
-                    Err(error) => {
-                        messages.push((format!("Syntax error while loading configuration: {error}"), message_type::WARNING))
-                    }
+                    Err(error) => messages.push((
+                        format!("Syntax error while loading configuration: {error}"),
+                        message_type::WARNING,
+                    )),
                 }
             } else if indexing_options.is_object()
                 && let Err(error) = configuration.apply_config(indexing_options)
@@ -513,75 +574,79 @@ impl Server {
         self.perform_initial_indexing();
         self.check_formatter_is_available();
         self.initialized = true;
-        if !self.options.test_mode && self.global_state.type_checking.settings.enabled {
-            self.start_environment_load();
-        }
+        self.start_type_checker();
     }
 
-    fn start_environment_load(&mut self) {
-        if self.environment_loading {
-            self.environment_reload_pending = true;
+    fn start_type_checker(&mut self) {
+        let can_start = !self.options.test_mode || self.options.rbs_gem_directory.is_some();
+        if !can_start
+            || !self.global_state.type_checking.settings.enabled
+            || self.global_state.type_checking.client.is_some()
+        {
             return;
         }
-        self.environment_loading = true;
-        let workspace_path = PathBuf::from(self.global_state.workspace_path());
-        let sources = project::workspace_sources(&self.global_state.ruby_environment);
-        if let Some(warning) = project::missing_core_warning(&sources) {
-            self.outgoing.log_message(&warning, message_type::WARNING);
+        let (client, events) = TypeCheckClient::start();
+        let ruby_environment = &self.global_state.ruby_environment;
+        let ruby = ruby_environment
+            .rubylibprefix
+            .as_deref()
+            .and_then(|prefix| {
+                Path::new(prefix)
+                    .parent()?
+                    .parent()
+                    .map(|prefix| prefix.join("bin/ruby"))
+            })
+            .filter(|ruby| ruby.is_file());
+        let locked_rbs_directory = ruby_environment
+            .locked_gems
+            .iter()
+            .find(|gem| gem.name == "rbs")
+            .map(|gem| PathBuf::from(&gem.full_gem_path));
+        client.send(TypeCheckCommand::Load(LoadRequest {
+            workspace_path: PathBuf::from(self.global_state.workspace_path()),
+            encoding: self.global_state.encoding,
+            rbs_gem_directory: self.options.rbs_gem_directory.clone(),
+            ruby,
+            locked_rbs_directory,
+        }));
+        self.type_checker_events = events;
+        self.global_state.type_checking.client = Some(client);
+        self.global_state.type_checking.notify_inference();
+        self.global_state.type_checking.status = ServiceStatus::Loading;
+        for (uri, document) in self.store.iter_mut() {
+            if matches!(document.language_id(), LanguageId::Ruby | LanguageId::Rbs) {
+                self.global_state.type_checking.notify_text(uri, document.source());
+            }
         }
-        let ruby_command = self.global_state.ruby_command.clone();
-        let environment_sender = self.environment_sender.clone();
-        self.begin_progress(TYPE_CHECKER_PROGRESS_TOKEN, "Ruby LSP: loading RBS signatures");
-        std::thread::spawn(move || {
-            let _ = environment_sender.send(type_checking::load_environment(&workspace_path, &sources, &ruby_command));
-        });
     }
 
-    fn finish_environment_load(&mut self, outcome: EnvironmentLoadOutcome) {
-        self.environment_loading = false;
-        self.end_progress(TYPE_CHECKER_PROGRESS_TOKEN);
-        match outcome {
-            Ok(loaded) => {
-                self.outgoing.log(&project::load_summary(&loaded));
-                if let Some(report) = project::load_error_report(&loaded) {
-                    self.outgoing.log_message(&report, message_type::WARNING);
-                }
-                let ruby_environment = &self.global_state.ruby_environment;
-                if let Some(warning) = project::unsupported_steep_version_warning(ruby_environment) {
-                    self.outgoing.log_message(&warning, message_type::WARNING);
-                }
-                self.global_state.type_checking.steep_version = project::steep_version(ruby_environment);
-                let workspace_path = PathBuf::from(self.global_state.workspace_path());
-                self.global_state.type_checking.set_environment(&workspace_path, loaded);
+    fn handle_type_checker_event(&mut self, event: TypeCheckEvent) {
+        match event {
+            TypeCheckEvent::Loading => {
+                self.global_state.type_checking.status = ServiceStatus::Loading;
+                self.begin_progress(TYPE_CHECKER_PROGRESS_TOKEN, "Ruby LSP: loading RBS signatures");
+            }
+            TypeCheckEvent::Loaded { message } => {
+                self.global_state.type_checking.status = ServiceStatus::Loaded;
+                self.end_progress(TYPE_CHECKER_PROGRESS_TOKEN);
+                self.outgoing.log(&message);
                 self.refresh_type_information();
             }
-            Err(message) => {
-                self.outgoing.log_message(&format!("Failed to load the RBS environment: {message}"), message_type::ERROR);
+            TypeCheckEvent::LoadFailed { message } => {
+                self.global_state.type_checking.status = ServiceStatus::Failed;
+                self.end_progress(TYPE_CHECKER_PROGRESS_TOKEN);
+                self.outgoing.log_message(
+                    &format!("Failed to load the RBS signatures: {message}"),
+                    message_type::ERROR,
+                );
+                self.refresh_type_information();
             }
+            TypeCheckEvent::SignaturesChanged => self.refresh_type_information(),
+            TypeCheckEvent::Log { message, message_type } => self.outgoing.log_message(&message, message_type),
         }
-        if std::mem::take(&mut self.environment_reload_pending) {
-            self.start_environment_load();
-        }
-    }
-
-    fn schedule_environment_reload(&mut self) {
-        if self.options.test_mode || !self.global_state.type_checking.settings.enabled {
-            return;
-        }
-        self.environment_reload_deadline = Some(Instant::now() + ENVIRONMENT_RELOAD_DELAY);
-    }
-
-    fn start_due_environment_reload(&mut self) {
-        let Some(deadline) = self.environment_reload_deadline else { return };
-        if deadline > Instant::now() {
-            return;
-        }
-        self.environment_reload_deadline = None;
-        self.start_environment_load();
     }
 
     fn refresh_type_information(&mut self) {
-        self.global_state.type_checking.clear_analyses();
         for (_, document) in self.store.iter_mut() {
             document.clear_cache(requests::inlay_hints::CACHE_KEY);
             document.clear_cache(requests::diagnostics::CACHE_KEY);
@@ -604,21 +669,19 @@ impl Server {
         if self.global_state.type_checking.settings == previous_settings {
             return;
         }
+        if self.global_state.type_checking.settings.infer_more_than_steep != previous_settings.infer_more_than_steep {
+            self.global_state.type_checking.notify_inference();
+        }
         self.refresh_type_information();
-
-        let type_checking = &self.global_state.type_checking;
-        if self.initialized
-            && !self.options.test_mode
-            && type_checking.settings.enabled
-            && !type_checking.is_loaded()
-            && !self.environment_loading
-        {
-            self.start_environment_load();
+        if self.initialized {
+            self.start_type_checker();
         }
     }
 
     fn check_formatter_is_available(&mut self) {
-        if self.global_state.formatter != "rubocop_internal" || self.global_state.ruby_environment.rubocop_version.is_some() {
+        if self.global_state.formatter != "rubocop_internal"
+            || self.global_state.ruby_environment.rubocop_version.is_some()
+        {
             return;
         }
         self.global_state.formatter = "none".to_string();
@@ -641,11 +704,18 @@ impl Server {
                 let mut index = Index::new(configuration);
                 let last_reported = std::sync::atomic::AtomicU32::new(0);
                 let report_progress = |percentage: u32| {
-                    if supports_progress && last_reported.swap(percentage, std::sync::atomic::Ordering::Relaxed) != percentage {
+                    if supports_progress
+                        && last_reported.swap(percentage, std::sync::atomic::Ordering::Relaxed) != percentage
+                    {
                         outgoing.notify("$/progress", progress_report(INDEXING_PROGRESS_TOKEN, percentage));
                     }
                 };
-                indexing::index_all(&mut index, &paths, environment.rbs_core_path.as_deref(), &report_progress);
+                indexing::index_all(
+                    &mut index,
+                    &paths,
+                    environment.rbs_core_path.as_deref(),
+                    &report_progress,
+                );
                 index
             }));
             let _ = indexing_sender.send(outcome.map_err(|payload| panic_message(&payload)));
@@ -657,10 +727,16 @@ impl Server {
     fn finish_initial_indexing(&mut self, outcome: IndexingOutcome) {
         match outcome {
             Ok(mut new_index) => {
-                let live_uris: Vec<String> =
-                    self.live_indexed_uris.iter().filter(|uri| self.store.contains(uri)).cloned().collect();
+                let live_uris: Vec<String> = self
+                    .live_indexed_uris
+                    .iter()
+                    .filter(|uri| self.store.contains(uri))
+                    .cloned()
+                    .collect();
                 for uri in live_uris {
-                    let Some(document) = self.store.get_open(&uri) else { continue };
+                    let Some(document) = self.store.get_open(&uri) else {
+                        continue;
+                    };
                     let source = document.source().to_string();
                     new_index.delete(&uri, true);
                     indexing::index_single(&mut new_index, &uri, &source, true);
@@ -712,12 +788,15 @@ impl Server {
         if !self.global_state.client_capabilities.supports_progress {
             return;
         }
-        self.outgoing.notify("$/progress", json!({ "token": token, "value": { "kind": "end" } }));
+        self.outgoing
+            .notify("$/progress", json!({ "token": token, "value": { "kind": "end" } }));
     }
 
     fn text_document_did_open(&mut self, params: &Value) {
         let text_document = &params["textDocument"];
-        let Some(uri) = text_document["uri"].as_str() else { return };
+        let Some(uri) = text_document["uri"].as_str() else {
+            return;
+        };
         // VS Code sends `plaintext` for `.rbs` files unless an extension defining the RBS language is installed
         let language_id = match LanguageId::from_path(uri) {
             LanguageId::Rbs => LanguageId::Rbs,
@@ -725,8 +804,10 @@ impl Server {
         };
         let source = text_document["text"].as_str().unwrap_or_default().to_string();
         let version = text_document["version"].as_i64().unwrap_or(0) as i32;
-        self.global_state.type_checking.forget(&crate::uri::normalize(uri));
         let document = self.store.set(uri, source, version, language_id);
+        if matches!(language_id, LanguageId::Ruby | LanguageId::Rbs) {
+            self.global_state.type_checking.notify_text(uri, document.source());
+        }
 
         if document.past_expensive_limit() && crate::uri::scheme(uri) == "file" {
             let path = crate::uri::to_path(uri).unwrap_or_default();
@@ -740,19 +821,41 @@ impl Server {
     }
 
     fn text_document_did_close(&mut self, params: &Value) {
-        let Some(uri) = params["textDocument"]["uri"].as_str() else { return };
+        let Some(uri) = params["textDocument"]["uri"].as_str() else {
+            return;
+        };
         self.store.delete(uri);
-        self.global_state.type_checking.forget(&crate::uri::normalize(uri));
-        self.outgoing.notify("textDocument/publishDiagnostics", json!({ "uri": uri, "diagnostics": [] }));
+        self.global_state.type_checking.notify_closed(uri);
+        self.outgoing.notify(
+            "textDocument/publishDiagnostics",
+            json!({ "uri": uri, "diagnostics": [] }),
+        );
     }
 
     fn text_document_did_change(&mut self, params: &Value) {
-        let Some(uri) = params["textDocument"]["uri"].as_str() else { return };
+        let Some(uri) = params["textDocument"]["uri"].as_str() else {
+            return;
+        };
         let version = params["textDocument"]["version"].as_i64().unwrap_or(0) as i32;
         let edits: Vec<ContentChange> = serde_json::from_value(params["contentChanges"].clone()).unwrap_or_default();
-        self.global_state.type_checking.forget(&crate::uri::normalize(uri));
         if let Err(error) = self.store.push_edits(uri, &edits, version) {
-            self.outgoing.log_message(&format!("Error processing textDocument/didChange: {error}"), message_type::ERROR);
+            self.outgoing.log_message(
+                &format!("Error processing textDocument/didChange: {error}"),
+                message_type::ERROR,
+            );
+        }
+        let Some(document) = self.store.get_open(uri) else {
+            return;
+        };
+        let language_id = document.language_id();
+        if matches!(language_id, LanguageId::Ruby | LanguageId::Rbs) {
+            self.global_state.type_checking.notify_text(uri, document.source());
+        }
+        if language_id == LanguageId::Rbs {
+            for (_, document) in self.store.iter_mut() {
+                document.clear_cache(requests::inlay_hints::CACHE_KEY);
+                document.clear_cache(requests::diagnostics::CACHE_KEY);
+            }
         }
     }
 
@@ -768,24 +871,35 @@ impl Server {
 
         for change in changes {
             let Some(uri) = change["uri"].as_str() else { continue };
-            let Some(file_path) = crate::uri::to_path(uri) else { continue };
+            let Some(file_path) = crate::uri::to_path(uri) else {
+                continue;
+            };
             if Path::new(&file_path).is_dir() {
                 continue;
             }
+            let is_open = self.store.contains(uri);
             if file_path.ends_with(".rb") {
                 let change_type = change["type"].as_u64().unwrap_or(0) as u8;
                 self.handle_ruby_file_change(&file_path, change_type);
-                let workspace_path = self.global_state.workspace_path();
-                if self.global_state.type_checking.is_inline_source_path(Path::new(&workspace_path), Path::new(&file_path)) {
-                    self.schedule_environment_reload();
+                if !is_open {
+                    self.global_state
+                        .type_checking
+                        .notify_file_changed_on_disk(Path::new(&file_path));
                 }
                 continue;
             }
-            if type_checking::is_rbs_related_file(&file_path) {
-                self.schedule_environment_reload();
+            if type_checking::is_signature_related_file(Path::new(&file_path)) {
+                if !is_open || type_checking::is_project_configuration_file(Path::new(&file_path)) {
+                    self.global_state
+                        .type_checking
+                        .notify_file_changed_on_disk(Path::new(&file_path));
+                }
                 continue;
             }
-            let file_name = Path::new(&file_path).file_name().and_then(|name| name.to_str()).unwrap_or_default();
+            let file_name = Path::new(&file_path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default();
             if matches!(file_name, ".rubocop.yml" | ".rubocop" | ".rubocop_todo.yml") {
                 self.handle_rubocop_config_change();
             }
@@ -805,16 +919,31 @@ impl Server {
     }
 
     fn handle_ruby_file_change(&mut self, file_path: &str, change_type: u8) {
-        let load_path_entry =
-            self.global_state.ruby_environment.load_path.iter().find(|load_path| file_path.starts_with(load_path.as_str())).cloned();
+        let load_path_entry = self
+            .global_state
+            .ruby_environment
+            .load_path
+            .iter()
+            .find(|load_path| file_path.starts_with(load_path.as_str()))
+            .cloned();
         let uri = crate::uri::from_path(file_path);
         let require_path = load_path_entry.map(|entry| crate::uri::require_path(file_path, &entry));
         let managed_by_client = self.store.contains(&uri);
 
-        let read_content = || std::fs::read(file_path).ok().map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
+        let read_content = || {
+            std::fs::read(file_path)
+                .ok()
+                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        };
         let index_from_disk = |index: &mut Index, content: &str| {
             index.delete(&uri, false);
-            indexing::index_single_with_require_path(index, Arc::from(uri.as_str()), content.as_bytes(), true, require_path.as_deref());
+            indexing::index_single_with_require_path(
+                index,
+                Arc::from(uri.as_str()),
+                content.as_bytes(),
+                true,
+                require_path.as_deref(),
+            );
         };
 
         match change_type {
@@ -832,7 +961,9 @@ impl Server {
                     return;
                 }
                 let Some(content) = read_content() else { return };
-                self.global_state.index().handle_change(&uri, |index| index_from_disk(index, &content));
+                self.global_state
+                    .index()
+                    .handle_change(&uri, |index| index_from_disk(index, &content));
             }
             file_change_type::DELETED => self.global_state.index().delete(&uri, false),
             _ => {}
@@ -849,7 +980,10 @@ impl EnabledFeatures {
     fn from_configuration(configuration: &Value) -> EnabledFeatures {
         match configuration {
             Value::Array(features) => EnabledFeatures {
-                features: features.iter().filter_map(|feature| feature.as_str().map(|name| (name.to_string(), true))).collect(),
+                features: features
+                    .iter()
+                    .filter_map(|feature| feature.as_str().map(|name| (name.to_string(), true)))
+                    .collect(),
                 default: false,
             },
             Value::Object(features) => EnabledFeatures {
@@ -859,7 +993,10 @@ impl EnabledFeatures {
                     .collect(),
                 default: true,
             },
-            _ => EnabledFeatures { features: HashMap::new(), default: true },
+            _ => EnabledFeatures {
+                features: HashMap::new(),
+                default: true,
+            },
         }
     }
 
@@ -868,7 +1005,11 @@ impl EnabledFeatures {
     }
 
     fn provider(&self, feature: &str, provider: Value) -> Value {
-        if self.is_enabled(feature) { provider } else { Value::Null }
+        if self.is_enabled(feature) {
+            provider
+        } else {
+            Value::Null
+        }
     }
 }
 
@@ -900,11 +1041,16 @@ fn progress_report(token: &str, percentage: u32) -> Value {
 
 fn read_bundle_env(workspace_path: &Path) -> Value {
     let bundle_env_path = workspace_path.join(".ruby-lsp").join("bundle_env");
-    let Ok(content) = std::fs::read_to_string(&bundle_env_path) else { return Value::Null };
+    let Ok(content) = std::fs::read_to_string(&bundle_env_path) else {
+        return Value::Null;
+    };
     let _ = std::fs::remove_file(&bundle_env_path);
     let environment: serde_json::Map<String, Value> = content
         .lines()
-        .filter_map(|line| line.split_once('=').map(|(key, value)| (key.to_string(), Value::String(value.to_string()))))
+        .filter_map(|line| {
+            line.split_once('=')
+                .map(|(key, value)| (key.to_string(), Value::String(value.to_string())))
+        })
         .collect();
     Value::Object(environment)
 }

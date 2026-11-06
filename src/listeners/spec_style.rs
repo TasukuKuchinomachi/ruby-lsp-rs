@@ -26,15 +26,21 @@ pub struct SpecStyle {
 
 impl SpecStyle {
     pub fn new() -> SpecStyle {
-        SpecStyle { base: TestDiscovery::new(), spec_group_id_stack: Vec::new() }
+        SpecStyle {
+            base: TestDiscovery::new(),
+            spec_group_id_stack: Vec::new(),
+        }
     }
 
     pub fn on_enter(&mut self, node: &Node<'_>, context: &mut DiscoveryContext<'_, '_>) {
         match node {
-            Node::ClassNode { .. } => self.on_class_node_enter(&node.as_class_node().expect("matched a class node"), context),
+            Node::ClassNode { .. } => {
+                self.on_class_node_enter(&node.as_class_node().expect("matched a class node"), context)
+            }
             Node::ModuleNode { .. } => {
                 self.spec_group_id_stack.push(None);
-                self.base.on_module_node_enter(&node.as_module_node().expect("matched a module node"));
+                self.base
+                    .on_module_node_enter(&node.as_module_node().expect("matched a module node"));
             }
             Node::CallNode { .. } => {
                 let call = node.as_call_node().expect("matched a call node");
@@ -79,8 +85,12 @@ impl SpecStyle {
             return;
         }
 
-        let Some(Some(Group::Describe(current_id))) = self.spec_group_id_stack.last() else { return };
-        let Some(description) = extract_description(call) else { return };
+        let Some(Some(Group::Describe(current_id))) = self.spec_group_id_stack.last() else {
+            return;
+        };
+        let Some(description) = extract_description(call) else {
+            return;
+        };
         if current_id.ends_with(&description) {
             self.spec_group_id_stack.pop();
         }
@@ -90,15 +100,25 @@ impl SpecStyle {
         if call.block().is_none() {
             return;
         }
-        let Some(description) = extract_description(call) else { return };
-        let Some(parent_path) = self.latest_group(context.collection) else { return };
+        let Some(description) = extract_description(call) else {
+            return;
+        };
+        let Some(parent_path) = self.latest_group(context.collection) else {
+            return;
+        };
 
         let id = match context.collection.item_at(&parent_path) {
             Some(parent) => format!("{}::{description}", parent.id),
             None => description.clone(),
         };
 
-        let test_item = TestItem::new(id.clone(), description, context.uri, context.parsed.range_from_node(node), "minitest");
+        let test_item = TestItem::new(
+            id.clone(),
+            description,
+            context.uri,
+            context.parsed.range_from_node(node),
+            "minitest",
+        );
         context.collection.add_at(&parent_path, test_item);
         self.spec_group_id_stack.push(Some(Group::Describe(id)));
     }
@@ -106,11 +126,21 @@ impl SpecStyle {
     fn handle_example(&mut self, call: &CallNode<'_>, node: &Node<'_>, context: &mut DiscoveryContext<'_, '_>) {
         let description = extract_it_description(call);
         let line = context.parsed.byte_position(node.location().start_offset()).line;
-        let Some(parent_path) = self.latest_group(context.collection) else { return };
-        let Some(parent) = context.collection.item_at(&parent_path) else { return };
+        let Some(parent_path) = self.latest_group(context.collection) else {
+            return;
+        };
+        let Some(parent) = context.collection.item_at(&parent_path) else {
+            return;
+        };
 
         let id = format!("{}#test_{line:04}_{description}", parent.id);
-        let test_item = TestItem::new(id, description, context.uri, context.parsed.range_from_node(node), "minitest");
+        let test_item = TestItem::new(
+            id,
+            description,
+            context.uri,
+            context.parsed.range_from_node(node),
+            "minitest",
+        );
         context.collection.add_at(&parent_path, test_item);
     }
 
@@ -128,7 +158,13 @@ impl SpecStyle {
 
         if let Some(closest_class_index) = stack.iter().rposition(is_class) {
             let first_class_index = stack.iter().position(is_class).expect("a class group exists");
-            path.push(stack[first_class_index].as_ref().expect("is a class group").id().to_string());
+            path.push(
+                stack[first_class_index]
+                    .as_ref()
+                    .expect("is a class group")
+                    .id()
+                    .to_string(),
+            );
             for group in stack[first_class_index + 1..=closest_class_index].iter().flatten() {
                 if let Group::Class(id) = group {
                     path.push(id.clone());
@@ -139,7 +175,13 @@ impl SpecStyle {
             }
         } else {
             let first_group_index = stack.iter().position(is_describe)?;
-            path.push(stack[first_group_index].as_ref().expect("is a describe group").id().to_string());
+            path.push(
+                stack[first_group_index]
+                    .as_ref()
+                    .expect("is a describe group")
+                    .id()
+                    .to_string(),
+            );
             for group in stack[first_group_index + 1..].iter().flatten() {
                 if let Group::Describe(id) = group {
                     path.push(id.clone());
@@ -163,8 +205,11 @@ impl Default for SpecStyle {
 
 fn extract_description(call: &CallNode<'_>) -> Option<String> {
     let arguments = call.arguments()?;
-    let parts: Vec<String> =
-        arguments.arguments().iter().map(|argument| extract_argument_content(&argument).unwrap_or_default()).collect();
+    let parts: Vec<String> = arguments
+        .arguments()
+        .iter()
+        .map(|argument| extract_argument_content(&argument).unwrap_or_default())
+        .collect();
     if parts.is_empty() {
         return None;
     }

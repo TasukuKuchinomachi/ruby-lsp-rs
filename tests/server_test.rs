@@ -18,7 +18,10 @@ fn temporary_directory(name: &str) -> std::path::PathBuf {
 #[test]
 fn initialize_enabled_features_with_array() {
     let mut server = uninitialized_server(Vec::new());
-    let result = initialize(&mut server, json!({ "initializationOptions": { "enabledFeatures": ["semanticHighlighting"] } }));
+    let result = initialize(
+        &mut server,
+        json!({ "initializationOptions": { "enabledFeatures": ["semanticHighlighting"] } }),
+    );
     let capabilities = &result["capabilities"];
     assert!(capabilities.get("semanticTokensProvider").is_some());
     assert!(capabilities.get("hoverProvider").is_none());
@@ -28,7 +31,10 @@ fn initialize_enabled_features_with_array() {
 #[test]
 fn initialize_enabled_features_with_hash() {
     let mut server = uninitialized_server(Vec::new());
-    let result = initialize(&mut server, json!({ "initializationOptions": { "enabledFeatures": { "semanticHighlighting": false } } }));
+    let result = initialize(
+        &mut server,
+        json!({ "initializationOptions": { "enabledFeatures": { "semanticHighlighting": false } } }),
+    );
     let capabilities = &result["capabilities"];
     assert!(capabilities.get("semanticTokensProvider").is_none());
     assert_eq!(capabilities["definitionProvider"], json!(true));
@@ -42,14 +48,24 @@ fn initialize_enabled_features_with_no_configuration() {
     let capabilities = &result["capabilities"];
     assert!(capabilities.get("semanticTokensProvider").is_some());
     assert_eq!(capabilities["definitionProvider"], json!(true));
-    assert_eq!(capabilities["textDocumentSync"], json!({ "change": 2, "openClose": true }));
+    assert_eq!(
+        capabilities["textDocumentSync"],
+        json!({ "change": 2, "openClose": true })
+    );
 }
 
 #[test]
 fn initialize_negotiates_position_encoding() {
-    for (encodings, expected) in [(json!(["utf-8", "utf-16"]), "utf-8"), (json!(["utf-16"]), "utf-16"), (json!([]), "utf-16")] {
+    for (encodings, expected) in [
+        (json!(["utf-8", "utf-16"]), "utf-8"),
+        (json!(["utf-16"]), "utf-16"),
+        (json!([]), "utf-16"),
+    ] {
         let mut server = uninitialized_server(Vec::new());
-        let result = initialize(&mut server, json!({ "capabilities": { "general": { "positionEncodings": encodings } } }));
+        let result = initialize(
+            &mut server,
+            json!({ "capabilities": { "general": { "positionEncodings": encodings } } }),
+        );
         assert_eq!(result["capabilities"]["positionEncoding"], json!(expected));
     }
 }
@@ -57,7 +73,10 @@ fn initialize_negotiates_position_encoding() {
 #[test]
 fn server_info_includes_version_and_formatter() {
     let mut server = uninitialized_server(Vec::new());
-    let result = initialize(&mut server, json!({ "initializationOptions": { "formatter": "syntax_tree" } }));
+    let result = initialize(
+        &mut server,
+        json!({ "initializationOptions": { "formatter": "syntax_tree" } }),
+    );
     assert_eq!(result["serverInfo"]["name"], json!("Ruby LSP"));
     assert!(result["serverInfo"]["version"].is_string());
     assert_eq!(result["formatter"], json!("syntax_tree"));
@@ -78,7 +97,12 @@ fn initialize_sets_client_name_and_applies_indexing_configuration() {
     let index = server.index();
     assert_eq!(index.configuration.workspace_path, workspace);
     assert!(index.configuration.excluded_gems.contains(&"rubocop".to_string()));
-    assert!(index.configuration.included_patterns.contains(&"**/bin/**/*".to_string()));
+    assert!(
+        index
+            .configuration
+            .included_patterns
+            .contains(&"**/bin/**/*".to_string())
+    );
 }
 
 #[test]
@@ -93,25 +117,39 @@ fn unrecognized_request_returns_method_not_found() {
 #[test]
 fn did_close_clears_diagnostics() {
     let server = with_server(Some("class Foo\nend\n"), DEFAULT_URI, TestOptions::default());
-    server.notify("textDocument/didClose", json!({ "textDocument": { "uri": DEFAULT_URI } }));
+    server.notify(
+        "textDocument/didClose",
+        json!({ "textDocument": { "uri": DEFAULT_URI } }),
+    );
     let message = server.wait_for_message(
         |message| matches!(message, Message::Notification(notification) if notification.method == "textDocument/publishDiagnostics"),
     );
-    let Message::Notification(notification) = message else { unreachable!() };
+    let Message::Notification(notification) = message else {
+        unreachable!()
+    };
     assert_eq!(notification.params, json!({ "uri": DEFAULT_URI, "diagnostics": [] }));
 }
 
 #[test]
 fn cancelling_requests_returns_expected_error_code() {
-    let definition_params = json!({ "textDocument": { "uri": DEFAULT_URI }, "position": { "line": 0, "character": 0 } });
+    let definition_params =
+        json!({ "textDocument": { "uri": DEFAULT_URI }, "position": { "line": 0, "character": 0 } });
     let server = uninitialized_server(vec![
         Message::Notification(Notification::new(
             "textDocument/didOpen".to_string(),
             json!({ "textDocument": { "uri": DEFAULT_URI, "text": "class Foo\nend\n", "version": 1, "languageId": "ruby" } }),
         )),
-        Message::Request(Request::new(RequestId::from(1), "textDocument/definition".to_string(), definition_params.clone())),
+        Message::Request(Request::new(
+            RequestId::from(1),
+            "textDocument/definition".to_string(),
+            definition_params.clone(),
+        )),
         Message::Notification(Notification::new("$/cancelRequest".to_string(), json!({ "id": 1 }))),
-        Message::Request(Request::new(RequestId::from(2), "textDocument/definition".to_string(), definition_params)),
+        Message::Request(Request::new(
+            RequestId::from(2),
+            "textDocument/definition".to_string(),
+            definition_params,
+        )),
     ]);
 
     let cancelled = server.wait_for_response(&RequestId::from(1));
@@ -160,7 +198,10 @@ fn change_text(server: &support::TestServer, version: i32, start: (u32, u32), en
 fn unsaved_changes_are_indexed_when_computing_automatic_features() {
     let mut server = with_server(Some("class Foo\nend\n"), DEFAULT_URI, TestOptions::default());
     change_text(&server, 2, (1, 0), (1, 0), "  def bar; end\n");
-    server.result("textDocument/documentSymbol", json!({ "textDocument": { "uri": DEFAULT_URI } }));
+    server.result(
+        "textDocument/documentSymbol",
+        json!({ "textDocument": { "uri": DEFAULT_URI } }),
+    );
 
     let index = server.index();
     let entries = index.entries_named("bar");
@@ -172,11 +213,17 @@ fn unsaved_changes_are_indexed_when_computing_automatic_features() {
 fn edits_outside_of_declarations_do_not_trigger_indexing() {
     let source = "class Foo\n  def bar\n    x = 1\n  end\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
-    server.result("textDocument/documentSymbol", json!({ "textDocument": { "uri": DEFAULT_URI } }));
+    server.result(
+        "textDocument/documentSymbol",
+        json!({ "textDocument": { "uri": DEFAULT_URI } }),
+    );
     server.index().delete(DEFAULT_URI, true);
 
     change_text(&server, 2, (2, 8), (2, 9), "2");
-    server.result("textDocument/documentSymbol", json!({ "textDocument": { "uri": DEFAULT_URI } }));
+    server.result(
+        "textDocument/documentSymbol",
+        json!({ "textDocument": { "uri": DEFAULT_URI } }),
+    );
     assert!(server.index().entries_named("Foo").is_empty());
 }
 
@@ -196,7 +243,10 @@ fn did_change_watched_files_handles_creations_and_deletions() {
     server.result("rubyLsp/diagnoseState", Value::Null);
     assert_eq!(server.index().entries_named("Watched").len(), 1);
 
-    server.notify("workspace/didChangeWatchedFiles", json!({ "changes": [{ "uri": uri, "type": 3 }] }));
+    server.notify(
+        "workspace/didChangeWatchedFiles",
+        json!({ "changes": [{ "uri": uri, "type": 3 }] }),
+    );
     server.result("rubyLsp/diagnoseState", Value::Null);
     assert!(server.index().entries_named("Watched").is_empty());
 }
@@ -239,7 +289,10 @@ fn requests_for_missing_documents_return_invalid_params() {
         "textDocument/definition",
         json!({ "textDocument": { "uri": "untitled:Untitled-9" }, "position": { "line": 0, "character": 0 } }),
     );
-    assert_eq!(response.response_result.unwrap_err().code, ErrorCode::InvalidParams as i32);
+    assert_eq!(
+        response.response_result.unwrap_err().code,
+        ErrorCode::InvalidParams as i32
+    );
 }
 
 #[test]
@@ -249,7 +302,10 @@ fn invalid_positions_return_invalid_params() {
         "textDocument/definition",
         json!({ "textDocument": { "uri": DEFAULT_URI }, "position": { "line": 10, "character": 0 } }),
     );
-    assert_eq!(response.response_result.unwrap_err().code, ErrorCode::InvalidParams as i32);
+    assert_eq!(
+        response.response_result.unwrap_err().code,
+        ErrorCode::InvalidParams as i32
+    );
 }
 
 #[test]

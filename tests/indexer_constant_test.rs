@@ -6,7 +6,10 @@ use ruby_lsp_rs::indexer::EntryKind;
 fn assert_unresolved_alias(test: &TestCase, name: &str, expected_nesting: &[&str], expected_target: &str) {
     let entry = test.first(name);
     let EntryKind::UnresolvedConstantAlias { target, nesting } = &entry.kind else {
-        panic!("Expected {name} to be an UnresolvedConstantAlias, got {}", kind_name(entry));
+        panic!(
+            "Expected {name} to be an UnresolvedConstantAlias, got {}",
+            kind_name(entry)
+        );
     };
     assert_eq!(expected_nesting, nesting.as_slice());
     assert_eq!(expected_target, target);
@@ -14,10 +17,16 @@ fn assert_unresolved_alias(test: &TestCase, name: &str, expected_nesting: &[&str
 
 fn assert_resolves_to_alias(test: &mut TestCase, name: &str, nesting: &[&str], expected_target: &str) {
     let nesting: Vec<String> = nesting.iter().map(|part| part.to_string()).collect();
-    let resolved = test.index.resolve(name, &nesting).unwrap_or_else(|| panic!("Expected {name} to resolve"));
+    let resolved = test
+        .index
+        .resolve(name, &nesting)
+        .unwrap_or_else(|| panic!("Expected {name} to resolve"));
     let entry = test.index.entry(resolved[0]);
     let EntryKind::ConstantAlias { target } = &entry.kind else {
-        panic!("Expected {name} to resolve to a ConstantAlias, got {}", kind_name(entry));
+        panic!(
+            "Expected {name} to resolve to a ConstantAlias, got {}",
+            kind_name(entry)
+        );
     };
     assert_eq!(expected_target, target);
 }
@@ -57,9 +66,7 @@ fn test_constant_or_writes() {
 #[test]
 fn test_constant_path_writes() {
     let mut test = TestCase::new();
-    test.index(
-        "class A\n  FOO = 1\n  ::BAR = 1\n\n  module B\n    FOO = 1\n  end\nend\n\nA::BAZ = 1\n",
-    );
+    test.index("class A\n  FOO = 1\n  ::BAR = 1\n\n  module B\n    FOO = 1\n  end\nend\n\nA::BAZ = 1\n");
     test.assert_entry("A::FOO", "Constant", "/fake/path/foo.rb:1-2:1-9");
     test.assert_entry("BAR", "Constant", "/fake/path/foo.rb:2-2:2-11");
     test.assert_entry("A::B::FOO", "Constant", "/fake/path/foo.rb:5-4:5-11");
@@ -97,9 +104,7 @@ fn test_variable_path_constants_are_ignored() {
 #[test]
 fn test_private_constant_indexing() {
     let mut test = TestCase::new();
-    test.index(
-        "class A\n  B = 1\n  private_constant(:B)\n\n  C = 2\n  private_constant(\"C\")\n\n  D = 1\nend\n",
-    );
+    test.index("class A\n  B = 1\n  private_constant(:B)\n\n  C = 2\n  private_constant(\"C\")\n\n  D = 1\nend\n");
     assert!(test.first("A::B").is_private());
     assert!(test.first("A::C").is_private());
     assert!(test.first("A::D").is_public());
@@ -157,9 +162,7 @@ fn test_aliasing_namespaces() {
 #[test]
 fn test_indexing_same_line_constant_aliases() {
     let mut test = TestCase::new();
-    test.index(
-        "module A\n  B = C = 1\n  D = E ||= 1\n  F = G::H &&= 1\n  I::J = K::L = M = 1\nend\n",
-    );
+    test.index("module A\n  B = C = 1\n  D = E ||= 1\n  F = G::H &&= 1\n  I::J = K::L = M = 1\nend\n");
 
     assert_unresolved_alias(&test, "A::B", &["A"], "C");
     assert_resolves_to_alias(&mut test, "A::B", &[], "A::C");

@@ -14,7 +14,10 @@ pub struct TextEdit {
 
 impl TextEdit {
     pub fn new(range: Range, new_text: impl Into<String>) -> TextEdit {
-        TextEdit { range, new_text: new_text.into() }
+        TextEdit {
+            range,
+            new_text: new_text.into(),
+        }
     }
 
     pub fn insert(position: Position, new_text: impl Into<String>) -> TextEdit {
@@ -37,7 +40,13 @@ pub struct TextDocumentEdit {
 
 impl TextDocumentEdit {
     pub fn new(uri: impl Into<String>, edits: Vec<TextEdit>) -> TextDocumentEdit {
-        TextDocumentEdit { text_document: VersionedTextDocumentIdentifier { uri: uri.into(), version: None }, edits }
+        TextDocumentEdit {
+            text_document: VersionedTextDocumentIdentifier {
+                uri: uri.into(),
+                version: None,
+            },
+            edits,
+        }
     }
 }
 
@@ -51,7 +60,11 @@ pub struct RenameFile {
 
 impl RenameFile {
     pub fn new(old_uri: impl Into<String>, new_uri: impl Into<String>) -> RenameFile {
-        RenameFile { kind: "rename", old_uri: old_uri.into(), new_uri: new_uri.into() }
+        RenameFile {
+            kind: "rename",
+            old_uri: old_uri.into(),
+            new_uri: new_uri.into(),
+        }
     }
 }
 
@@ -73,11 +86,17 @@ pub struct WorkspaceEdit {
 
 impl WorkspaceEdit {
     pub fn from_changes(changes: BTreeMap<String, Vec<TextEdit>>) -> WorkspaceEdit {
-        WorkspaceEdit { changes: Some(changes), document_changes: None }
+        WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+        }
     }
 
     pub fn from_document_changes(document_changes: Vec<DocumentChange>) -> WorkspaceEdit {
-        WorkspaceEdit { changes: None, document_changes: Some(document_changes) }
+        WorkspaceEdit {
+            changes: None,
+            document_changes: Some(document_changes),
+        }
     }
 }
 

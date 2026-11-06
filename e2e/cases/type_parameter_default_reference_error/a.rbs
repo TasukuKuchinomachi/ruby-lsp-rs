@@ -1,0 +1,2 @@
+class Pair[T = S, S = Integer]
+end

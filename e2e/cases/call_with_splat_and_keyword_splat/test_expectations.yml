@@ -1,0 +1,53 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 5
+        character: 20
+      end:
+        line: 5
+        character: 28
+    severity: ERROR
+    message: Unexpected positional argument
+    code: Ruby::UnexpectedPositionalArgument
+  - range:
+      start:
+        line: 7
+        character: 18
+      end:
+        line: 7
+        character: 26
+    severity: ERROR
+    message: |-
+      Cannot pass a value of type `::Array[::String]` as an argument of type `::Array[::Integer]`
+        ::Array[::String] <: ::Array[::Integer]
+          ::String <: ::Integer
+            ::Object <: ::Integer
+              ::BasicObject <: ::Integer
+    code: Ruby::ArgumentTypeMismatch
+  - range:
+      start:
+        line: 11
+        character: 9
+      end:
+        line: 11
+        character: 28
+    severity: ERROR
+    message: 'More keyword arguments are required: name'
+    code: Ruby::InsufficientKeywordArguments
+  - range:
+      start:
+        line: 15
+        character: 24
+      end:
+        line: 15
+        character: 31
+    severity: ERROR
+    message: |-
+      Cannot pass a value of type `::Hash[::Symbol, ::String]` as an argument of type `::Hash[::Symbol, ::Integer]`
+        ::Hash[::Symbol, ::String] <: ::Hash[::Symbol, ::Integer]
+          ::String <: ::Integer
+            ::Object <: ::Integer
+              ::BasicObject <: ::Integer
+    code: Ruby::ArgumentTypeMismatch

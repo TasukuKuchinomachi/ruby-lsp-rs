@@ -1,0 +1,33 @@
+use UseFixture::Shapes::Circle, UseFixture::Shapes::Square as Box
+use UseFixture::Shapes::size as shape_size
+use UseFixture::Shapes::Nested as N
+use UseFixture::ShapesAlias::_Drawable
+
+class UseFixtureUser[T < Circle] < Box
+  include _Drawable
+
+  attr_reader box: Box
+
+  @circle: Circle
+
+  def circle: () -> Circle
+  def shape_size: (shape_size) -> N::Leaf
+  def leaf: () -> N::Leaf
+  def absolute_leaf: () -> ::UseFixture::Shapes::Nested::Leaf
+end
+
+module UseFixture
+  module Shadowing
+    class ShadowingUser
+      def circle: () -> Circle
+    end
+  end
+end
+
+USE_FIXTURE_BOX: Box
+
+$use_fixture_circle: Circle
+
+type use_fixture_shape = Circle | Box
+
+class UseFixtureCircle = Circle

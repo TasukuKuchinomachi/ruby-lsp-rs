@@ -158,10 +158,17 @@ impl<'a, 'document> DocumentHighlightListener<'a, 'document> {
         parent: Option<&Node<'_>>,
         position: Position,
     ) -> DocumentHighlightListener<'a, 'document> {
-        let mut listener =
-            DocumentHighlightListener { response: Vec::new(), parsed, target_type: None, target_value: None, target_position: position };
+        let mut listener = DocumentHighlightListener {
+            response: Vec::new(),
+            parsed,
+            target_type: None,
+            target_value: None,
+            target_position: position,
+        };
 
-        let (Some(target), Some(_)) = (target, parent) else { return listener };
+        let (Some(target), Some(_)) = (target, parent) else {
+            return listener;
+        };
         let type_name = target.type_name();
         if VALUE_TARGET_NODES.contains(&type_name) {
             listener.target_type = Some(type_name);
@@ -195,7 +202,9 @@ impl<'a, 'document> DocumentHighlightListener<'a, 'document> {
     }
 
     fn matches(&self, node: &Node<'_>, classes: &[&str]) -> bool {
-        self.target_type.is_some_and(|target_type| classes.contains(&target_type)) && self.target_value == node_value(node)
+        self.target_type
+            .is_some_and(|target_type| classes.contains(&target_type))
+            && self.target_value == node_value(node)
     }
 
     fn highlight_if_matches(&mut self, node: &Node<'_>, classes: &[&str], kind: u32, location: Option<Location<'_>>) {
@@ -237,7 +246,9 @@ impl<'a, 'document> DocumentHighlightListener<'a, 'document> {
             Node::ClassVariableTargetNode { .. } => {
                 self.highlight_if_matches(node, CLASS_VARIABLE_NODES, WRITE, Some(node.location()));
             }
-            Node::LocalVariableTargetNode { .. } | Node::BlockParameterNode { .. } | Node::RequiredParameterNode { .. } => {
+            Node::LocalVariableTargetNode { .. }
+            | Node::BlockParameterNode { .. }
+            | Node::RequiredParameterNode { .. } => {
                 self.highlight_if_matches(node, LOCAL_NODES, WRITE, Some(node.location()));
             }
             Node::ClassNode { .. } => {
@@ -276,31 +287,52 @@ impl<'a, 'document> DocumentHighlightListener<'a, 'document> {
                 self.highlight_if_matches(node, GLOBAL_VARIABLE_NODES, READ, Some(node.location()));
             }
             Node::ConstantPathWriteNode { .. } => {
-                let target = node.as_constant_path_write_node().expect("variant was matched").target();
+                let target = node
+                    .as_constant_path_write_node()
+                    .expect("variant was matched")
+                    .target();
                 self.highlight_if_matches(node, CONSTANT_PATH_NODES, WRITE, Some(target.location()));
             }
             Node::ConstantPathOrWriteNode { .. } => {
-                let target = node.as_constant_path_or_write_node().expect("variant was matched").target();
+                let target = node
+                    .as_constant_path_or_write_node()
+                    .expect("variant was matched")
+                    .target();
                 self.highlight_if_matches(node, CONSTANT_PATH_NODES, WRITE, Some(target.location()));
             }
             Node::ConstantPathAndWriteNode { .. } => {
-                let target = node.as_constant_path_and_write_node().expect("variant was matched").target();
+                let target = node
+                    .as_constant_path_and_write_node()
+                    .expect("variant was matched")
+                    .target();
                 self.highlight_if_matches(node, CONSTANT_PATH_NODES, WRITE, Some(target.location()));
             }
             Node::ConstantPathOperatorWriteNode { .. } => {
-                let target = node.as_constant_path_operator_write_node().expect("variant was matched").target();
+                let target = node
+                    .as_constant_path_operator_write_node()
+                    .expect("variant was matched")
+                    .target();
                 self.highlight_if_matches(node, CONSTANT_PATH_NODES, WRITE, Some(target.location()));
             }
             Node::LocalVariableWriteNode { .. } => {
-                let name_location = node.as_local_variable_write_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_local_variable_write_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, LOCAL_NODES, WRITE, Some(name_location));
             }
             Node::RequiredKeywordParameterNode { .. } => {
-                let name_location = node.as_required_keyword_parameter_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_required_keyword_parameter_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, LOCAL_NODES, WRITE, Some(name_location));
             }
             Node::OptionalKeywordParameterNode { .. } => {
-                let name_location = node.as_optional_keyword_parameter_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_optional_keyword_parameter_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, LOCAL_NODES, WRITE, Some(name_location));
             }
             Node::RestParameterNode { .. } => {
@@ -308,39 +340,66 @@ impl<'a, 'document> DocumentHighlightListener<'a, 'document> {
                 self.highlight_if_matches(node, LOCAL_NODES, WRITE, name_location);
             }
             Node::OptionalParameterNode { .. } => {
-                let name_location = node.as_optional_parameter_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_optional_parameter_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, LOCAL_NODES, WRITE, Some(name_location));
             }
             Node::KeywordRestParameterNode { .. } => {
-                let name_location = node.as_keyword_rest_parameter_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_keyword_rest_parameter_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, LOCAL_NODES, WRITE, name_location);
             }
             Node::LocalVariableAndWriteNode { .. } => {
-                let name_location = node.as_local_variable_and_write_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_local_variable_and_write_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, LOCAL_NODES, WRITE, Some(name_location));
             }
             Node::LocalVariableOperatorWriteNode { .. } => {
-                let name_location = node.as_local_variable_operator_write_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_local_variable_operator_write_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, LOCAL_NODES, WRITE, Some(name_location));
             }
             Node::LocalVariableOrWriteNode { .. } => {
-                let name_location = node.as_local_variable_or_write_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_local_variable_or_write_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, LOCAL_NODES, WRITE, Some(name_location));
             }
             Node::ClassVariableWriteNode { .. } => {
-                let name_location = node.as_class_variable_write_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_class_variable_write_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, CLASS_VARIABLE_NODES, WRITE, Some(name_location));
             }
             Node::ClassVariableOrWriteNode { .. } => {
-                let name_location = node.as_class_variable_or_write_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_class_variable_or_write_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, CLASS_VARIABLE_NODES, WRITE, Some(name_location));
             }
             Node::ClassVariableOperatorWriteNode { .. } => {
-                let name_location = node.as_class_variable_operator_write_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_class_variable_operator_write_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, CLASS_VARIABLE_NODES, WRITE, Some(name_location));
             }
             Node::ClassVariableAndWriteNode { .. } => {
-                let name_location = node.as_class_variable_and_write_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_class_variable_and_write_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, CLASS_VARIABLE_NODES, WRITE, Some(name_location));
             }
             Node::ConstantWriteNode { .. } => {
@@ -348,52 +407,88 @@ impl<'a, 'document> DocumentHighlightListener<'a, 'document> {
                 self.highlight_if_matches(node, CONSTANT_NODES, WRITE, Some(name_location));
             }
             Node::ConstantOrWriteNode { .. } => {
-                let name_location = node.as_constant_or_write_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_constant_or_write_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, CONSTANT_NODES, WRITE, Some(name_location));
             }
             Node::ConstantOperatorWriteNode { .. } => {
-                let name_location = node.as_constant_operator_write_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_constant_operator_write_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, CONSTANT_NODES, WRITE, Some(name_location));
             }
             Node::ConstantAndWriteNode { .. } => {
-                let name_location = node.as_constant_and_write_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_constant_and_write_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, CONSTANT_NODES, WRITE, Some(name_location));
             }
             Node::InstanceVariableWriteNode { .. } => {
-                let name_location = node.as_instance_variable_write_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_instance_variable_write_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, INSTANCE_VARIABLE_NODES, WRITE, Some(name_location));
             }
             Node::InstanceVariableOrWriteNode { .. } => {
-                let name_location = node.as_instance_variable_or_write_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_instance_variable_or_write_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, INSTANCE_VARIABLE_NODES, WRITE, Some(name_location));
             }
             Node::InstanceVariableAndWriteNode { .. } => {
-                let name_location = node.as_instance_variable_and_write_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_instance_variable_and_write_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, INSTANCE_VARIABLE_NODES, WRITE, Some(name_location));
             }
             Node::InstanceVariableOperatorWriteNode { .. } => {
-                let name_location = node.as_instance_variable_operator_write_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_instance_variable_operator_write_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, INSTANCE_VARIABLE_NODES, WRITE, Some(name_location));
             }
             Node::GlobalVariableWriteNode { .. } => {
-                let name_location = node.as_global_variable_write_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_global_variable_write_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, GLOBAL_VARIABLE_NODES, WRITE, Some(name_location));
             }
             Node::GlobalVariableOrWriteNode { .. } => {
-                let name_location = node.as_global_variable_or_write_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_global_variable_or_write_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, GLOBAL_VARIABLE_NODES, WRITE, Some(name_location));
             }
             Node::GlobalVariableAndWriteNode { .. } => {
-                let name_location = node.as_global_variable_and_write_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_global_variable_and_write_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, GLOBAL_VARIABLE_NODES, WRITE, Some(name_location));
             }
             Node::GlobalVariableOperatorWriteNode { .. } => {
-                let name_location = node.as_global_variable_operator_write_node().expect("variant was matched").name_loc();
+                let name_location = node
+                    .as_global_variable_operator_write_node()
+                    .expect("variant was matched")
+                    .name_loc();
                 self.highlight_if_matches(node, GLOBAL_VARIABLE_NODES, WRITE, Some(name_location));
             }
             Node::SingletonClassNode { .. } if self.target_is("SingletonClassNode") => {
                 let singleton_class = node.as_singleton_class_node().expect("variant was matched");
-                self.add_matching_end_highlights(Some(singleton_class.class_keyword_loc()), Some(singleton_class.end_keyword_loc()));
+                self.add_matching_end_highlights(
+                    Some(singleton_class.class_keyword_loc()),
+                    Some(singleton_class.end_keyword_loc()),
+                );
             }
             Node::CaseNode { .. } if self.target_is("CaseNode") => {
                 let case = node.as_case_node().expect("variant was matched");
@@ -436,11 +531,20 @@ impl<'a, 'document> DocumentHighlightListener<'a, 'document> {
     }
 
     fn add_highlight(&mut self, kind: u32, location: &Location<'_>) {
-        self.response.push(DocumentHighlight { range: self.parsed.range_from_location(location), kind });
+        self.response.push(DocumentHighlight {
+            range: self.parsed.range_from_location(location),
+            kind,
+        });
     }
 
-    fn add_matching_end_highlights(&mut self, keyword_location: Option<Location<'_>>, end_location: Option<Location<'_>>) {
-        let (Some(keyword_location), Some(end_location)) = (keyword_location, end_location) else { return };
+    fn add_matching_end_highlights(
+        &mut self,
+        keyword_location: Option<Location<'_>>,
+        end_location: Option<Location<'_>>,
+    ) {
+        let (Some(keyword_location), Some(end_location)) = (keyword_location, end_location) else {
+            return;
+        };
         if end_location.end_offset() <= end_location.start_offset() {
             return;
         }
@@ -452,7 +556,12 @@ impl<'a, 'document> DocumentHighlightListener<'a, 'document> {
     }
 
     fn covers_target_position(&self, location: &Location<'_>) -> bool {
-        covers_position(self.parsed, location.start_offset(), location.end_offset(), self.target_position)
+        covers_position(
+            self.parsed,
+            location.start_offset(),
+            location.end_offset(),
+            self.target_position,
+        )
     }
 }
 
@@ -468,7 +577,10 @@ fn node_value(node: &Node<'_>) -> Option<String> {
         | Node::ConstantPathOperatorWriteNode { .. }
         | Node::ConstantPathAndWriteNode { .. } => return Some(node_slice(node)),
         Node::CallNode { .. } => {
-            return node.as_call_node()?.message_loc().map(|location| location_slice(&location));
+            return node
+                .as_call_node()?
+                .message_loc()
+                .map(|location| location_slice(&location));
         }
         Node::ClassNode { .. } => return Some(node_slice(&node.as_class_node()?.constant_path())),
         Node::ModuleNode { .. } => return Some(node_slice(&node.as_module_node()?.constant_path())),

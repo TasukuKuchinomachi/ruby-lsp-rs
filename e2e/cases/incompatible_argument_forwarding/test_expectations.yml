@@ -1,0 +1,17 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 6
+        character: 12
+      end:
+        line: 6
+        character: 15
+    severity: ERROR
+    message: |-
+      Cannot forward arguments to `receive`:
+        (*::Integer) <: (*::String)
+          ::String <: ::Integer
+            ::Object <: ::Integer
+    code: Ruby::IncompatibleArgumentForwarding

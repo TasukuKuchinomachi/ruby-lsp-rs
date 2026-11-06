@@ -1,0 +1,33 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 3
+        character: 31
+      end:
+        line: 3
+        character: 37
+    severity: ERROR
+    message: '`name` is untyped, so Steep types the calls on it as untyped without type checking their arguments and blocks against any method type (reported at the first call in each method)'
+    code: Strict::UntypedReceiver
+  - range:
+      start:
+        line: 7
+        character: 12
+      end:
+        line: 7
+        character: 19
+    severity: ERROR
+    message: '`error` is untyped, so Steep types the calls on it as untyped without type checking their arguments and blocks against any method type (reported at the first call in each method)'
+    code: Strict::UntypedReceiver
+  - range:
+      start:
+        line: 9
+        character: 18
+      end:
+        line: 9
+        character: 23
+    severity: ERROR
+    message: Steep types the parameter `count` as untyped, because no proc type hint gives the lambda its parameter types
+    code: Strict::UntypedLambdaParameters

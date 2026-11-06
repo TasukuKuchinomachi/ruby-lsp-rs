@@ -45,7 +45,10 @@ impl TestCase {
     }
 
     pub fn empty() -> Self {
-        TestCase { index: Index::new(Arc::new(Configuration::default())), default_names: Vec::new() }
+        TestCase {
+            index: Index::new(Arc::new(Configuration::default())),
+            default_names: Vec::new(),
+        }
     }
 
     pub fn index(&mut self, source: &str) {
@@ -75,16 +78,29 @@ impl TestCase {
         assert!(!entries.is_empty(), "Expected {expected_name} to be indexed");
         let entry = entries[0];
         assert_eq!(kind, kind_name(entry), "Expected {expected_name} to be a {kind}");
-        assert_eq!(expected_location, location_string(entry), "Unexpected location for {expected_name}");
+        assert_eq!(
+            expected_location,
+            location_string(entry),
+            "Unexpected location for {expected_name}"
+        );
     }
 
-    pub fn assert_entry_with_visibility(&self, expected_name: &str, kind: &str, expected_location: &str, visibility: &str) {
+    pub fn assert_entry_with_visibility(
+        &self,
+        expected_name: &str,
+        kind: &str,
+        expected_location: &str,
+        visibility: &str,
+    ) {
         self.assert_entry(expected_name, kind, expected_location);
         assert_eq!(visibility, self.first(expected_name).visibility.as_str());
     }
 
     pub fn refute_entry(&self, expected_name: &str) {
-        assert!(self.index.get(expected_name).is_none(), "Expected {expected_name} to not be indexed");
+        assert!(
+            self.index.get(expected_name).is_none(),
+            "Expected {expected_name} to not be indexed"
+        );
     }
 
     pub fn assert_no_indexed_entries(&self) {
@@ -143,7 +159,9 @@ pub fn names_of(index: &Index, ids: &[EntryId]) -> Vec<String> {
 }
 
 pub fn owner_names_of(index: &Index, ids: &[EntryId]) -> Vec<Option<String>> {
-    ids.iter().map(|id| index.entry(*id).owner().map(str::to_string)).collect()
+    ids.iter()
+        .map(|id| index.entry(*id).owner().map(str::to_string))
+        .collect()
 }
 
 /// The Ruby class name of the equivalent `RubyIndexer::Entry::Parameter` subclass
@@ -162,7 +180,10 @@ pub fn parameter_kind(parameter: &ruby_lsp_rs::indexer::entry::Parameter) -> &'s
 }
 
 pub fn parameter_names(parameters: &[ruby_lsp_rs::indexer::entry::Parameter]) -> Vec<String> {
-    parameters.iter().map(|parameter| parameter.name().to_string()).collect()
+    parameters
+        .iter()
+        .map(|parameter| parameter.name().to_string())
+        .collect()
 }
 
 pub fn parameter_kinds(parameters: &[ruby_lsp_rs::indexer::entry::Parameter]) -> Vec<&'static str> {

@@ -93,10 +93,16 @@ fn toggle_block_style_available(parsed: &ParsedDocument<'_>, range: Range) -> Re
 }
 
 fn attribute_actions_available(parsed: &ParsedDocument<'_>, range: Range) -> Result<bool, InvalidLocationError> {
-    if range.start != range.end && parsed.locate_first_within_range(range, INSTANCE_VARIABLE_NODES)?.is_some() {
+    if range.start != range.end
+        && parsed
+            .locate_first_within_range(range, INSTANCE_VARIABLE_NODES)?
+            .is_some()
+    {
         return Ok(true);
     }
 
     let node_context = parsed.locate_node(range.start, INSTANCE_VARIABLE_NODES)?;
-    Ok(node_context.node.is_some_and(|node| INSTANCE_VARIABLE_NODES.contains(&node.type_name())))
+    Ok(node_context
+        .node
+        .is_some_and(|node| INSTANCE_VARIABLE_NODES.contains(&node.type_name())))
 }

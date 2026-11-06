@@ -34,21 +34,27 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
         Ok(edits) => Ok(edits),
         Err(error) => {
             outgoing.show_message(&format!("Formatting error: {}", error.message), message_type::ERROR);
-            outgoing.log_message(&format!("Formatting failed with\r\n: {}", error.full_message), message_type::ERROR);
+            outgoing.log_message(
+                &format!("Formatting failed with\r\n: {}", error.full_message),
+                message_type::ERROR,
+            );
             Ok(Value::Null)
         }
     }
 }
 
 pub fn perform(global_state: &GlobalState, outgoing: &Outgoing, document: &Document) -> Result<Value, FormatterError> {
-    let Some(active_formatter) = formatter::active_formatter(global_state, outgoing) else { return Ok(Value::Null) };
+    let Some(active_formatter) = formatter::active_formatter(global_state, outgoing) else {
+        return Ok(Value::Null);
+    };
     if document.syntax_error() {
         return Ok(Value::Null);
     }
 
     let path = formatter::path_for_uri(document.uri());
     let source = document.source();
-    let Some(formatted_text) = formatter::run_formatting(global_state, outgoing, &active_formatter, path.as_deref(), source)?
+    let Some(formatted_text) =
+        formatter::run_formatting(global_state, outgoing, &active_formatter, path.as_deref(), source)?
     else {
         return Ok(Value::Null);
     };

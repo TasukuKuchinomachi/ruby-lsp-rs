@@ -1,0 +1,11 @@
+interface _Comparing[T]
+  def compare: (T) -> Integer
+end
+
+class Ranking[A < _Comparing[A]]
+  def top: () -> A
+end
+
+class Ranking[B < _Comparing[B]]
+  def bottom: () -> B
+end

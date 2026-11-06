@@ -89,7 +89,10 @@ fn it_finds_multiple_matching_tests() {
     let unit_test = workspace.touch("test/unit/some_feature_test.rb");
     let integration_test = workspace.touch("test/integration/some_feature_test.rb");
 
-    assert_eq!(sorted(workspace.relevant_paths(&implementation_file)), sorted(vec![unit_test, integration_test]));
+    assert_eq!(
+        sorted(workspace.relevant_paths(&implementation_file)),
+        sorted(vec![unit_test, integration_test])
+    );
 }
 
 #[test]
@@ -110,7 +113,10 @@ fn finds_tests_in_matching_subdirectory() {
     let test_file_1 = workspace.touch("test/user/create_user_test.rb");
     let test_file_2 = workspace.touch("test/user/test_update_user.rb");
 
-    assert_eq!(sorted(workspace.relevant_paths(&implementation_file)), sorted(vec![test_file_1, test_file_2]));
+    assert_eq!(
+        sorted(workspace.relevant_paths(&implementation_file)),
+        sorted(vec![test_file_1, test_file_2])
+    );
 }
 
 #[test]
@@ -142,7 +148,9 @@ fn request_returns_locations_for_files_inside_the_workspace() {
     );
     assert_eq!(result, json!({ "locations": [test_file] }));
 
-    let outside_workspace =
-        server.result("experimental/goToRelevantFile", json!({ "textDocument": { "uri": "file:///other/foo.rb" } }));
+    let outside_workspace = server.result(
+        "experimental/goToRelevantFile",
+        json!({ "textDocument": { "uri": "file:///other/foo.rb" } }),
+    );
     assert_eq!(outside_workspace, serde_json::Value::Null);
 }

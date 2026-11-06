@@ -1,0 +1,73 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 4
+        character: 2
+      end:
+        line: 4
+        character: 29
+    severity: ERROR
+    message: Steep ignores this comment because it matches none of the annotation syntaxes
+    code: Strict::UnrecognizedAnnotation
+  - range:
+      start:
+        line: 7
+        character: 2
+      end:
+        line: 7
+        character: 25
+    severity: ERROR
+    message: Steep ignores this comment because it matches none of the annotation syntaxes
+    code: Strict::UnrecognizedAnnotation
+  - range:
+      start:
+        line: 10
+        character: 2
+      end:
+        line: 10
+        character: 10
+    severity: ERROR
+    message: Steep ignores this comment because it matches none of the annotation syntaxes
+    code: Strict::UnrecognizedAnnotation
+  - range:
+      start:
+        line: 11
+        character: 2
+      end:
+        line: 11
+        character: 13
+    severity: ERROR
+    message: Steep ignores this comment because it matches none of the annotation syntaxes
+    code: Strict::UnrecognizedAnnotation
+  - range:
+      start:
+        line: 15
+        character: 10
+      end:
+        line: 15
+        character: 12
+    severity: WARNING
+    message: Empty array doesn't have type annotation
+    code: Ruby::UnannotatedEmptyCollection
+  - range:
+      start:
+        line: 15
+        character: 14
+      end:
+        line: 15
+        character: 29
+    severity: ERROR
+    message: Steep ignores this type assertion because its type does not parse
+    code: Strict::InvalidTypeAssertion
+  - range:
+      start:
+        line: 22
+        character: 2
+      end:
+        line: 24
+        character: 18
+    severity: WARNING
+    message: Redundant ignore comment
+    code: Ruby::RedundantIgnoreComment

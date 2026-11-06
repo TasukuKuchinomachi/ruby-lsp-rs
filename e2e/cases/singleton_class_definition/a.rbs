@@ -1,0 +1,5 @@
+class Factory
+  def self.build: () -> Factory
+
+  def self.name_of: (Factory) -> String
+end

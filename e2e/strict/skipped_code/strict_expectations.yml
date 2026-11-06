@@ -1,0 +1,133 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 7
+        character: 4
+      end:
+        line: 10
+        character: 7
+    severity: ERROR
+    message: Syntax `case_match` is not supported in Steep
+    code: Ruby::UnsupportedSyntax
+  - range:
+      start:
+        line: 7
+        character: 4
+      end:
+        line: 10
+        character: 7
+    severity: ERROR
+    message: Steep does not support `case_match`, and types it as untyped without type checking anything inside it
+    code: Strict::UnsupportedSyntax
+  - range:
+      start:
+        line: 14
+        character: 4
+      end:
+        line: 14
+        character: 33
+    severity: ERROR
+    message: Steep types the expression inside `defined?` as untyped without type checking it
+    code: Strict::DefinedExpression
+  - range:
+      start:
+        line: 19
+        character: 9
+      end:
+        line: 19
+        character: 16
+    severity: ERROR
+    message: Unsupported splat node occurrence
+    code: Ruby::UnsupportedSyntax
+  - range:
+      start:
+        line: 19
+        character: 9
+      end:
+        line: 19
+        character: 16
+    severity: ERROR
+    message: Steep does not expect a splat here, and types it as untyped without checking how its elements are used
+    code: Strict::UnexpectedSplat
+  - range:
+      start:
+        line: 20
+        character: 13
+      end:
+        line: 20
+        character: 27
+    severity: ERROR
+    message: Type `::Array[::Integer]` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 25
+        character: 4
+      end:
+        line: 25
+        character: 17
+    severity: WARNING
+    message: Cannot detect the type of the expression
+    code: Ruby::FallbackAny
+  - range:
+      start:
+        line: 25
+        character: 4
+      end:
+        line: 25
+        character: 17
+    severity: ERROR
+    message: Steep does not handle `or_asgn` to `cvasgn`, and types it as untyped without type checking the right hand side
+    code: Strict::UnexpectedAssignmentTarget
+  - range:
+      start:
+        line: 26
+        character: 4
+      end:
+        line: 26
+        character: 23
+    severity: ERROR
+    message: Steep does not handle an operator assignment to `casgn`, and types it as untyped without checking the assignment
+    code: Strict::UnexpectedAssignmentTarget
+  - range:
+      start:
+        line: 30
+        character: 14
+      end:
+        line: 30
+        character: 23
+    severity: ERROR
+    message: Steep does not check the value a multiple assignment gives to `send`, and types the target as untyped
+    code: Strict::MultipleAssignmentTarget
+  - range:
+      start:
+        line: 34
+        character: 4
+      end:
+        line: 34
+        character: 31
+    severity: ERROR
+    message: Steep does not type check the right hand side of an assignment to `__skip__`
+    code: Strict::SkipAssignment
+  - range:
+      start:
+        line: 43
+        character: 0
+      end:
+        line: 47
+        character: 3
+    severity: ERROR
+    message: sclass receiver must be instance type or singleton type, but type given `(::Account | nil)`
+    code: Ruby::UnsupportedSyntax
+  - range:
+      start:
+        line: 43
+        character: 0
+      end:
+        line: 47
+        character: 3
+    severity: ERROR
+    message: Steep cannot open the singleton class of `(::Account | nil)`, and does not type check the body
+    code: Strict::SingletonClassReceiver

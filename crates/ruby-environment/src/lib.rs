@@ -92,7 +92,11 @@ impl RubyEnvironment {
             ));
         }
 
-        serde_json::from_slice(&output.stdout)
-            .map_err(|error| format!("Invalid Ruby environment output: {error}: {}", String::from_utf8_lossy(&output.stdout)))
+        serde_json::from_slice(&output.stdout).map_err(|error| {
+            format!(
+                "Invalid Ruby environment output: {error}: {}",
+                String::from_utf8_lossy(&output.stdout)
+            )
+        })
     }
 }

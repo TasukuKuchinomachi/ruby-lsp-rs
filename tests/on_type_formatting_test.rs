@@ -27,20 +27,9 @@ fn push_edit(document: &mut Document, start: (u32, u32), end: (u32, u32), text: 
         .unwrap();
 }
 
-fn edits_for(
-    document: &Document,
-    line: u32,
-    character: u32,
-    trigger_character: &str,
-    client_name: &str,
-) -> Value {
-    let edits = OnTypeFormatting::new(
-        document,
-        Position::new(line, character),
-        trigger_character,
-        client_name,
-    )
-    .perform();
+fn edits_for(document: &Document, line: u32, character: u32, trigger_character: &str, client_name: &str) -> Value {
+    let edits =
+        OnTypeFormatting::new(document, Position::new(line, character), trigger_character, client_name).perform();
     serde_json::to_value(edits).unwrap()
 }
 

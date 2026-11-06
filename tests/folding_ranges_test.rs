@@ -5,13 +5,19 @@ use support::{DEFAULT_URI, TestOptions, with_server};
 
 fn folding_ranges(source: &str) -> Value {
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
-    server.result("textDocument/foldingRange", json!({ "textDocument": { "uri": DEFAULT_URI } }))
+    server.result(
+        "textDocument/foldingRange",
+        json!({ "textDocument": { "uri": DEFAULT_URI } }),
+    )
 }
 
 #[test]
 fn trailing_comments_are_not_grouped() {
     let source = "a = 1 # first\n# second\n# third\n";
-    assert_eq!(folding_ranges(source), json!([{ "startLine": 1, "endLine": 2, "kind": "comment" }]));
+    assert_eq!(
+        folding_ranges(source),
+        json!([{ "startLine": 1, "endLine": 2, "kind": "comment" }])
+    );
 }
 
 #[test]
@@ -30,7 +36,11 @@ fn requires_are_grouped_until_another_range() {
 fn erb_documents_fold_ruby_code() {
     let mut server = with_server(None, DEFAULT_URI, TestOptions::default());
     let uri = "file:///fake.html.erb";
-    server.did_open(uri, "<ul>\n<% [1].each do |item| %>\n  <li><%= item %></li>\n<% end %>\n</ul>\n", "erb");
+    server.did_open(
+        uri,
+        "<ul>\n<% [1].each do |item| %>\n  <li><%= item %></li>\n<% end %>\n</ul>\n",
+        "erb",
+    );
     let result = server.result("textDocument/foldingRange", json!({ "textDocument": { "uri": uri } }));
     assert_eq!(
         result,

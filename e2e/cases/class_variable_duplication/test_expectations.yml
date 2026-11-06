@@ -1,0 +1,14 @@
+---
+- file: a.rbs
+  diagnostics:
+  - range:
+      start:
+        line: 6
+        character: 2
+      end:
+        line: 6
+        character: 9
+    severity: ERROR
+    message: Class variable definition `@@count` in `::Child` may be overtaken by
+      `::Parent`
+    code: RBS::ClassVariableDuplicationError

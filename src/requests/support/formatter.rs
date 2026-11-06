@@ -23,7 +23,10 @@ pub struct FormatterError {
 
 impl FormatterError {
     fn new(message: String) -> FormatterError {
-        FormatterError { full_message: message.clone(), message }
+        FormatterError {
+            full_message: message.clone(),
+            message,
+        }
     }
 }
 
@@ -56,9 +59,17 @@ impl WorkerProcess {
         let stdin = child.stdin.take().ok_or("Formatter worker has no stdin")?;
         let stdout = BufReader::new(child.stdout.take().ok_or("Formatter worker has no stdout")?);
 
-        let mut worker =
-            WorkerProcess { child, stdin, stdout, next_request_id: 1, formatters: Vec::new(), rubocop_loaded: false };
-        let ready = worker.read_message().map_err(|error| format!("Formatter worker did not start: {}", error.message))?;
+        let mut worker = WorkerProcess {
+            child,
+            stdin,
+            stdout,
+            next_request_id: 1,
+            formatters: Vec::new(),
+            rubocop_loaded: false,
+        };
+        let ready = worker
+            .read_message()
+            .map_err(|error| format!("Formatter worker did not start: {}", error.message))?;
         worker.formatters = string_array(&ready["formatters"]);
         worker.rubocop_loaded = ready["rubocop_loaded"].as_bool().unwrap_or(false);
         for message in string_array(&ready["show_messages"]) {
@@ -109,8 +120,14 @@ impl WorkerProcess {
             }
             if let Some(error) = message.get("error") {
                 let error_message = error["message"].as_str().unwrap_or_default().to_string();
-                let full_message = error["full_message"].as_str().map(str::to_string).unwrap_or_else(|| error_message.clone());
-                return Ok(Err(FormatterError { message: error_message, full_message }));
+                let full_message = error["full_message"]
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| error_message.clone());
+                return Ok(Err(FormatterError {
+                    message: error_message,
+                    full_message,
+                }));
             }
             return Ok(Ok(message["result"].clone()));
         }
@@ -142,7 +159,10 @@ fn workers() -> &'static Mutex<HashMap<WorkerKey, Arc<Mutex<WorkerSlot>>>> {
 fn slot_for(global_state: &GlobalState) -> Arc<Mutex<WorkerSlot>> {
     let key = (global_state.workspace_path(), global_state.ruby_command.clone());
     let mut workers = workers().lock().unwrap_or_else(PoisonError::into_inner);
-    workers.entry(key).or_insert_with(|| Arc::new(Mutex::new(WorkerSlot::NotStarted))).clone()
+    workers
+        .entry(key)
+        .or_insert_with(|| Arc::new(Mutex::new(WorkerSlot::NotStarted)))
+        .clone()
 }
 
 fn lock(slot: &Mutex<WorkerSlot>) -> MutexGuard<'_, WorkerSlot> {
@@ -179,7 +199,9 @@ fn request(
     let mut slot = lock(&slot);
     let mut restarted = false;
     loop {
-        let Some(worker) = ensure_started(&mut slot, global_state, outgoing) else { return Ok(None) };
+        let Some(worker) = ensure_started(&mut slot, global_state, outgoing) else {
+            return Ok(None);
+        };
         match worker.request(method, params.clone()) {
             Ok(result) => return result.map(Some),
             Err(error) if restarted => {
@@ -198,7 +220,9 @@ fn request(
 fn supported_formatters(global_state: &GlobalState, outgoing: &Outgoing) -> Vec<String> {
     let slot = slot_for(global_state);
     let mut slot = lock(&slot);
-    ensure_started(&mut slot, global_state, outgoing).map(|worker| worker.formatters.clone()).unwrap_or_default()
+    ensure_started(&mut slot, global_state, outgoing)
+        .map(|worker| worker.formatters.clone())
+        .unwrap_or_default()
 }
 
 pub fn active_formatter(global_state: &GlobalState, outgoing: &Outgoing) -> Option<String> {
@@ -206,15 +230,26 @@ pub fn active_formatter(global_state: &GlobalState, outgoing: &Outgoing) -> Opti
     if !WORKER_FORMATTERS.contains(&formatter) {
         return None;
     }
-    supported_formatters(global_state, outgoing).into_iter().find(|supported| supported == formatter)
+    supported_formatters(global_state, outgoing)
+        .into_iter()
+        .find(|supported| supported == formatter)
 }
 
 pub fn active_linters(global_state: &GlobalState, outgoing: &Outgoing) -> Vec<String> {
-    if !global_state.linters.iter().any(|linter| WORKER_FORMATTERS.contains(&linter.as_str())) {
+    if !global_state
+        .linters
+        .iter()
+        .any(|linter| WORKER_FORMATTERS.contains(&linter.as_str()))
+    {
         return Vec::new();
     }
     let supported = supported_formatters(global_state, outgoing);
-    global_state.linters.iter().filter(|linter| supported.contains(linter)).cloned().collect()
+    global_state
+        .linters
+        .iter()
+        .filter(|linter| supported.contains(linter))
+        .cloned()
+        .collect()
 }
 
 pub fn path_for_uri(uri: &str) -> Option<String> {
@@ -243,8 +278,10 @@ pub fn run_range_formatting(
     source: &str,
     base_indentation: usize,
 ) -> Result<Option<String>, FormatterError> {
-    let params = json!({ "formatter": formatter, "path": path, "source": source, "base_indentation": base_indentation });
-    Ok(request(global_state, outgoing, "range_formatting", params)?.and_then(|result| result.as_str().map(str::to_string)))
+    let params =
+        json!({ "formatter": formatter, "path": path, "source": source, "base_indentation": base_indentation });
+    Ok(request(global_state, outgoing, "range_formatting", params)?
+        .and_then(|result| result.as_str().map(str::to_string)))
 }
 
 pub fn run_diagnostic(
@@ -287,11 +324,17 @@ pub fn reload_rubocop_configuration(global_state: &GlobalState, outgoing: &Outgo
             true
         }
         Ok(Err(error)) => {
-            outgoing.log_message(&format!("Failed to reload the RuboCop configuration: {}", error.message), message_type::ERROR);
+            outgoing.log_message(
+                &format!("Failed to reload the RuboCop configuration: {}", error.message),
+                message_type::ERROR,
+            );
             true
         }
         Err(error) => {
-            outgoing.log_message(&format!("{}. It will be restarted on the next request", error.message), message_type::WARNING);
+            outgoing.log_message(
+                &format!("{}. It will be restarted on the next request", error.message),
+                message_type::WARNING,
+            );
             *slot = WorkerSlot::NotStarted;
             true
         }
@@ -308,5 +351,13 @@ pub fn worker_process_id(global_state: &GlobalState) -> Option<u32> {
 }
 
 fn string_array(value: &Value) -> Vec<String> {
-    value.as_array().map(|values| values.iter().filter_map(|value| value.as_str().map(str::to_string)).collect()).unwrap_or_default()
+    value
+        .as_array()
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| value.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
 }

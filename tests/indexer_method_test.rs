@@ -7,7 +7,11 @@ use ruby_lsp_rs::indexer::entry::{
 };
 
 fn signature_matches(entry: &Entry, call_string: &str) -> bool {
-    let signature = entry.signatures().into_iter().next().expect("entry must have a signature");
+    let signature = entry
+        .signatures()
+        .into_iter()
+        .next()
+        .expect("entry must have a signature");
     let parse_result = ruby_prism::parse(call_string.as_bytes());
     let program = parse_result.node();
     let program = program.as_program_node().expect("program node");
@@ -38,7 +42,12 @@ fn refute_signature_matches(entry: &Entry, call_string: &str) {
 }
 
 fn first_parameters(test: &TestCase, name: &str) -> Vec<Parameter> {
-    test.first(name).signatures().into_iter().next().map(|signature| signature.parameters).unwrap_or_default()
+    test.first(name)
+        .signatures()
+        .into_iter()
+        .next()
+        .map(|signature| signature.parameters)
+        .unwrap_or_default()
 }
 
 #[test]
@@ -67,7 +76,10 @@ fn test_singleton_method_using_self_receiver() {
     let mut test = TestCase::new();
     test.index("class Foo\n  def self.bar\n  end\nend\n");
     test.assert_entry("bar", "Method", "/fake/path/foo.rb:1-2:2-5");
-    assert_eq!(Some(("SingletonClass", "Foo::<Class:Foo>".to_string())), test.owner_of("bar"));
+    assert_eq!(
+        Some(("SingletonClass", "Foo::<Class:Foo>".to_string())),
+        test.owner_of("bar")
+    );
 }
 
 #[test]
@@ -80,7 +92,9 @@ fn test_singleton_method_using_other_receiver_is_not_indexed() {
 #[test]
 fn test_method_under_dynamic_class_or_module() {
     let mut test = TestCase::new();
-    test.index("module Foo\n  class self::Bar\n    def bar\n    end\n  end\nend\n\nmodule Bar\n  def bar\n  end\nend\n");
+    test.index(
+        "module Foo\n  class self::Bar\n    def bar\n    end\n  end\nend\n\nmodule Bar\n  def bar\n  end\nend\n",
+    );
     let entries = test.entries("bar");
     assert_eq!(2, entries.len());
     assert_eq!(Some("Foo::self::Bar"), entries[0].owner());
@@ -178,7 +192,10 @@ fn test_comments_documentation() {
     let foo = test.index.get_owned("Foo").unwrap()[0];
     assert_eq!("Documentation for Foo", test.index.comments_for(foo));
     let bar = test.index.get_owned("bar").unwrap()[0];
-    assert_eq!("####################\nDocumentation for bar\n####################\n", test.index.comments_for(bar));
+    assert_eq!(
+        "####################\nDocumentation for bar\n####################\n",
+        test.index.comments_for(bar)
+    );
     let baz = test.index.get_owned("baz").unwrap()[0];
     assert_eq!("Documentation for baz", test.index.comments_for(baz));
     let ban = test.index.get_owned("ban").unwrap()[0];
@@ -198,7 +215,10 @@ fn test_method_with_destructed_parameters() {
     let mut test = TestCase::new();
     test.index("class Foo\n  def bar((a, (b, )))\n  end\nend\n");
     test.assert_entry("bar", "Method", "/fake/path/foo.rb:1-2:2-5");
-    assert_eq!(vec![Parameter::Required("(a, (b, ))".into())], first_parameters(&test, "bar"));
+    assert_eq!(
+        vec![Parameter::Required("(a, (b, ))".into())],
+        first_parameters(&test, "bar")
+    );
 }
 
 #[test]
@@ -216,7 +236,10 @@ fn test_method_with_keyword_parameters() {
     test.assert_entry("bar", "Method", "/fake/path/foo.rb:1-2:2-5");
     let parameters = first_parameters(&test, "bar");
     assert_eq!(vec!["a", "b"], parameter_names(&parameters));
-    assert_eq!(vec!["KeywordParameter", "OptionalKeywordParameter"], parameter_kinds(&parameters));
+    assert_eq!(
+        vec!["KeywordParameter", "OptionalKeywordParameter"],
+        parameter_kinds(&parameters)
+    );
 }
 
 #[test]
@@ -226,15 +249,16 @@ fn test_method_with_rest_and_keyword_rest_parameters() {
     test.assert_entry("bar", "Method", "/fake/path/foo.rb:1-2:2-5");
     let parameters = first_parameters(&test, "bar");
     assert_eq!(vec!["a", "b"], parameter_names(&parameters));
-    assert_eq!(vec!["RestParameter", "KeywordRestParameter"], parameter_kinds(&parameters));
+    assert_eq!(
+        vec!["RestParameter", "KeywordRestParameter"],
+        parameter_kinds(&parameters)
+    );
 }
 
 #[test]
 fn test_method_with_post_parameters() {
     let mut test = TestCase::new();
-    test.index(
-        "class Foo\n  def bar(*a, b)\n  end\n\n  def baz(**a, b)\n  end\n\n  def qux(*a, (b, c))\nend\n",
-    );
+    test.index("class Foo\n  def bar(*a, b)\n  end\n\n  def baz(**a, b)\n  end\n\n  def qux(*a, (b, c))\nend\n");
     test.assert_entry("bar", "Method", "/fake/path/foo.rb:1-2:2-5");
     let parameters = first_parameters(&test, "bar");
     assert_eq!(vec!["a", "b"], parameter_names(&parameters));
@@ -242,7 +266,10 @@ fn test_method_with_post_parameters() {
 
     let parameters = first_parameters(&test, "baz");
     assert_eq!(vec!["a", "b"], parameter_names(&parameters));
-    assert_eq!(vec!["KeywordRestParameter", "RequiredParameter"], parameter_kinds(&parameters));
+    assert_eq!(
+        vec!["KeywordRestParameter", "RequiredParameter"],
+        parameter_kinds(&parameters)
+    );
 
     let parameters = first_parameters(&test, "qux");
     assert_eq!(2, parameters.len());
@@ -254,7 +281,10 @@ fn test_method_with_destructured_rest_parameters() {
     let mut test = TestCase::new();
     test.index("class Foo\n  def bar((a, *b))\n  end\nend\n");
     test.assert_entry("bar", "Method", "/fake/path/foo.rb:1-2:2-5");
-    assert_eq!(vec![Parameter::Required("(a, *b)".into())], first_parameters(&test, "bar"));
+    assert_eq!(
+        vec![Parameter::Required("(a, *b)".into())],
+        first_parameters(&test, "bar")
+    );
 }
 
 #[test]
@@ -262,7 +292,10 @@ fn test_method_with_block_parameters() {
     let mut test = TestCase::new();
     test.index("class Foo\n  def bar(&block)\n  end\n\n  def baz(&)\n  end\nend\n");
     assert_eq!(Parameter::Block("block".into()), first_parameters(&test, "bar")[0]);
-    assert_eq!(vec![Parameter::Block(BLOCK_PARAMETER_DEFAULT_NAME.into())], first_parameters(&test, "baz"));
+    assert_eq!(
+        vec![Parameter::Block(BLOCK_PARAMETER_DEFAULT_NAME.into())],
+        first_parameters(&test, "baz")
+    );
 }
 
 #[test]
@@ -294,7 +327,10 @@ fn test_methods_with_argument_forwarding() {
     assert_eq!("Method", kind_name(test.first("bar")), "Expected `bar` to be indexed");
     assert_eq!(vec![Parameter::Forwarding], first_parameters(&test, "bar"));
     assert_eq!("Method", kind_name(test.first("baz")), "Expected `baz` to be indexed");
-    assert_eq!(vec!["RequiredParameter", "ForwardingParameter"], parameter_kinds(&first_parameters(&test, "baz")));
+    assert_eq!(
+        vec!["RequiredParameter", "ForwardingParameter"],
+        parameter_kinds(&first_parameters(&test, "baz"))
+    );
 }
 
 #[test]
@@ -542,7 +578,13 @@ fn test_signature_matches_for_keyword_splats() {
     test.index("class Foo\n  def bar(a, b:, **kwargs)\n  end\nend\n");
     let entry = test.first("bar");
 
-    for call in ["bar(...)", "bar()", "bar(1)", "bar(1, b: 2)", "bar(1, b: 2, c: 3, d: 4)"] {
+    for call in [
+        "bar(...)",
+        "bar()",
+        "bar(1)",
+        "bar(1, b: 2)",
+        "bar(1, b: 2, c: 3, d: 4)",
+    ] {
         assert_signature_matches(entry, call);
     }
 

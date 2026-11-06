@@ -30,13 +30,17 @@ pub struct TrackedClass {
 
 impl TestDiscovery {
     pub fn new() -> TestDiscovery {
-        TestDiscovery { visibility_stack: vec!["public".to_string()], nesting: Vec::new() }
+        TestDiscovery {
+            visibility_stack: vec!["public".to_string()],
+            nesting: Vec::new(),
+        }
     }
 
     pub fn on_module_node_enter(&mut self, node: &ModuleNode<'_>) {
         self.visibility_stack.push("public".to_string());
         let constant_path = node.constant_path();
-        let name = constant_name(&constant_path).unwrap_or_else(|| name_with_dynamic_reference(&node_slice(&constant_path)));
+        let name =
+            constant_name(&constant_path).unwrap_or_else(|| name_with_dynamic_reference(&node_slice(&constant_path)));
         self.nesting.push(name);
     }
 
@@ -79,10 +83,15 @@ impl TestDiscovery {
     pub fn start_test_ancestor_tracking(&mut self, node: &ClassNode<'_>, index: &mut Index) -> TrackedClass {
         self.visibility_stack.push("public".to_string());
         let constant_path = node.constant_path();
-        let name = constant_name(&constant_path).unwrap_or_else(|| name_with_dynamic_reference(&node_slice(&constant_path)));
+        let name =
+            constant_name(&constant_path).unwrap_or_else(|| name_with_dynamic_reference(&node_slice(&constant_path)));
         let fully_qualified_name = self.calc_fully_qualified_name(Some(&name));
         let attached_ancestors = TestDiscovery::calc_attached_ancestors(node, &fully_qualified_name, index);
-        TrackedClass { name, fully_qualified_name, attached_ancestors }
+        TrackedClass {
+            name,
+            fully_qualified_name,
+            attached_ancestors,
+        }
     }
 
     pub fn finish_test_ancestor_tracking(&mut self, tracked_class: TrackedClass) {
@@ -126,7 +135,10 @@ pub struct TestDiscoveryVisitor {
 
 impl TestDiscoveryVisitor {
     pub fn new() -> TestDiscoveryVisitor {
-        TestDiscoveryVisitor { test_style: TestStyle::new(), spec_style: SpecStyle::new() }
+        TestDiscoveryVisitor {
+            test_style: TestStyle::new(),
+            spec_style: SpecStyle::new(),
+        }
     }
 
     pub fn visit(&mut self, node: &Node<'_>, context: &mut DiscoveryContext<'_, '_>) {
@@ -148,7 +160,12 @@ impl Default for TestDiscoveryVisitor {
 
 pub fn discover(parsed: &ParsedDocument<'_>, index: &mut Index, uri: &str) -> TestCollection {
     let mut collection = TestCollection::new();
-    let mut context = DiscoveryContext { parsed, index, collection: &mut collection, uri };
+    let mut context = DiscoveryContext {
+        parsed,
+        index,
+        collection: &mut collection,
+        uri,
+    };
     TestDiscoveryVisitor::new().visit(&parsed.ast(), &mut context);
     collection
 }
@@ -159,8 +176,14 @@ mod tests {
 
     #[test]
     fn replaces_dynamic_references() {
-        assert_eq!(name_with_dynamic_reference("var::Namespace"), "<dynamic_reference>::Namespace");
-        assert_eq!(name_with_dynamic_reference("Foo::bar::Baz"), "Foo::<dynamic_reference>::Baz");
+        assert_eq!(
+            name_with_dynamic_reference("var::Namespace"),
+            "<dynamic_reference>::Namespace"
+        );
+        assert_eq!(
+            name_with_dynamic_reference("Foo::bar::Baz"),
+            "Foo::<dynamic_reference>::Baz"
+        );
         assert_eq!(name_with_dynamic_reference("Foo::Bar"), "Foo::Bar");
     }
 }

@@ -1,0 +1,18 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 8
+        character: 24
+      end:
+        line: 8
+        character: 25
+    severity: ERROR
+    message: |-
+      Cannot pass a value of type `::Integer` as an argument of type `::String`
+        ::Integer <: ::String
+          ::Numeric <: ::String
+            ::Object <: ::String
+              ::BasicObject <: ::String
+    code: Ruby::ArgumentTypeMismatch

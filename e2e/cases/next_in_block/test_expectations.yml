@@ -1,0 +1,18 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 4
+        character: 2
+      end:
+        line: 4
+        character: 13
+    severity: ERROR
+    message: |-
+      Cannot break with a value of type `::Integer` because type `::String` is assumed
+        ::Integer <: ::String
+          ::Numeric <: ::String
+            ::Object <: ::String
+              ::BasicObject <: ::String
+    code: Ruby::BreakTypeMismatch

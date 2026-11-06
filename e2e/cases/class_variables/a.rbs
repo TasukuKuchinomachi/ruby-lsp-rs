@@ -1,0 +1,5 @@
+class Registry
+  @@entries: Array[String]
+
+  def self.register: (String) -> void
+end

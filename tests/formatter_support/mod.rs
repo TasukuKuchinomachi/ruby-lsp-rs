@@ -48,7 +48,9 @@ fn test_directory() -> Option<PathBuf> {
     match std::env::var_os(TEST_DIRECTORY_VARIABLE) {
         Some(directory) => Some(PathBuf::from(directory)),
         None => {
-            eprintln!("Skipping: set {TEST_DIRECTORY_VARIABLE} to a scratch directory to run the RuboCop and Syntax Tree tests");
+            eprintln!(
+                "Skipping: set {TEST_DIRECTORY_VARIABLE} to a scratch directory to run the RuboCop and Syntax Tree tests"
+            );
             None
         }
     }
@@ -70,13 +72,20 @@ fn copy_directory(source: &Path, destination: &Path) {
 fn bundle(workspace: &Path, ruby_command: &[String], arguments: &[&str]) -> bool {
     let mut command = Command::new(&ruby_command[0]);
     command.arg("-S").arg("bundle").args(arguments).current_dir(workspace);
-    if let Some(ruby_directory) = Path::new(&ruby_command[0]).parent().filter(|directory| !directory.as_os_str().is_empty()) {
+    if let Some(ruby_directory) = Path::new(&ruby_command[0])
+        .parent()
+        .filter(|directory| !directory.as_os_str().is_empty())
+    {
         let path = std::env::var("PATH").unwrap_or_default();
         command.env("PATH", format!("{}:{path}", ruby_directory.display()));
     }
     command.output().is_ok_and(|output| {
         if !output.status.success() {
-            eprintln!("bundle {arguments:?} failed: {}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+            eprintln!(
+                "bundle {arguments:?} failed: {}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
         output.status.success()
     })
@@ -103,7 +112,11 @@ pub fn workspace(name: &str, extra_files: &[(&str, &str)]) -> Option<FormatterWo
             std::fs::write(file, contents).unwrap();
         }
         std::fs::create_dir_all(path.join(".bundle")).unwrap();
-        std::fs::write(path.join(".bundle/config"), format!("---\nBUNDLE_PATH: \"{}\"\n", directory.join("bundle").display())).unwrap();
+        std::fs::write(
+            path.join(".bundle/config"),
+            format!("---\nBUNDLE_PATH: \"{}\"\n", directory.join("bundle").display()),
+        )
+        .unwrap();
 
         let ruby_command = ruby_command();
         if !bundle(&path, &ruby_command, &["check"]) && !bundle(&path, &ruby_command, &["install"]) {
@@ -121,19 +134,28 @@ pub fn workspace_without_bundle(name: &str) -> Option<FormatterWorkspace> {
     let path = directory.join("workspaces").join(name);
     let _ = std::fs::remove_dir_all(&path);
     std::fs::create_dir_all(&path).unwrap();
-    Some(FormatterWorkspace { path, ruby_command: ruby_command() })
+    Some(FormatterWorkspace {
+        path,
+        ruby_command: ruby_command(),
+    })
 }
 
 pub fn sanitize_code_action_uris(diagnostics: &mut Value) {
-    let Some(diagnostics) = diagnostics.as_array_mut() else { return };
+    let Some(diagnostics) = diagnostics.as_array_mut() else {
+        return;
+    };
     for diagnostic in diagnostics {
-        let Some(code_actions) =
-            diagnostic.get_mut("data").and_then(|data| data.get_mut("code_actions")).and_then(Value::as_array_mut)
+        let Some(code_actions) = diagnostic
+            .get_mut("data")
+            .and_then(|data| data.get_mut("code_actions"))
+            .and_then(Value::as_array_mut)
         else {
             continue;
         };
         for code_action in code_actions {
-            let Some(document_changes) = code_action["edit"]["documentChanges"].as_array_mut() else { continue };
+            let Some(document_changes) = code_action["edit"]["documentChanges"].as_array_mut() else {
+                continue;
+            };
             for document_change in document_changes {
                 document_change["textDocument"] = json!({ "uri": "file:///fake", "version": null });
             }

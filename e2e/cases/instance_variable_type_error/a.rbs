@@ -1,0 +1,11 @@
+class Parent
+  @name: String
+end
+
+class Child < Parent
+  @name: Integer
+end
+
+class GoodChild < Parent
+  @name: String
+end

@@ -29,6 +29,63 @@ so that behavior can be compared side by side.
   `RequestError::InvalidParams` is used for missing documents and invalid positions, like ruby-lsp.
 - Unknown methods answer `MethodNotFound`.
 
+## Type checking
+
+The type checker is a Rust port of Steep, split into crates that mirror Steep and the rbs gem:
+
+| Crate | Ruby |
+| --- | --- |
+| `crates/rbs-definition` | rbs gem: `Environment`, `AncestorBuilder`, `DefinitionBuilder`, loaders, inline RBS, rbs collection |
+| `crates/steep-interface` | Steep: `AST::Types`, `Interface::Builder`, `Subtyping::Check` |
+| `crates/steep` | Steep: `Project::DSL`, the parser gem AST, `TypeConstruction`, `Typing`, diagnostics, `Services::*` |
+
+`RbsGem` reads the version of the rbs gem from its `lib/rbs/version.rb`, and `Environment` carries it as an `RbsVersion`
+(4.1 or 4.2). Where rbs 4.1.x and 4.2.x build differently, `crates/rbs-definition` follows the version: rbs 4.2.x aligns
+the type parameters of a class or module declaration with those of the entry (`ClassEntry#align_params`) for the
+superclass and the self types too, and renames the bounds of renamed type parameters (`AST::TypeParam.rename`).
+Each difference is a method of `RbsVersion` that tells what the version does, such as `aligns_super_class_arguments`, so
+the definition builders never compare versions, and adding a version means filling in the `match` of each method.
+
+The server uses the services of `crates/steep` as Steep's language server uses them, through `src/type_checking/`:
+
+| Rust | Steep |
+| --- | --- |
+| `src/type_checking/worker.rs` | `Server::TypeCheckWorker`, `Server::InteractionWorker` |
+| `src/type_checking/lsp_formatter.rs` | `Server::LSPFormatter`, `Diagnostic::LSPFormatter` |
+| `src/type_checking/inlay_hints.rs` | none: inlay hints are built from the node types of a `Typing` |
+| `src/type_checking/mod.rs` | the settings (`typeChecker`) and the client the requests query |
+
+- `TypeCheckService` keeps `Rc` values, so one thread (`worker.rs`) owns it. `initialized` starts the thread and sends
+  `Command::Load`: the thread reads the `Steepfile` without running Ruby (a single `default` target checking `.` with
+  signatures in `sig` when there is none), decides the Steep version from `Gemfile.lock` (`steep_gem.rs`), finds the rbs
+  gem (`RBS_GEM_DIRECTORY`, the rbs of `Gemfile.lock`, or the newest supported one, `environment_loader.rs`), rejects
+  Steep 2.1.0 with rbs 4.1.x, loads the signatures of every target once, and answers `Event::Loaded`. Until then the requests answer
+  without type information.
+- `didOpen` and `didChange` send the whole text of `.rb` and `.rbs` documents as `Command::SetText`, applied as a
+  `ContentChange`. A Ruby file is type checked again on the next query. A change of a `.rbs` file or of a file with inline
+  RBS reloads the signatures of the targets that read it, 300 ms after the last change or before the next query, and
+  sends `Event::SignaturesChanged` so that the server refreshes diagnostics and inlay hints. Files changed on disk
+  (`rbs-watcher`, `workspace-watcher`) are read again the same way; a change of the `Steepfile` or of the rbs collection
+  files rebuilds the service.
+- Requests send a `Query` with a channel for the answer and wait for it. Answers are owned, `Send` values with LSP
+  positions in the negotiated encoding: diagnostics as LSP JSON, hover markdown and range, completion items, signature
+  help, location links and type hints.
+- While idle, the thread type checks every file of the project so that `GotoService` finds definitions in Ruby files, as
+  Steep's type check workers do. A goto query checks the files left first, for at most two seconds. Without a
+  `Steepfile` only the opened files are checked.
+- Each request merges the answer with ruby-lsp's own result: hover puts the type checker's markdown above ruby-lsp's,
+  completion lists the type checker's items first and drops ruby-lsp's items with a guessed receiver or the same label,
+  and definition prefers the implementations the type checker found, then its signatures, then ruby-lsp's name based
+  results, following `typeChecker.definition.target`.
+- `typeChecker.inferMoreThanSteep` (off by default) sends `Command::SetInferMoreThanSteep`, which sets
+  `TypeCheckService::inference_rules`. Hover, completion, signature help, goto and inlay hints then type check with the
+  rules of `crates/steep/src/inference.rs` on top of Steep's typing, while `TypeCheckService::typecheck_source`, which
+  gives the diagnostics, always type checks as Steep does. A file is therefore checked once for its diagnostics and once
+  more for each query, as before; only the types of the queries change. Each rule is applied in one named place
+  (`type_construction/inference_rules.rs`, and the rewrite of `it` blocks for Steep 2.0 in `inference.rs`) and records the
+  node it applied to in `Typing`. `crates/steep/tests/inference_rules.rs` checks the end-to-end cases and the fixtures
+  with both modes: the diagnostics are identical, and every node typed differently is explained by a rule.
+
 ## Adding a request
 
 Every method of ruby-lsp's `Server#process_message` is already registered in `requests::handler_for` and has its own

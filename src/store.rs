@@ -33,7 +33,11 @@ impl Default for Store {
 
 impl Store {
     pub fn new(encoding: Encoding) -> Store {
-        Store { state: HashMap::new(), client_name: "Unknown".to_string(), encoding }
+        Store {
+            state: HashMap::new(),
+            client_name: "Unknown".to_string(),
+            encoding,
+        }
     }
 
     pub fn get(&mut self, uri: &str) -> Result<&mut Document, NonExistingDocumentError> {
@@ -41,7 +45,8 @@ impl Store {
         if !self.state.contains_key(&key) {
             let path = crate::uri::to_path(&key).ok_or_else(|| NonExistingDocumentError(uri.to_string()))?;
             let bytes = std::fs::read(&path).map_err(|_| NonExistingDocumentError(uri.to_string()))?;
-            let source = String::from_utf8(bytes).unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
+            let source =
+                String::from_utf8(bytes).unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
             self.set(&key, source, 0, LanguageId::from_path(&path));
         }
         Ok(self.state.get_mut(&key).expect("document was just inserted"))

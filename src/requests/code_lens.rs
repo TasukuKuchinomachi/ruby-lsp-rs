@@ -1,11 +1,11 @@
 use serde_json::Value;
 
-use ruby_file_glob::fnmatch;
 use super::{RequestContext, RequestResult, TextDocumentParams, parse_params};
 use crate::listeners::code_lens::CodeLens;
 use crate::listeners::test_discovery;
 use crate::requests::support::test_collection::TestCollection;
 use crate::requests::support::test_command::TEST_PATH_PATTERN;
+use ruby_file_glob::fnmatch;
 
 pub const CACHE_KEY: &str = "textDocument/codeLens";
 
@@ -26,7 +26,9 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
     let test_lenses_enabled = global_state
         .feature_configuration("codeLens")
         .is_none_or(|configuration| configuration.is_enabled("enableTestCodeLens"))
-        && file_path.as_deref().is_some_and(|path| fnmatch(TEST_PATH_PATTERN, path));
+        && file_path
+            .as_deref()
+            .is_some_and(|path| fnmatch(TEST_PATH_PATTERN, path));
 
     let mut response = Vec::new();
     let mut test_collection = TestCollection::new();

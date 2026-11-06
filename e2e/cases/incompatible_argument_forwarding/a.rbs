@@ -1,0 +1,5 @@
+class Forwarder
+  def receive: (*Integer) -> void
+
+  def forward: (*String) -> void
+end

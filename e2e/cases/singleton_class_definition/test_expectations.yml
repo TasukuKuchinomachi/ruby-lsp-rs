@@ -1,0 +1,37 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 7
+        character: 8
+      end:
+        line: 7
+        character: 15
+    severity: ERROR
+    message: |-
+      Cannot allow method body have type `::Factory` because declared as type `::String`
+        ::Factory <: ::String
+          ::Object <: ::String
+            ::BasicObject <: ::String
+    code: Ruby::MethodBodyTypeMismatch
+  - range:
+      start:
+        line: 11
+        character: 8
+      end:
+        line: 11
+        character: 35
+    severity: ERROR
+    message: Method `::Factory#undeclared_singleton_method` is not declared in RBS
+    code: Ruby::UndeclaredMethodDefinition
+  - range:
+      start:
+        line: 12
+        character: 11
+      end:
+        line: 12
+        character: 25
+    severity: ERROR
+    message: Type `singleton(::Factory)` does not have method `no_such_method`
+    code: Ruby::NoMethod

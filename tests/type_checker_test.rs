@@ -32,7 +32,10 @@ fn outgoing_requests_until_response(server: &mut TestServer) -> Vec<String> {
 }
 
 fn change_type_checker_configuration(server: &TestServer, type_checker: Value) {
-    server.notify("workspace/didChangeConfiguration", json!({ "settings": { "typeChecker": type_checker } }));
+    server.notify(
+        "workspace/didChangeConfiguration",
+        json!({ "settings": { "typeChecker": type_checker } }),
+    );
 }
 
 #[test]
@@ -40,8 +43,14 @@ fn refreshes_inlay_hints_and_diagnostics_when_settings_change() {
     let mut server = initialized_server_with_refresh_support();
     change_type_checker_configuration(&server, json!({ "inlayHints": { "maxLength": null } }));
     let methods = outgoing_requests_until_response(&mut server);
-    assert!(methods.contains(&"workspace/inlayHint/refresh".to_string()), "{methods:?}");
-    assert!(methods.contains(&"workspace/diagnostic/refresh".to_string()), "{methods:?}");
+    assert!(
+        methods.contains(&"workspace/inlayHint/refresh".to_string()),
+        "{methods:?}"
+    );
+    assert!(
+        methods.contains(&"workspace/diagnostic/refresh".to_string()),
+        "{methods:?}"
+    );
 }
 
 #[test]
@@ -49,9 +58,15 @@ fn does_not_refresh_when_settings_are_unchanged() {
     let mut server = initialized_server_with_refresh_support();
     outgoing_requests_until_response(&mut server);
     change_type_checker_configuration(&server, json!({ "inlayHints": { "maxLength": 30 } }));
-    server.notify("workspace/didChangeConfiguration", json!({ "settings": { "rubyLsp": {} } }));
+    server.notify(
+        "workspace/didChangeConfiguration",
+        json!({ "settings": { "rubyLsp": {} } }),
+    );
     let methods = outgoing_requests_until_response(&mut server);
-    assert!(!methods.iter().any(|method| method.ends_with("/refresh")), "{methods:?}");
+    assert!(
+        !methods.iter().any(|method| method.ends_with("/refresh")),
+        "{methods:?}"
+    );
 }
 
 #[test]

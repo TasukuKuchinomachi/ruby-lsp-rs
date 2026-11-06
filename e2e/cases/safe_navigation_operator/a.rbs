@@ -1,0 +1,5 @@
+class Node
+  def parent: () -> Node?
+
+  def name: () -> String
+end

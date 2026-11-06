@@ -3,9 +3,9 @@ use std::path::Path;
 use indexmap::IndexMap;
 use serde_json::{Value, json};
 
-use ruby_file_glob::{basename, dirname, extname, glob, split_path};
 use super::{RequestContext, RequestResult, TextDocumentParams, parse_params};
 use crate::listeners::definition::expand_path;
+use ruby_file_glob::{basename, dirname, extname, glob, split_path};
 
 const TEST_KEYWORDS: &[&str] = &["test", "spec", "integration_test"];
 const TEST_PREFIX_GLOB: &str = "test_,spec_,integration_test_";
@@ -14,7 +14,9 @@ const TEST_SUFFIX_GLOB: &str = "_test,_spec,_integration_test";
 pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult {
     let params: TextDocumentParams = parse_params(params)?;
     let workspace_path = context.global_state.workspace_path();
-    let Some(path) = crate::uri::to_path(&params.text_document.uri) else { return Ok(Value::Null) };
+    let Some(path) = crate::uri::to_path(&params.text_document.uri) else {
+        return Ok(Value::Null);
+    };
     if !path.starts_with(&workspace_path) {
         return Ok(Value::Null);
     }
@@ -68,7 +70,9 @@ fn search_root(relative_path: &str, workspace: &Path) -> String {
 }
 
 fn strip_test_affixes(basename: &str) -> Option<String> {
-    let prefix = ["test_", "spec_", "integration_test_"].into_iter().find(|prefix| basename.starts_with(prefix));
+    let prefix = ["test_", "spec_", "integration_test_"]
+        .into_iter()
+        .find(|prefix| basename.starts_with(prefix));
     let without_prefix = prefix.map_or(basename, |prefix| &basename[prefix.len()..]);
     let suffix_start = ["_test", "_spec", "_integration_test"]
         .into_iter()
@@ -85,7 +89,10 @@ fn strip_test_affixes(basename: &str) -> Option<String> {
 fn relevant_filename_patterns(relative_path: &str) -> Vec<String> {
     let extension = extname(relative_path);
     let file_name = basename(relative_path);
-    let input_basename = file_name.strip_suffix(extension.as_str()).filter(|name| !name.is_empty()).unwrap_or(&file_name);
+    let input_basename = file_name
+        .strip_suffix(extension.as_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or(&file_name);
 
     match strip_test_affixes(input_basename) {
         Some(base) => {
@@ -118,10 +125,21 @@ fn find_most_similar_with_jaccard(relative_path: &str, candidates: &[String]) ->
 
     for candidate in candidates {
         let other_directories = directory_parts(candidate);
-        let intersection = directories.iter().filter(|part| other_directories.contains(part)).count();
-        let union = directories.len() + other_directories.iter().filter(|part| !directories.contains(part)).count();
+        let intersection = directories
+            .iter()
+            .filter(|part| other_directories.contains(part))
+            .count();
+        let union = directories.len()
+            + other_directories
+                .iter()
+                .filter(|part| !directories.contains(part))
+                .count();
         let score = intersection as f64 / union as f64;
-        groups.entry(score.to_bits()).or_insert_with(|| (score, Vec::new())).1.push(candidate.clone());
+        groups
+            .entry(score.to_bits())
+            .or_insert_with(|| (score, Vec::new()))
+            .1
+            .push(candidate.clone());
     }
 
     let mut best: Option<&(f64, Vec<String>)> = None;

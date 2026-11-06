@@ -1,0 +1,25 @@
+---
+- file: disabled.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 20
+      end:
+        line: 1
+        character: 34
+    severity: ERROR
+    message: Type `::String` does not have method `no_such_method`
+    code: Ruby::NoMethod
+- file: enabled.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 20
+      end:
+        line: 1
+        character: 34
+    severity: ERROR
+    message: Type `(::String | nil)` does not have method `no_such_method`
+    code: Ruby::NoMethod

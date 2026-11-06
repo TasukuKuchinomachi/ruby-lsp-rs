@@ -1,10 +1,10 @@
 mod support;
 
+use ruby_lsp_rs::position::Encoding;
 use ruby_lsp_rs::requests::semantic_highlighting::compute_delta;
 use ruby_lsp_rs::requests::support::semantic_highlighting_response_builder::{
     SemanticHighlightingResponseBuilder, TOKEN_MODIFIERS, TOKEN_TYPES, TokenModifier, TokenType, encode,
 };
-use ruby_lsp_rs::position::Encoding;
 use serde_json::{Value, json};
 use support::{DEFAULT_URI, TestOptions, uninitialized_server, with_server};
 
@@ -18,7 +18,10 @@ fn assert_expected_token_result(current_tokens: &[u32], previous_tokens: &[u32])
 
 #[test]
 fn inserting_something_at_the_end() {
-    assert_expected_token_result(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 100, 200, 300, 400, 500], &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    assert_expected_token_result(
+        &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 100, 200, 300, 400, 500],
+        &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    );
 }
 
 #[test]
@@ -39,7 +42,10 @@ fn inserting_something_in_the_middle() {
 
 #[test]
 fn deleting_at_the_end() {
-    assert_expected_token_result(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10], &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 100, 200, 300, 400, 500]);
+    assert_expected_token_result(
+        &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 100, 200, 300, 400, 500],
+    );
 }
 
 #[test]
@@ -61,7 +67,9 @@ fn deleting_in_the_middle() {
 #[test]
 fn computing_deltas_1() {
     assert_expected_token_result(
-        &[3, 4, 3, 13, 1, 1, 2, 1, 8, 0, 1, 0, 1, 13, 0, 1, 2, 9, 13, 0, 1, 2, 1, 8, 0],
+        &[
+            3, 4, 3, 13, 1, 1, 2, 1, 8, 0, 1, 0, 1, 13, 0, 1, 2, 9, 13, 0, 1, 2, 1, 8, 0,
+        ],
         &[3, 4, 3, 13, 1, 1, 2, 1, 8, 0, 2, 2, 9, 13, 0, 1, 2, 1, 8, 0],
     );
 }
@@ -70,12 +78,12 @@ fn computing_deltas_1() {
 fn computing_deltas_2() {
     assert_expected_token_result(
         &[
-            3, 4, 21, 13, 1, 1, 2, 12, 13, 0, 0, 73, 5, 13, 0, 2, 2, 5, 8, 0, 0, 8, 7, 0, 0, 0, 9, 8, 0, 0, 0, 10, 20, 0, 0, 0,
-            21, 13, 13, 0, 4, 4, 5, 13, 0, 2, 0, 1, 8, 0, 1, 0, 1, 8, 0, 2, 2, 12, 13, 0, 0, 73, 5, 8, 0,
+            3, 4, 21, 13, 1, 1, 2, 12, 13, 0, 0, 73, 5, 13, 0, 2, 2, 5, 8, 0, 0, 8, 7, 0, 0, 0, 9, 8, 0, 0, 0, 10, 20,
+            0, 0, 0, 21, 13, 13, 0, 4, 4, 5, 13, 0, 2, 0, 1, 8, 0, 1, 0, 1, 8, 0, 2, 2, 12, 13, 0, 0, 73, 5, 8, 0,
         ],
         &[
-            3, 4, 21, 13, 1, 1, 2, 12, 13, 0, 0, 73, 5, 13, 0, 2, 2, 5, 8, 0, 0, 8, 7, 0, 0, 0, 9, 8, 0, 0, 0, 10, 20, 0, 0, 0,
-            21, 13, 13, 0, 4, 4, 5, 13, 0, 2, 0, 1, 8, 0, 3, 2, 12, 13, 0, 0, 73, 5, 8, 0,
+            3, 4, 21, 13, 1, 1, 2, 12, 13, 0, 0, 73, 5, 13, 0, 2, 2, 5, 8, 0, 0, 8, 7, 0, 0, 0, 9, 8, 0, 0, 0, 10, 20,
+            0, 0, 0, 21, 13, 13, 0, 4, 4, 5, 13, 0, 2, 0, 1, 8, 0, 3, 2, 12, 13, 0, 0, 73, 5, 8, 0,
         ],
     );
 }
@@ -91,7 +99,9 @@ fn computing_deltas_3() {
 #[test]
 fn computing_delta_4() {
     assert_expected_token_result(
-        &[3, 6, 3, 2, 1, 0, 0, 3, 0, 0, 1, 6, 4, 13, 1, 1, 4, 1, 8, 0, 1, 4, 1, 8, 0],
+        &[
+            3, 6, 3, 2, 1, 0, 0, 3, 0, 0, 1, 6, 4, 13, 1, 1, 4, 1, 8, 0, 1, 4, 1, 8, 0,
+        ],
         &[3, 6, 3, 2, 1, 0, 0, 3, 0, 0, 1, 6, 4, 13, 1, 1, 4, 1, 8, 0],
     );
 }
@@ -99,16 +109,24 @@ fn computing_delta_4() {
 #[test]
 fn computing_delta_5() {
     assert_expected_token_result(
-        &[3, 6, 3, 2, 1, 0, 0, 3, 0, 0, 1, 6, 4, 13, 1, 1, 4, 1, 8, 0, 1, 4, 1, 8, 0, 0, 2, 4, 13, 0],
-        &[3, 6, 3, 2, 1, 0, 0, 3, 0, 0, 1, 6, 4, 13, 1, 1, 4, 1, 8, 0, 1, 4, 1, 8, 0, 0, 2, 4, 13, 0, 1, 4, 1, 8, 0],
+        &[
+            3, 6, 3, 2, 1, 0, 0, 3, 0, 0, 1, 6, 4, 13, 1, 1, 4, 1, 8, 0, 1, 4, 1, 8, 0, 0, 2, 4, 13, 0,
+        ],
+        &[
+            3, 6, 3, 2, 1, 0, 0, 3, 0, 0, 1, 6, 4, 13, 1, 1, 4, 1, 8, 0, 1, 4, 1, 8, 0, 0, 2, 4, 13, 0, 1, 4, 1, 8, 0,
+        ],
     );
 }
 
 #[test]
 fn computing_delta_6() {
     assert_expected_token_result(
-        &[3, 6, 3, 2, 1, 0, 0, 3, 0, 0, 1, 6, 4, 13, 1, 1, 4, 1, 8, 0, 1, 4, 1, 8, 0, 0, 2, 4, 13, 0],
-        &[3, 6, 3, 2, 1, 0, 0, 3, 0, 0, 1, 6, 4, 13, 1, 1, 4, 1, 8, 0, 1, 4, 1, 8, 0, 1, 4, 1, 8, 0, 0, 2, 4, 13, 0],
+        &[
+            3, 6, 3, 2, 1, 0, 0, 3, 0, 0, 1, 6, 4, 13, 1, 1, 4, 1, 8, 0, 1, 4, 1, 8, 0, 0, 2, 4, 13, 0,
+        ],
+        &[
+            3, 6, 3, 2, 1, 0, 0, 3, 0, 0, 1, 6, 4, 13, 1, 1, 4, 1, 8, 0, 1, 4, 1, 8, 0, 1, 4, 1, 8, 0, 0, 2, 4, 13, 0,
+        ],
     );
 }
 
@@ -116,12 +134,12 @@ fn computing_delta_6() {
 fn computing_delta_7() {
     assert_expected_token_result(
         &[
-            3, 6, 3, 2, 1, 0, 0, 3, 0, 0, 1, 6, 4, 13, 1, 1, 4, 1, 8, 0, 1, 4, 1, 8, 0, 0, 2, 2, 13, 0, 1, 4, 1, 8, 0, 0, 2, 4,
-            13, 0,
+            3, 6, 3, 2, 1, 0, 0, 3, 0, 0, 1, 6, 4, 13, 1, 1, 4, 1, 8, 0, 1, 4, 1, 8, 0, 0, 2, 2, 13, 0, 1, 4, 1, 8, 0,
+            0, 2, 4, 13, 0,
         ],
         &[
-            3, 6, 3, 2, 1, 0, 0, 3, 0, 0, 1, 6, 4, 13, 1, 1, 4, 1, 8, 0, 1, 4, 1, 8, 0, 0, 2, 1, 13, 0, 1, 4, 1, 8, 0, 0, 2, 4,
-            13, 0,
+            3, 6, 3, 2, 1, 0, 0, 3, 0, 0, 1, 6, 4, 13, 1, 1, 4, 1, 8, 0, 1, 4, 1, 8, 0, 0, 2, 1, 13, 0, 1, 4, 1, 8, 0,
+            0, 2, 4, 13, 0,
         ],
     );
 }
@@ -129,11 +147,19 @@ fn computing_delta_7() {
 #[test]
 fn identical_tokens_produce_no_edits() {
     let delta = compute_delta(&[1, 2, 3, 4, 5], &[1, 2, 3, 4, 5], "7");
-    assert_eq!(serde_json::to_value(delta).unwrap(), json!({ "resultId": "7", "edits": [] }));
+    assert_eq!(
+        serde_json::to_value(delta).unwrap(),
+        json!({ "resultId": "7", "edits": [] })
+    );
 }
 
 fn decode_tokens(data: &Value) -> Vec<Value> {
-    let data: Vec<u64> = data.as_array().unwrap().iter().map(|value| value.as_u64().unwrap()).collect();
+    let data: Vec<u64> = data
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_u64().unwrap())
+        .collect();
     data.chunks(5)
         .map(|token| {
             json!({
@@ -151,7 +177,10 @@ fn decode_tokens(data: &Value) -> Vec<Value> {
 fn semantic_highlighting_full_request() {
     let source = "class Post\n  custom_method :foo\n  before_create :set_defaults\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
-    let result = server.result("textDocument/semanticTokens/full", json!({ "textDocument": { "uri": DEFAULT_URI } }));
+    let result = server.result(
+        "textDocument/semanticTokens/full",
+        json!({ "textDocument": { "uri": DEFAULT_URI } }),
+    );
 
     let decoded_response = decode_tokens(&result["data"]);
     assert_eq!(
@@ -187,13 +216,26 @@ fn provider_uses_lsp_default_library_modifier_casing() {
     let mut server = uninitialized_server(Vec::new());
     let result = server.result("initialize", json!({ "initializationOptions": {} }));
     let legend = &result["capabilities"]["semanticTokensProvider"]["legend"];
-    let token_modifiers: Vec<&str> = legend["tokenModifiers"].as_array().unwrap().iter().map(|value| value.as_str().unwrap()).collect();
+    let token_modifiers: Vec<&str> = legend["tokenModifiers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect();
     assert!(token_modifiers.contains(&"defaultLibrary"));
     assert!(!token_modifiers.contains(&"default_library"));
     assert_eq!(token_modifiers, TOKEN_MODIFIERS);
-    let token_types: Vec<&str> = legend["tokenTypes"].as_array().unwrap().iter().map(|value| value.as_str().unwrap()).collect();
+    let token_types: Vec<&str> = legend["tokenTypes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect();
     assert_eq!(token_types, TOKEN_TYPES);
-    assert_eq!(result["capabilities"]["semanticTokensProvider"]["full"], json!({ "delta": true }));
+    assert_eq!(
+        result["capabilities"]["semanticTokensProvider"]["full"],
+        json!({ "delta": true })
+    );
     assert_eq!(result["capabilities"]["semanticTokensProvider"]["range"], json!(true));
 }
 
@@ -201,7 +243,10 @@ fn provider_uses_lsp_default_library_modifier_casing() {
 fn delta_request_returns_edits_against_the_previous_result() {
     let source = "def foo(a)\n  a\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
-    let full = server.result("textDocument/semanticTokens/full", json!({ "textDocument": { "uri": DEFAULT_URI } }));
+    let full = server.result(
+        "textDocument/semanticTokens/full",
+        json!({ "textDocument": { "uri": DEFAULT_URI } }),
+    );
     let previous_result_id = full["resultId"].as_str().unwrap().to_string();
     let previous_data: Vec<u32> = serde_json::from_value(full["data"].clone()).unwrap();
 
@@ -255,9 +300,18 @@ fn documents_past_the_expensive_limit_return_null() {
     let source = "a = 1\n".repeat(20_000);
     let mut server = with_server(Some(&source), DEFAULT_URI, TestOptions::default());
     for (method, params) in [
-        ("textDocument/semanticTokens/full", json!({ "textDocument": { "uri": DEFAULT_URI } })),
-        ("textDocument/semanticTokens/full/delta", json!({ "textDocument": { "uri": DEFAULT_URI }, "previousResultId": "1" })),
-        ("textDocument/semanticTokens/range", json!({ "textDocument": { "uri": DEFAULT_URI }, "range": support::range_json(0, 0, 1, 0) })),
+        (
+            "textDocument/semanticTokens/full",
+            json!({ "textDocument": { "uri": DEFAULT_URI } }),
+        ),
+        (
+            "textDocument/semanticTokens/full/delta",
+            json!({ "textDocument": { "uri": DEFAULT_URI }, "previousResultId": "1" }),
+        ),
+        (
+            "textDocument/semanticTokens/range",
+            json!({ "textDocument": { "uri": DEFAULT_URI }, "range": support::range_json(0, 0, 1, 0) }),
+        ),
     ] {
         assert_eq!(server.result(method, params), Value::Null);
     }
@@ -268,6 +322,9 @@ fn non_ruby_documents_return_null() {
     let uri = "file:///fake.rbs";
     let mut server = with_server(None, uri, TestOptions::default());
     server.did_open(uri, "class Foo\nend\n", "rbs");
-    let result = server.result("textDocument/semanticTokens/full", json!({ "textDocument": { "uri": uri } }));
+    let result = server.result(
+        "textDocument/semanticTokens/full",
+        json!({ "textDocument": { "uri": uri } }),
+    );
     assert_eq!(result, Value::Null);
 }

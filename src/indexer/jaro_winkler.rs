@@ -1,6 +1,10 @@
 /// Port of `DidYouMean::Jaro` and `DidYouMean::JaroWinkler`, which Ruby LSP uses for fuzzy searching the index.
 fn jaro_distance(first: &[char], second: &[char]) -> f64 {
-    let (shorter, longer) = if first.len() > second.len() { (second, first) } else { (first, second) };
+    let (shorter, longer) = if first.len() > second.len() {
+        (second, first)
+    } else {
+        (first, second)
+    };
     let length1 = shorter.len();
     let length2 = longer.len();
 

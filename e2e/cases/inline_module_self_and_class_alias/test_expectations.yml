@@ -1,0 +1,26 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 11
+        character: 2
+      end:
+        line: 11
+        character: 19
+    severity: ERROR
+    message: |-
+      Module self type constraint in type `::Numbers` doesn't satisfy: `::Numbers <: ::Array[::Integer]`
+        ::Numbers <: ::Array[::Integer]
+          ::Object <: ::Array[::Integer]
+    code: RBS::ModuleSelfTypeError
+  - range:
+      start:
+        line: 15
+        character: 15
+      end:
+        line: 15
+        character: 29
+    severity: ERROR
+    message: Type `::Array[untyped]` does not have method `no_such_method`
+    code: Ruby::NoMethod

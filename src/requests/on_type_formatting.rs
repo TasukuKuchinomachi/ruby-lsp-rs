@@ -23,9 +23,8 @@ static END_REGEXES: LazyLock<Vec<Regex>> = LazyLock::new(|| {
 });
 
 static COMMENT_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^#(?!:)(\s*)").expect("valid regex"));
-static HEREDOC_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(<<((-|~)?))(?<quote>['"`]?)(?<delimiter>\w+)\k<quote>"#).expect("valid regex")
-});
+static HEREDOC_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(<<((-|~)?))(?<quote>['"`]?)(?<delimiter>\w+)\k<quote>"#).expect("valid regex"));
 static ENDLESS_METHOD_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bdef\s+[\w.]+[!?=]?(\([^)]*\))?\s*=[^=~>]").expect("valid regex"));
 static PIPE_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"((?<=do)|(?<=\{))\s+\|").expect("valid regex"));
@@ -118,15 +117,25 @@ impl<'a> OnTypeFormatting<'a> {
                     .captures(&self.previous_line)
                     .ok()
                     .flatten()
-                    .map(|captures| captures.get(1).map(|spaces| spaces.as_str().to_string()).unwrap_or_default());
+                    .map(|captures| {
+                        captures
+                            .get(1)
+                            .map(|spaces| spaces.as_str().to_string())
+                            .unwrap_or_default()
+                    });
                 if let Some(spaces) = comment_spaces {
                     self.handle_comment_line(&spaces);
                 } else if self.document.syntax_error() {
-                    let heredoc_delimiter = HEREDOC_REGEX
-                        .captures(&self.previous_line)
-                        .ok()
-                        .flatten()
-                        .and_then(|captures| captures.name("delimiter").map(|delimiter| delimiter.as_str().to_string()));
+                    let heredoc_delimiter =
+                        HEREDOC_REGEX
+                            .captures(&self.previous_line)
+                            .ok()
+                            .flatten()
+                            .and_then(|captures| {
+                                captures
+                                    .name("delimiter")
+                                    .map(|delimiter| delimiter.as_str().to_string())
+                            });
                     match heredoc_delimiter {
                         Some(delimiter) => self.handle_heredoc_end(&delimiter),
                         None => self.handle_statement_end(),
@@ -144,15 +153,21 @@ impl<'a> OnTypeFormatting<'a> {
     }
 
     fn handle_pipe(&mut self) {
-        let Some(current_line) = self.line(self.position.line) else { return };
+        let Some(current_line) = self.line(self.position.line) else {
+            return;
+        };
         if !matches(&PIPE_REGEX, current_line) {
             return;
         }
 
-        let line_until_cursor: String = current_line.chars().take(self.position.character as usize + 1).collect();
+        let line_until_cursor: String = current_line
+            .chars()
+            .take(self.position.character as usize + 1)
+            .collect();
         if matches(&CLOSING_PIPE_REGEX, &line_until_cursor) {
             let end = Position::new(self.position.line, self.position.character + 1);
-            self.edits.push(TextEdit::new(crate::position::Range::new(self.position, end), ""));
+            self.edits
+                .push(TextEdit::new(crate::position::Range::new(self.position, end), ""));
         } else {
             self.add_edit_with_text("|", self.position);
         }
@@ -222,17 +237,23 @@ impl<'a> OnTypeFormatting<'a> {
     }
 
     fn auto_indent_after_end_keyword(&mut self) {
-        let Some(current_line) = self.line(self.position.line) else { return };
+        let Some(current_line) = self.line(self.position.line) else {
+            return;
+        };
         if ruby_strip(current_line) != "end" {
             return;
         }
 
         let parsed = self.document.parse();
         let position = Position::new(self.position.line, self.position.character.saturating_sub(1));
-        let Ok(node_context) = parsed.locate_node(position, &[]) else { return };
+        let Ok(node_context) = parsed.locate_node(position, &[]) else {
+            return;
+        };
         let Some(target) = node_context.node else { return };
 
-        let Some(statements) = statements_of(&target) else { return };
+        let Some(statements) = statements_of(&target) else {
+            return;
+        };
 
         let current_indentation = find_indentation(current_line);
         let mut lines_to_indent = Vec::new();

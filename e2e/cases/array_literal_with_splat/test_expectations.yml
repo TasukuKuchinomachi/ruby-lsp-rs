@@ -1,0 +1,40 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 5
+        character: 9
+      end:
+        line: 5
+        character: 23
+    severity: ERROR
+    message: Type `::Array[(::Integer | ::String | ::Symbol)]` does not have method
+      `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 8
+        character: 12
+      end:
+        line: 8
+        character: 26
+    severity: ERROR
+    message: Type `::Array[::Integer]` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 11
+        character: 0
+      end:
+        line: 11
+        character: 27
+    severity: ERROR
+    message: |-
+      Cannot assign a value of type `::Array[(::Integer | ::String)]` to a variable of type `::Array[::Integer]`
+        ::Array[(::Integer | ::String)] <: ::Array[::Integer]
+          (::Integer | ::String) <: ::Integer
+            ::String <: ::Integer
+              ::Object <: ::Integer
+                ::BasicObject <: ::Integer
+    code: Ruby::IncompatibleAssignment

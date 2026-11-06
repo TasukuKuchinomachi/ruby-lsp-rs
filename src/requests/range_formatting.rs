@@ -31,23 +31,35 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
 }
 
 pub fn perform(global_state: &GlobalState, outgoing: &Outgoing, document: &Document, range: Range) -> RequestResult {
-    let Some(active_formatter) = formatter::active_formatter(global_state, outgoing) else { return Ok(Value::Null) };
+    let Some(active_formatter) = formatter::active_formatter(global_state, outgoing) else {
+        return Ok(Value::Null);
+    };
     let parsed = document.parse();
     if parsed.syntax_error() {
         return Ok(Value::Null);
     }
 
-    let Some(target) = parsed.locate_first_within_range(range, &[])? else { return Ok(Value::Null) };
+    let Some(target) = parsed.locate_first_within_range(range, &[])? else {
+        return Ok(Value::Null);
+    };
     let start_offset = target.location().start_offset();
     let end_offset = target.location().end_offset();
     let start_column = parsed.byte_position(start_offset).character as usize;
     let slice = String::from_utf8_lossy(&document.source().as_bytes()[start_offset..end_offset]).into_owned();
 
     let path = formatter::path_for_uri(document.uri());
-    let formatted_text =
-        formatter::run_range_formatting(global_state, outgoing, &active_formatter, path.as_deref(), &slice, start_column / 2)
-            .map_err(|error| RequestError::Internal(error.full_message))?;
-    let Some(formatted_text) = formatted_text else { return Ok(Value::Null) };
+    let formatted_text = formatter::run_range_formatting(
+        global_state,
+        outgoing,
+        &active_formatter,
+        path.as_deref(),
+        &slice,
+        start_column / 2,
+    )
+    .map_err(|error| RequestError::Internal(error.full_message))?;
+    let Some(formatted_text) = formatted_text else {
+        return Ok(Value::Null);
+    };
 
     Ok(json!([{
         "range": parsed.code_units_range(start_offset, end_offset),

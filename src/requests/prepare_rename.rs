@@ -20,7 +20,9 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
     let parsed = document.parse();
     let offset = parsed.offset_of(params.position)?;
     let node_context = parsed.locate(offset, NODE_TYPES);
-    let Some(target) = constant_target(&parsed, &node_context, params.position) else { return Ok(Value::Null) };
+    let Some(target) = constant_target(&parsed, &node_context, params.position) else {
+        return Ok(Value::Null);
+    };
     to_result(parsed.range_from_node(&target))
 }
 
@@ -35,9 +37,17 @@ pub fn constant_target<'pr>(
     }
 
     if target.as_constant_read_node().is_some()
-        && let Some(parent) = node_context.parent.as_ref().filter(|parent| parent.as_constant_path_node().is_some())
+        && let Some(parent) = node_context
+            .parent
+            .as_ref()
+            .filter(|parent| parent.as_constant_path_node().is_some())
     {
-        return Some(determine_target(parsed, target.clone_node(), parent.clone_node(), position));
+        return Some(determine_target(
+            parsed,
+            target.clone_node(),
+            parent.clone_node(),
+            position,
+        ));
     }
 
     Some(target.clone_node())

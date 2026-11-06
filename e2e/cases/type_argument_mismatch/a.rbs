@@ -1,0 +1,3 @@
+class Calculator
+  def double: [T < Numeric] (T) -> T
+end

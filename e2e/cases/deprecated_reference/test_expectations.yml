@@ -1,0 +1,43 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 0
+      end:
+        line: 1
+        character: 12
+    severity: ERROR
+    message: The constant is deprecated
+    code: Ruby::DeprecatedReference
+  - range:
+      start:
+        line: 2
+        character: 7
+      end:
+        line: 2
+        character: 11
+    severity: ERROR
+    message: 'The method is deprecated: Use Client.connect instead'
+    code: Ruby::DeprecatedReference
+  - range:
+      start:
+        line: 4
+        character: 0
+      end:
+        line: 4
+        character: 15
+    severity: ERROR
+    message: The global variable is deprecated
+    code: Ruby::DeprecatedReference
+  - range:
+      start:
+        line: 5
+        character: 0
+      end:
+        line: 5
+        character: 9
+    severity: ERROR
+    message: 'The constant is deprecated: Use LIMIT instead'
+    code: Ruby::DeprecatedReference

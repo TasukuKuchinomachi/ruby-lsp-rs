@@ -1,0 +1,11 @@
+use Shapes::Circle
+use Shapes::Square as Box
+use Shapes::Nested::*
+
+class App
+  def circle: () -> Circle
+  def box: () -> Box
+  def leaf: () -> Leaf
+end
+
+type unknown_shape = Circle | UnknownShape

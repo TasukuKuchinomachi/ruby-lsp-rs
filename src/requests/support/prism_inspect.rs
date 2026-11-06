@@ -28,12 +28,19 @@ impl<'a> Inspector<'a> {
         let (name, fields) = node_fields(self, node);
         let location = node.location();
         output.push_str(first_line_prefix);
-        output.push_str(&format!("@ {name} (location: {})\n", self.location_bounds(location.start_offset(), location.end_offset())));
+        output.push_str(&format!(
+            "@ {name} (location: {})\n",
+            self.location_bounds(location.start_offset(), location.end_offset())
+        ));
 
         let field_count = fields.len();
         for (field_index, field) in fields.into_iter().enumerate() {
             let last = field_index + 1 == field_count;
-            let (branch, child_indent) = if last { ("└── ", "    ") } else { ("├── ", "│   ") };
+            let (branch, child_indent) = if last {
+                ("└── ", "    ")
+            } else {
+                ("├── ", "│   ")
+            };
             let nested_indent = format!("{indent}{child_indent}");
             output.push_str(indent);
             output.push_str(branch);
@@ -48,8 +55,11 @@ impl<'a> Inspector<'a> {
                     output.push_str(&format!("{field_name}: (length: {})\n", children.len()));
                     let child_count = children.len();
                     for (child_index, child) in children.iter().enumerate() {
-                        let (child_branch, grandchild_indent) =
-                            if child_index + 1 == child_count { ("└── ", "    ") } else { ("├── ", "│   ") };
+                        let (child_branch, grandchild_indent) = if child_index + 1 == child_count {
+                            ("└── ", "    ")
+                        } else {
+                            ("├── ", "│   ")
+                        };
                         self.write_node(
                             output,
                             child,
@@ -91,8 +101,16 @@ impl<'a> Inspector<'a> {
 }
 
 pub fn inspect_flags(flags: &[(bool, &str)]) -> String {
-    let names: Vec<&str> = flags.iter().filter(|(enabled, _)| *enabled).map(|(_, name)| *name).collect();
-    if names.is_empty() { "∅".to_string() } else { names.join(", ") }
+    let names: Vec<&str> = flags
+        .iter()
+        .filter(|(enabled, _)| *enabled)
+        .map(|(_, name)| *name)
+        .collect();
+    if names.is_empty() {
+        "∅".to_string()
+    } else {
+        names.join(", ")
+    }
 }
 
 pub fn inspect_constant(constant: &ConstantId<'_>) -> String {
@@ -148,10 +166,18 @@ pub fn inspect_float(value: f64) -> String {
         return "NaN".to_string();
     }
     if value.is_infinite() {
-        return if value > 0.0 { "Infinity".to_string() } else { "-Infinity".to_string() };
+        return if value > 0.0 {
+            "Infinity".to_string()
+        } else {
+            "-Infinity".to_string()
+        };
     }
     if value == 0.0 {
-        return if value.is_sign_negative() { "-0.0".to_string() } else { "0.0".to_string() };
+        return if value.is_sign_negative() {
+            "-0.0".to_string()
+        } else {
+            "0.0".to_string()
+        };
     }
 
     let scientific = format!("{:e}", value.abs());
@@ -247,8 +273,8 @@ fn utf8_character_length(bytes: &[u8]) -> Option<usize> {
 }
 
 const OPERATOR_SYMBOLS: &[&str] = &[
-    "+", "-", "*", "/", "%", "**", "==", "===", "!=", "=~", "!~", "!", "<", "<=", ">", ">=", "<=>", "<<", ">>", "&", "|",
-    "^", "~", "+@", "-@", "[]", "[]=", "`",
+    "+", "-", "*", "/", "%", "**", "==", "===", "!=", "=~", "!~", "!", "<", "<=", ">", ">=", "<=>", "<<", ">>", "&",
+    "|", "^", "~", "+@", "-@", "[]", "[]=", "`",
 ];
 
 const SPECIAL_GLOBAL_CHARACTERS: &[u8] = b"~*$?!@/\\;,.=:<>\"&`'+0_";

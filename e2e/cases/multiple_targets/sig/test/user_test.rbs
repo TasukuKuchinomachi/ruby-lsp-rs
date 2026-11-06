@@ -1,0 +1,3 @@
+class UserTest
+  def test_name: () -> void
+end

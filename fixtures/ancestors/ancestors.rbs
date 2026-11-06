@@ -1,0 +1,58 @@
+module Fixture
+  interface _Named
+    def name: () -> String
+  end
+
+  interface _Labeled[T]
+    include _Named
+    def label: () -> T
+  end
+
+  module Logging[T]
+    def log: (T message) -> void
+  end
+
+  module Tracing
+    def trace: () -> void
+  end
+
+  module Plugin : _Named, Logging[String]
+    def plugin_name: () -> String
+  end
+
+  class Base[A]
+    def base: () -> A
+  end
+
+  class Container[E] < Base[Array[E]]
+    include Logging[E]
+    include _Labeled[E]
+    prepend Tracing
+    extend _Named
+    extend Logging[Symbol]
+  end
+
+  class Container[F]
+    include Enumerable[F]
+    prepend Logging[F]
+  end
+
+  class Queue[E = untyped, S = Array[E]]
+  end
+
+  class Pipeline < Queue
+  end
+
+  class StringPipeline < Queue[String]
+  end
+
+  module Shortcut = Logging
+
+  class AliasUser
+    include Shortcut[Integer]
+  end
+
+  class Tracer = Container
+  class TracerChild < Tracer[String]
+  end
+end

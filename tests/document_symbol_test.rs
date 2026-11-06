@@ -4,9 +4,22 @@ use serde_json::{Value, json};
 use support::{DEFAULT_URI, TestOptions, with_server};
 
 fn document_symbols(source: &str) -> Vec<Value> {
-    let mut server = with_server(Some(source), DEFAULT_URI, TestOptions { stub_no_typechecker: true, ..TestOptions::default() });
-    let result = server.result("textDocument/documentSymbol", json!({ "textDocument": { "uri": DEFAULT_URI } }));
-    result.as_array().cloned().unwrap_or_else(|| panic!("Expected an array, got {result}"))
+    let mut server = with_server(
+        Some(source),
+        DEFAULT_URI,
+        TestOptions {
+            stub_no_typechecker: true,
+            ..TestOptions::default()
+        },
+    );
+    let result = server.result(
+        "textDocument/documentSymbol",
+        json!({ "textDocument": { "uri": DEFAULT_URI } }),
+    );
+    result
+        .as_array()
+        .cloned()
+        .unwrap_or_else(|| panic!("Expected an array, got {result}"))
 }
 
 fn names(symbols: &[Value]) -> Vec<&str> {
@@ -45,7 +58,14 @@ fn nests_symbols_inside_namespaces() {
 #[test]
 fn returns_null_for_non_ruby_documents() {
     let uri = "file:///fake.rbs";
-    let mut server = with_server(None, uri, TestOptions { stub_no_typechecker: true, ..TestOptions::default() });
+    let mut server = with_server(
+        None,
+        uri,
+        TestOptions {
+            stub_no_typechecker: true,
+            ..TestOptions::default()
+        },
+    );
     server.did_open(uri, "class Foo\nend\n", "rbs");
     let result = server.result("textDocument/documentSymbol", json!({ "textDocument": { "uri": uri } }));
     assert_eq!(result, Value::Null);

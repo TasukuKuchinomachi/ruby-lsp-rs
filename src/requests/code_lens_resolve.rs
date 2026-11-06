@@ -12,7 +12,10 @@ pub fn handle(_context: &mut RequestContext<'_>, params: Value) -> RequestResult
         _ => None,
     };
     if let (Some((title, command_name)), Some(object)) = (command, code_lens.as_object_mut()) {
-        object.insert("command".to_string(), json!({ "title": title, "command": command_name, "arguments": arguments }));
+        object.insert(
+            "command".to_string(),
+            json!({ "title": title, "command": command_name, "arguments": arguments }),
+        );
     }
     Ok(code_lens)
 }

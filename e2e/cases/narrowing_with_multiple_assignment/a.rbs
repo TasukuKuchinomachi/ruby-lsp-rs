@@ -1,0 +1,15 @@
+class Narrowing
+  @left: Integer
+
+  def pair: () -> [Integer, String]?
+
+  def numbers: () -> Array[Integer]?
+
+  def anything: () -> untyped
+
+  def number: () -> Integer?
+
+  def completion: () -> [Integer, Array[Symbol]]?
+
+  def run: () -> void
+end

@@ -39,7 +39,13 @@ impl DocumentSymbolResponseBuilder {
 
     pub fn add_to_last(&mut self, name: String, kind: u32, range: Range, selection_range: Range) -> SymbolId {
         let id = self.symbols.len();
-        self.symbols.push(SymbolData { name, kind, range, selection_range, children: Vec::new() });
+        self.symbols.push(SymbolData {
+            name,
+            kind,
+            range,
+            selection_range,
+            children: Vec::new(),
+        });
         match self.stack.last() {
             Some(parent) => self.symbols[*parent].children.push(id),
             None => self.root_children.push(id),

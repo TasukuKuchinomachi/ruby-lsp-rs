@@ -55,7 +55,11 @@ impl Default for Configuration {
 }
 
 fn glob_matcher(pattern: &str) -> Option<GlobMatcher> {
-    GlobBuilder::new(pattern).literal_separator(true).build().ok().map(|glob| glob.compile_matcher())
+    GlobBuilder::new(pattern)
+        .literal_separator(true)
+        .build()
+        .ok()
+        .map(|glob| glob.compile_matcher())
 }
 
 impl Configuration {
@@ -63,9 +67,10 @@ impl Configuration {
     pub fn matches_magic_comment(&self, comment: &str) -> bool {
         let mut alternatives = self.excluded_magic_comments.iter();
         let Some(first) = alternatives.next() else { return false };
-        let anchored = comment
-            .strip_prefix('#')
-            .is_some_and(|rest| rest.trim_start_matches([' ', '\t', '\n', '\r', '\x0c', '\x0b']).starts_with(first.as_str()));
+        let anchored = comment.strip_prefix('#').is_some_and(|rest| {
+            rest.trim_start_matches([' ', '\t', '\n', '\r', '\x0c', '\x0b'])
+                .starts_with(first.as_str())
+        });
         anchored || alternatives.any(|alternative| comment.contains(alternative.as_str()))
     }
 
@@ -89,11 +94,16 @@ impl Configuration {
             })
             .unwrap_or_default();
         top_level_directories.sort();
-        self.included_patterns = vec![format!("{{{}}}/**/*.rb", top_level_directories.join(",")), "*.rb".to_string()];
+        self.included_patterns = vec![
+            format!("{{{}}}/**/*.rb", top_level_directories.join(",")),
+            "*.rb".to_string(),
+        ];
     }
 
     pub fn apply_config(&mut self, config: &serde_json::Value) -> Result<(), String> {
-        let Some(object) = config.as_object() else { return Ok(()) };
+        let Some(object) = config.as_object() else {
+            return Ok(());
+        };
         let mut errors = Vec::new();
         for (key, value) in object {
             let snake_key: String = key
@@ -106,8 +116,14 @@ impl Configuration {
                     }
                 })
                 .collect();
-            if !["excluded_gems", "included_gems", "excluded_patterns", "included_patterns", "excluded_magic_comments"]
-                .contains(&snake_key.as_str())
+            if ![
+                "excluded_gems",
+                "included_gems",
+                "excluded_patterns",
+                "included_patterns",
+                "excluded_magic_comments",
+            ]
+            .contains(&snake_key.as_str())
             {
                 errors.push(format!("Unknown configuration option: {snake_key}"));
                 continue;
@@ -126,7 +142,10 @@ impl Configuration {
                 errors.push(format!("Expected {snake_key} to be a Array, but got {ruby_class}"));
                 continue;
             };
-            let strings: Vec<String> = values.iter().filter_map(|value| value.as_str().map(str::to_string)).collect();
+            let strings: Vec<String> = values
+                .iter()
+                .filter_map(|value| value.as_str().map(str::to_string))
+                .collect();
             match snake_key.as_str() {
                 "excluded_gems" => self.excluded_gems.extend(strings),
                 "included_gems" => self.included_gems.extend(strings),
@@ -135,7 +154,11 @@ impl Configuration {
                 _ => self.excluded_magic_comments.extend(strings),
             }
         }
-        if errors.is_empty() { Ok(()) } else { Err(errors.join("\n")) }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("\n"))
+        }
     }
 
     fn absolute_pattern(&self, pattern: &str) -> String {
@@ -147,13 +170,22 @@ impl Configuration {
     }
 
     pub fn indexable_paths(&self, environment: &RubyEnvironment) -> Vec<IndexablePath> {
-        let excluded_gems: Vec<&String> =
-            self.excluded_gems.iter().filter(|gem| !self.included_gems.contains(gem)).collect();
+        let excluded_gems: Vec<&String> = self
+            .excluded_gems
+            .iter()
+            .filter(|gem| !self.included_gems.contains(gem))
+            .collect();
         let mut paths: Vec<IndexablePath> = Vec::new();
 
         for pattern in &self.included_patterns {
-            let Some(matcher) = glob_matcher(&self.absolute_pattern(pattern)) else { continue };
-            let max_depth = if pattern.contains("**") { usize::MAX } else { pattern.matches('/').count() + 1 };
+            let Some(matcher) = glob_matcher(&self.absolute_pattern(pattern)) else {
+                continue;
+            };
+            let max_depth = if pattern.contains("**") {
+                usize::MAX
+            } else {
+                pattern.matches('/').count() + 1
+            };
             for entry in walkdir::WalkDir::new(&self.workspace_path)
                 .max_depth(max_depth)
                 .into_iter()
@@ -169,22 +201,36 @@ impl Configuration {
                 }
                 let path = entry.path().to_path_buf();
                 let path_string = path.to_string_lossy();
-                let load_path_entry = environment.load_path.iter().find(|load_path| path_string.starts_with(load_path.as_str()));
+                let load_path_entry = environment
+                    .load_path
+                    .iter()
+                    .find(|load_path| path_string.starts_with(load_path.as_str()));
                 let require_path = load_path_entry.map(|entry| crate::uri::require_path(&path_string, entry));
                 paths.push(IndexablePath { path, require_path });
             }
         }
 
-        let excluded_matchers: Vec<GlobMatcher> =
-            self.excluded_patterns.iter().filter_map(|pattern| glob_matcher(&self.absolute_pattern(pattern))).collect();
+        let excluded_matchers: Vec<GlobMatcher> = self
+            .excluded_patterns
+            .iter()
+            .filter_map(|pattern| glob_matcher(&self.absolute_pattern(pattern)))
+            .collect();
         let fixtures_matcher = glob_matcher("**/fixtures/**/*");
         let bundle_path = environment.bundle_path.as_ref().map(|path| path.replace('\\', "/"));
         paths.retain(|indexable| {
             let path = indexable.path.to_string_lossy();
-            let file_name = indexable.path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+            let file_name = indexable
+                .path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
             let ignored_from_exclusion = (file_name == "test_case.rb" || file_name == "test_helper.rb")
-                && !fixtures_matcher.as_ref().is_some_and(|matcher| matcher.is_match(path.as_ref()))
-                && bundle_path.as_ref().is_none_or(|bundle| !path.starts_with(bundle.as_str()));
+                && !fixtures_matcher
+                    .as_ref()
+                    .is_some_and(|matcher| matcher.is_match(path.as_ref()))
+                && bundle_path
+                    .as_ref()
+                    .is_none_or(|bundle| !path.starts_with(bundle.as_str()));
             if ignored_from_exclusion {
                 return true;
             }
@@ -192,18 +238,26 @@ impl Configuration {
         });
 
         if let Some(rubylibdir) = &environment.rubylibdir {
-            let mut default_entries: Vec<PathBuf> =
-                std::fs::read_dir(rubylibdir).map(|entries| entries.filter_map(Result::ok).map(|entry| entry.path()).collect()).unwrap_or_default();
+            let mut default_entries: Vec<PathBuf> = std::fs::read_dir(rubylibdir)
+                .map(|entries| entries.filter_map(Result::ok).map(|entry| entry.path()).collect())
+                .unwrap_or_default();
             default_entries.sort();
             for default_path in default_entries {
-                let file_name = default_path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+                let file_name = default_path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default();
                 let short_name = file_name.strip_suffix(".rb").unwrap_or(&file_name).to_string();
-                if excluded_gems.iter().any(|gem| **gem == short_name) || environment.default_gems_in_bundle.contains(&short_name) {
+                if excluded_gems.iter().any(|gem| **gem == short_name)
+                    || environment.default_gems_in_bundle.contains(&short_name)
+                {
                     continue;
                 }
                 if default_path.is_dir() {
                     for entry in walkdir::WalkDir::new(&default_path).into_iter().filter_map(Result::ok) {
-                        if entry.file_type().is_file() && entry.path().extension().is_some_and(|extension| extension == "rb") {
+                        if entry.file_type().is_file()
+                            && entry.path().extension().is_some_and(|extension| extension == "rb")
+                        {
                             let path = entry.path().to_path_buf();
                             let require_path = Some(crate::uri::require_path(&path.to_string_lossy(), rubylibdir));
                             paths.push(IndexablePath { path, require_path });
@@ -211,7 +265,10 @@ impl Configuration {
                     }
                 } else if default_path.extension().is_some_and(|extension| extension == "rb") {
                     let require_path = Some(crate::uri::require_path(&default_path.to_string_lossy(), rubylibdir));
-                    paths.push(IndexablePath { path: default_path, require_path });
+                    paths.push(IndexablePath {
+                        path: default_path,
+                        require_path,
+                    });
                 }
             }
         }
@@ -223,11 +280,19 @@ impl Configuration {
             }
             for require_path in &spec.require_paths {
                 let load_path_entry = format!("{}/{require_path}", spec.full_gem_path);
-                for entry in walkdir::WalkDir::new(&load_path_entry).into_iter().filter_map(Result::ok) {
-                    if entry.file_type().is_file() && entry.path().extension().is_some_and(|extension| extension == "rb") {
+                for entry in walkdir::WalkDir::new(&load_path_entry)
+                    .into_iter()
+                    .filter_map(Result::ok)
+                {
+                    if entry.file_type().is_file()
+                        && entry.path().extension().is_some_and(|extension| extension == "rb")
+                    {
                         let path = entry.path().to_path_buf();
                         let require = Some(crate::uri::require_path(&path.to_string_lossy(), &load_path_entry));
-                        paths.push(IndexablePath { path, require_path: require });
+                        paths.push(IndexablePath {
+                            path,
+                            require_path: require,
+                        });
                     }
                 }
             }

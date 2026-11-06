@@ -35,8 +35,12 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
 
     let target = determine_target(&parsed, node.clone_node(), parent.clone_node(), params.position);
     let mut index = context.global_state.index();
-    let Some(entries) = index.resolve(&node_slice(&target), &node_context.nesting) else { return Ok(Value::Null) };
-    let Some(first_entry) = entries.first().copied() else { return Ok(Value::Null) };
+    let Some(entries) = index.resolve(&node_slice(&target), &node_context.nesting) else {
+        return Ok(Value::Null);
+    };
+    let Some(first_entry) = entries.first().copied() else {
+        return Ok(Value::Null);
+    };
 
     let entry = index.entry(first_entry);
     let range = range_from_location(&entry.location);

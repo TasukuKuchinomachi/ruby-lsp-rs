@@ -1,0 +1,14 @@
+class Account
+  LIMIT: Integer
+
+  @balance: Integer
+
+  def initialize: () -> void
+  def unsupported: (Integer | String) -> untyped
+  def defined_check: () -> String?
+  def splat: (Array[Integer]) -> untyped
+  def operator_assignments: () -> untyped
+  def multiple_assignment: ([Integer, String]) -> untyped
+  def skipped: () -> untyped
+  def name=: (String) -> String
+end

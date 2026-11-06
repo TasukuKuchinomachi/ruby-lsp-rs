@@ -1,0 +1,1 @@
+--no-check=untyped-block-parameters --no-check=bare-rescue-variable

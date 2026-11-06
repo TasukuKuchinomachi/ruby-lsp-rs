@@ -10,7 +10,10 @@ fn show_syntax_tree(source: &str, range: Option<Value>) -> String {
         params["range"] = range;
     }
     let result = server.result("rubyLsp/textDocument/showSyntaxTree", params);
-    result["ast"].as_str().unwrap_or_else(|| panic!("Expected an ast string, got {result}")).to_string()
+    result["ast"]
+        .as_str()
+        .unwrap_or_else(|| panic!("Expected an ast string, got {result}"))
+        .to_string()
 }
 
 #[test]
@@ -122,13 +125,20 @@ fn returns_ast_for_a_selection() {
 fn returns_null_for_non_ruby_documents() {
     let uri = "file:///fake.html.erb";
     let mut server = with_server(Some("<%= foo %>"), uri, TestOptions::default());
-    let result = server.result("rubyLsp/textDocument/showSyntaxTree", json!({ "textDocument": { "uri": uri } }));
+    let result = server.result(
+        "rubyLsp/textDocument/showSyntaxTree",
+        json!({ "textDocument": { "uri": uri } }),
+    );
     assert_eq!(result, Value::Null);
 }
 
 fn ruby_prism_inspect(paths: &[std::path::PathBuf]) -> Option<Vec<String>> {
     let script = "exit 2 unless Prism::VERSION == '1.9.0'; print JSON.generate(ARGV.map { |path| Prism.parse(File.read(path)).value.inspect })";
-    let output = std::process::Command::new("ruby").args(["-rprism", "-rjson", "-e", script]).args(paths).output().ok()?;
+    let output = std::process::Command::new("ruby")
+        .args(["-rprism", "-rjson", "-e", script])
+        .args(paths)
+        .output()
+        .ok()?;
     if !output.status.success() {
         return None;
     }
@@ -170,5 +180,10 @@ fn matches_prism_inspect_for_every_fixture() {
             ));
         }
     }
-    assert!(failures.is_empty(), "{} fixture(s) differ:\n\n{}", failures.len(), failures.join("\n\n"));
+    assert!(
+        failures.is_empty(),
+        "{} fixture(s) differ:\n\n{}",
+        failures.len(),
+        failures.join("\n\n")
+    );
 }

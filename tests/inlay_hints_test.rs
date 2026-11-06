@@ -8,8 +8,14 @@ fn inlay_hints(source: &str, inlay_hint_configuration: Value) -> Value {
     let initialization_options = json!({
         "initializationOptions": { "featuresConfiguration": { "inlayHint": inlay_hint_configuration } },
     });
-    let mut server =
-        with_server(Some(source), uri, TestOptions { initialization_options: Some(initialization_options), ..TestOptions::default() });
+    let mut server = with_server(
+        Some(source),
+        uri,
+        TestOptions {
+            initialization_options: Some(initialization_options),
+            ..TestOptions::default()
+        },
+    );
     server.result(
         "textDocument/inlayHint",
         json!({
@@ -21,13 +27,19 @@ fn inlay_hints(source: &str, inlay_hint_configuration: Value) -> Value {
 
 #[test]
 fn skip_implicit_hash_value() {
-    let result = inlay_hints("{bar:, baz:}\n", json!({ "implicitRescue": true, "implicitHashValue": false }));
+    let result = inlay_hints(
+        "{bar:, baz:}\n",
+        json!({ "implicitRescue": true, "implicitHashValue": false }),
+    );
     assert_eq!(result, json!([]));
 }
 
 #[test]
 fn skip_implicit_rescue() {
-    let result = inlay_hints("begin\nrescue\nend\n", json!({ "implicitRescue": false, "implicitHashValue": true }));
+    let result = inlay_hints(
+        "begin\nrescue\nend\n",
+        json!({ "implicitRescue": false, "implicitHashValue": true }),
+    );
     assert_eq!(result, json!([]));
 }
 
@@ -40,7 +52,10 @@ fn filters_hints_outside_of_the_requested_range() {
     let mut server = with_server(
         Some("begin\nrescue\nend\n\nbegin\nrescue\nend\n"),
         uri,
-        TestOptions { initialization_options: Some(initialization_options), ..TestOptions::default() },
+        TestOptions {
+            initialization_options: Some(initialization_options),
+            ..TestOptions::default()
+        },
     );
     let request = |server: &mut support::TestServer, start_line: u32, end_line: u32| {
         server.result(

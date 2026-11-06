@@ -4,7 +4,14 @@ use serde_json::{Value, json};
 use support::{DEFAULT_URI, TestOptions, range_json, with_server};
 
 fn document_highlights(source: &str, line: u32, character: u32) -> Value {
-    let mut server = with_server(Some(source), DEFAULT_URI, TestOptions { stub_no_typechecker: true, ..TestOptions::default() });
+    let mut server = with_server(
+        Some(source),
+        DEFAULT_URI,
+        TestOptions {
+            stub_no_typechecker: true,
+            ..TestOptions::default()
+        },
+    );
     server.result(
         "textDocument/documentHighlight",
         json!({ "textDocument": { "uri": DEFAULT_URI }, "position": { "line": line, "character": character } }),

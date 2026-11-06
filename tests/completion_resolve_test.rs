@@ -7,7 +7,10 @@ use serde_json::{Value, json};
 use support::{DEFAULT_URI, TestOptions, TestServer, rbs_core_path, with_server};
 
 fn no_typechecker() -> TestOptions {
-    TestOptions { stub_no_typechecker: true, ..TestOptions::default() }
+    TestOptions {
+        stub_no_typechecker: true,
+        ..TestOptions::default()
+    }
 }
 
 fn resolve(server: &mut TestServer, item: Value) -> Value {
@@ -15,17 +18,25 @@ fn resolve(server: &mut TestServer, item: Value) -> Value {
 }
 
 fn documentation(result: &Value) -> String {
-    result["documentation"]["value"].as_str().unwrap_or_else(|| panic!("Expected documentation, got {result}")).to_string()
+    result["documentation"]["value"]
+        .as_str()
+        .unwrap_or_else(|| panic!("Expected documentation, got {result}"))
+        .to_string()
 }
 
 fn index_ruby_core(server: &TestServer) -> bool {
-    let Some(rbs_core_path) = rbs_core_path() else { return false };
+    let Some(rbs_core_path) = rbs_core_path() else {
+        return false;
+    };
     RbsIndexer::new(&mut server.index()).index_core_directory(&rbs_core_path);
     true
 }
 
 fn assert_contains(contents: &str, expected: &str) {
-    assert!(contents.contains(expected), "Expected {contents:?} to contain {expected:?}");
+    assert!(
+        contents.contains(expected),
+        "Expected {contents:?} to contain {expected:?}"
+    );
 }
 
 #[test]
@@ -53,10 +64,16 @@ fn completion_resolve_with_owner_present() {
     let source = "class Bar\n  def initialize\n    # Bar!\n    @a = 1\n  end\nend\n\nclass Foo\n  def initialize\n    # Foo!\n    @a = 1\n  end\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, no_typechecker());
 
-    let result = resolve(&mut server, json!({ "label": "@a", "kind": 5, "data": { "owner_name": "Foo" } }));
+    let result = resolve(
+        &mut server,
+        json!({ "label": "@a", "kind": 5, "data": { "owner_name": "Foo" } }),
+    );
     assert_contains(&documentation(&result), "Foo");
 
-    let result = resolve(&mut server, json!({ "label": "@a", "kind": 5, "data": { "owner_name": "Bar" } }));
+    let result = resolve(
+        &mut server,
+        json!({ "label": "@a", "kind": 5, "data": { "owner_name": "Bar" } }),
+    );
     assert_contains(&documentation(&result), "Bar");
 }
 
@@ -64,7 +81,10 @@ fn completion_resolve_with_owner_present() {
 fn inserts_method_parameters_in_label_details() {
     let source = "class Bar\n  def foo(a, b, c)\n  end\n\n  def bar\n    f\n  end\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, no_typechecker());
-    let result = resolve(&mut server, json!({ "label": "foo", "kind": 2, "data": { "owner_name": "Bar" } }));
+    let result = resolve(
+        &mut server,
+        json!({ "label": "foo", "kind": 2, "data": { "owner_name": "Bar" } }),
+    );
     assert_contains(&documentation(&result), "(a, b, c)");
 }
 
@@ -91,7 +111,10 @@ fn resolve_handles_method_aliases() {
     }
     server.index().resolve_method("kind_of?", "Kernel", false);
 
-    let result = resolve(&mut server, json!({ "label": "kind_of?", "kind": 2, "data": { "owner_name": "Kernel" } }));
+    let result = resolve(
+        &mut server,
+        json!({ "label": "kind_of?", "kind": 2, "data": { "owner_name": "Kernel" } }),
+    );
     assert_contains(&documentation(&result), "**Definitions**: [kernel.rbs]");
 }
 
@@ -111,7 +134,10 @@ fn completion_documentation_for_guessed_types() {
 #[test]
 fn resolve_for_keywords() {
     let mut server = with_server(Some("def foo\n  yield\nend\n"), DEFAULT_URI, no_typechecker());
-    let result = resolve(&mut server, json!({ "label": "yield", "kind": 14, "data": { "keyword": true } }));
+    let result = resolve(
+        &mut server,
+        json!({ "label": "yield", "kind": 14, "data": { "keyword": true } }),
+    );
     let contents = documentation(&result);
     assert_contains(&contents, "```ruby\nyield\n```");
     assert_contains(&contents, keyword_documentation("yield").unwrap());

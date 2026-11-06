@@ -1,9 +1,0 @@
-[package]
-name = "type-checker"
-version.workspace = true
-edition = "2024"
-
-[dependencies]
-prism-child-nodes = { path = "../prism-child-nodes" }
-rbs-environment = { path = "../rbs-environment" }
-ruby-prism = { workspace = true }

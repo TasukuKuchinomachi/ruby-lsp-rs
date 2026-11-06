@@ -19,7 +19,10 @@ fn strings(parts: &[&str]) -> Vec<String> {
 }
 
 fn first_names(test: &TestCase, results: &[Vec<usize>]) -> Vec<String> {
-    results.iter().map(|ids| test.index.entry(ids[0]).name.clone()).collect()
+    results
+        .iter()
+        .map(|ids| test.index.entry(ids[0]).name.clone())
+        .collect()
 }
 
 #[test]
@@ -33,7 +36,9 @@ fn test_resolving_self_referential_constant_alias() {
     let entry = test.index.entry(id);
     assert_eq!("ConstantAlias", kind_name(entry));
     assert_eq!(10, entry.location.start_line);
-    let EntryKind::ConstantAlias { target } = &entry.kind else { unreachable!() };
+    let EntryKind::ConstantAlias { target } = &entry.kind else {
+        unreachable!()
+    };
     assert_eq!("A::B::C", target);
 }
 
@@ -46,7 +51,9 @@ fn test_resolving_non_existing_self_referential_constant_alias() {
     let entry = test.index.entry(id);
     assert_eq!("UnresolvedConstantAlias", kind_name(entry));
     assert_eq!(3, entry.location.start_line);
-    let EntryKind::UnresolvedConstantAlias { target, .. } = &entry.kind else { unreachable!() };
+    let EntryKind::UnresolvedConstantAlias { target, .. } = &entry.kind else {
+        unreachable!()
+    };
     assert_eq!("SomeClass::CONSTANT", target);
 
     assert!(test.index.resolve("SomeClass::CONSTANT", &nesting(&["Foo"])).is_none());
@@ -59,7 +66,10 @@ fn test_resolving_qualified_references() {
         "module Namespace\n  class Entry\n    CONST = 1\n  end\nend\n\nmodule Namespace\n  class Index\n  end\nend\n",
     );
 
-    let id = test.index.resolve("Entry::CONST", &nesting(&["Namespace", "Index"])).unwrap()[0];
+    let id = test
+        .index
+        .resolve("Entry::CONST", &nesting(&["Namespace", "Index"]))
+        .unwrap()[0];
     assert_eq!(3, test.index.entry(id).location.start_line);
 }
 
@@ -121,8 +131,14 @@ fn test_object_superclass_indexing_and_resolution_with_reopened_object_class() {
     let entries = test.entries("Object");
     assert_eq!(2, entries.len());
     let reopened_entry = entries.last().unwrap();
-    assert_eq!(Some("::BasicObject"), reopened_entry.namespace().unwrap().parent_class.as_deref());
-    assert_eq!(strings(&["Object", "Kernel", "BasicObject"]), test.index.linearized_ancestors_of("Object").unwrap());
+    assert_eq!(
+        Some("::BasicObject"),
+        reopened_entry.namespace().unwrap().parent_class.as_deref()
+    );
+    assert_eq!(
+        strings(&["Object", "Kernel", "BasicObject"]),
+        test.index.linearized_ancestors_of("Object").unwrap()
+    );
 }
 
 #[test]
@@ -134,7 +150,10 @@ fn test_object_superclass_indexing_and_resolution_with_reopened_basic_object_cla
     assert_eq!(2, entries.len());
     let reopened_entry = entries.last().unwrap();
     assert_eq!(None, reopened_entry.namespace().unwrap().parent_class.as_deref());
-    assert_eq!(strings(&["BasicObject"]), test.index.linearized_ancestors_of("BasicObject").unwrap());
+    assert_eq!(
+        strings(&["BasicObject"]),
+        test.index.linearized_ancestors_of("BasicObject").unwrap()
+    );
 }
 
 #[test]
@@ -183,7 +202,10 @@ fn test_top_level_basic_object_superclass_resolution() {
     let mut test = TestCase::new();
     test.index("module Foo\n  class BasicObject; end\n\n  class Bar < ::BasicObject; end\nend\n");
 
-    assert_eq!(strings(&["Foo::Bar", "BasicObject"]), test.index.linearized_ancestors_of("Foo::Bar").unwrap());
+    assert_eq!(
+        strings(&["Foo::Bar", "BasicObject"]),
+        test.index.linearized_ancestors_of("Foo::Bar").unwrap()
+    );
 }
 
 #[test]
@@ -193,7 +215,10 @@ fn test_resolving_method_inside_singleton_context() {
         "module Foo\n  class Bar\n    class << self\n      class Baz\n        class << self\n          def found_me!; end\n        end\n      end\n    end\n  end\nend\n",
     );
 
-    let ids = test.index.resolve_method("found_me!", "Foo::Bar::<Class:Bar>::Baz::<Class:Baz>", false).unwrap();
+    let ids = test
+        .index
+        .resolve_method("found_me!", "Foo::Bar::<Class:Bar>::Baz::<Class:Baz>", false)
+        .unwrap();
     assert_eq!("found_me!", test.index.entry(ids[0]).name);
 }
 
@@ -204,7 +229,10 @@ fn test_resolving_constants_in_singleton_contexts() {
         "module Foo\n  class Bar\n    CONST = 3\n\n    class << self\n      CONST = 2\n\n      class Baz\n        CONST = 1\n\n        class << self\n        end\n      end\n    end\n  end\nend\n",
     );
 
-    let ids = test.index.resolve("CONST", &nesting(&["Foo", "Bar", "<Class:Bar>", "Baz", "<Class:Baz>"])).unwrap();
+    let ids = test
+        .index
+        .resolve("CONST", &nesting(&["Foo", "Bar", "<Class:Bar>", "Baz", "<Class:Baz>"]))
+        .unwrap();
     assert_eq!(9, test.index.entry(ids[0]).location.start_line);
 }
 
@@ -215,13 +243,22 @@ fn test_resolving_instance_variables_in_singleton_contexts() {
     let mut test = TestCase::new();
     test.index(SINGLETON_INSTANCE_VARIABLES);
 
-    let ids = test.index.resolve_instance_variable("@a", "Foo::Bar::<Class:Bar>").unwrap();
+    let ids = test
+        .index
+        .resolve_instance_variable("@a", "Foo::Bar::<Class:Bar>")
+        .unwrap();
     assert_eq!("@a", test.index.entry(ids[0]).name);
 
-    let ids = test.index.resolve_instance_variable("@b", "Foo::Bar::<Class:Bar>").unwrap();
+    let ids = test
+        .index
+        .resolve_instance_variable("@b", "Foo::Bar::<Class:Bar>")
+        .unwrap();
     assert_eq!("@b", test.index.entry(ids[0]).name);
 
-    let ids = test.index.resolve_instance_variable("@c", "Foo::Bar::<Class:Bar>::<Class:<Class:Bar>>").unwrap();
+    let ids = test
+        .index
+        .resolve_instance_variable("@c", "Foo::Bar::<Class:Bar>::<Class:<Class:Bar>>")
+        .unwrap();
     assert_eq!("@c", test.index.entry(ids[0]).name);
 }
 
@@ -230,7 +267,9 @@ fn test_instance_variable_completion_in_singleton_contexts() {
     let mut test = TestCase::new();
     test.index(SINGLETON_INSTANCE_VARIABLES);
 
-    let ids = test.index.instance_variable_completion_candidates("@", "Foo::Bar::<Class:Bar>");
+    let ids = test
+        .index
+        .instance_variable_completion_candidates("@", "Foo::Bar::<Class:Bar>");
     let names = names_of(&test.index, &ids);
     assert!(names.contains(&"@a".to_string()));
     assert!(names.contains(&"@b".to_string()));
@@ -264,28 +303,39 @@ fn test_resolving_method_aliases() {
     let methods = test.index.resolve_method("baz", "Bar", false).unwrap();
     let entry = test.index.entry(methods[0]);
     assert_eq!("MethodAlias", kind_name(entry));
-    let EntryKind::MethodAlias { target, .. } = &entry.kind else { unreachable!() };
+    let EntryKind::MethodAlias { target, .. } = &entry.kind else {
+        unreachable!()
+    };
     assert_eq!("bar", target.name);
     assert_eq!(Some("Foo"), target.owner.as_deref());
 
     let methods = test.index.resolve_method("qux", "Bar", false).unwrap();
     let entry = test.index.entry(methods[0]);
     assert_eq!("MethodAlias", kind_name(entry));
-    let EntryKind::MethodAlias { target, .. } = &entry.kind else { unreachable!() };
+    let EntryKind::MethodAlias { target, .. } = &entry.kind else {
+        unreachable!()
+    };
     assert_eq!("hello", target.name);
     assert_eq!(Some("Bar"), target.owner.as_deref());
 
     let methods = test.index.resolve_method("double", "Bar", false).unwrap();
     let entry = test.index.entry(methods[0]);
     assert_eq!("MethodAlias", kind_name(entry));
-    let EntryKind::MethodAlias { target, .. } = &entry.kind else { unreachable!() };
+    let EntryKind::MethodAlias { target, .. } = &entry.kind else {
+        unreachable!()
+    };
     assert_eq!("double_alias", target.name);
     assert_eq!(MethodAliasTargetKind::MethodAlias, target.kind);
 
     let double_alias = test.entries("double_alias")[0];
     assert_eq!("MethodAlias", kind_name(double_alias));
     assert_eq!(Some("Foo"), double_alias.owner());
-    let EntryKind::MethodAlias { target: final_target, .. } = &double_alias.kind else { unreachable!() };
+    let EntryKind::MethodAlias {
+        target: final_target, ..
+    } = &double_alias.kind
+    else {
+        unreachable!()
+    };
     assert_eq!("bar", final_target.name);
 }
 
@@ -317,13 +367,17 @@ fn test_only_aliases_for_the_right_owner_are_resolved() {
     let methods = test.index.resolve_method("decorated_name", "Foo", false).unwrap();
     let entry = test.index.entry(methods[0]);
     assert_eq!("MethodAlias", kind_name(entry));
-    let EntryKind::MethodAlias { target, .. } = &entry.kind else { unreachable!() };
+    let EntryKind::MethodAlias { target, .. } = &entry.kind else {
+        unreachable!()
+    };
     assert_eq!("name", target.name);
     assert_eq!(MethodAliasTargetKind::Accessor, target.kind);
     assert_eq!(Some("Foo"), target.owner.as_deref());
 
-    let other_decorated_name =
-        test.entries("decorated_name").into_iter().find(|entry| kind_name(entry) == "UnresolvedMethodAlias");
+    let other_decorated_name = test
+        .entries("decorated_name")
+        .into_iter()
+        .find(|entry| kind_name(entry) == "UnresolvedMethodAlias");
     assert!(other_decorated_name.is_some());
 }
 
@@ -379,7 +433,10 @@ fn test_decorated_parameters() {
     test.index("class Foo\n  def bar(a, b = 1, c: 2)\n  end\nend\n");
 
     let methods = test.index.resolve_method("bar", "Foo", false).unwrap();
-    assert_eq!("(a, b = <default>, c: <default>)", test.index.entry(methods[0]).decorated_parameters());
+    assert_eq!(
+        "(a, b = <default>, c: <default>)",
+        test.index.entry(methods[0]).decorated_parameters()
+    );
 }
 
 #[test]
@@ -408,7 +465,9 @@ fn test_linearizing_singleton_ancestors_of_singleton_when_class_has_parent() {
             "Class::<Class:Class>",
             "Module::<Class:Module>",
         ]),
-        test.index.linearized_ancestors_of("Baz::<Class:Baz>::<Class:<Class:Baz>>").unwrap()
+        test.index
+            .linearized_ancestors_of("Baz::<Class:Baz>::<Class:<Class:Baz>>")
+            .unwrap()
     );
 }
 
@@ -461,7 +520,9 @@ fn test_linearizing_singleton_ancestors() {
             "Class",
             "Module",
         ]),
-        test.index.linearized_ancestors_of("Foo::Bar::<Class:Bar>::Baz::<Class:Baz>").unwrap()
+        test.index
+            .linearized_ancestors_of("Foo::Bar::<Class:Bar>::Baz::<Class:Baz>")
+            .unwrap()
     );
 }
 
@@ -565,8 +626,15 @@ fn test_entries_for() {
         names_of(&test.index, &ids)
     );
 
-    let namespace_ids: Vec<usize> = ids.iter().copied().filter(|id| test.index.entry(*id).is_namespace()).collect();
-    assert_eq!(strings(&["Foo", "Bar", "Bar::<Class:Bar>"]), names_of(&test.index, &namespace_ids));
+    let namespace_ids: Vec<usize> = ids
+        .iter()
+        .copied()
+        .filter(|id| test.index.entry(*id).is_namespace())
+        .collect();
+    assert_eq!(
+        strings(&["Foo", "Bar", "Bar::<Class:Bar>"]),
+        names_of(&test.index, &namespace_ids)
+    );
 }
 
 #[test]
@@ -582,14 +650,21 @@ fn test_constant_completion_candidates_all_possible_constants() {
         "XQRK = 3\n\nmodule Bar\n  XQRK = 2\nend\n\nmodule Foo\n  XQRK = 1\nend\n\nmodule Namespace\n  XQRK = 0\n\n  class Baz\n    include Foo\n    include Bar\n  end\nend\n",
     );
 
-    let result = test.index.constant_completion_candidates("X", &nesting(&["Namespace", "Baz"]));
+    let result = test
+        .index
+        .constant_completion_candidates("X", &nesting(&["Namespace", "Baz"]));
     for ids in &result {
         let name = &test.index.entry(ids[0]).name;
         assert!(ids.iter().all(|id| &test.index.entry(*id).name == name));
     }
-    assert_eq!(strings(&["Namespace::XQRK", "Bar::XQRK", "XQRK"]), first_names(&test, &result));
+    assert_eq!(
+        strings(&["Namespace::XQRK", "Bar::XQRK", "XQRK"]),
+        first_names(&test, &result)
+    );
 
-    let result = test.index.constant_completion_candidates("::X", &nesting(&["Namespace", "Baz"]));
+    let result = test
+        .index
+        .constant_completion_candidates("::X", &nesting(&["Namespace", "Baz"]));
     assert_eq!(strings(&["XQRK"]), first_names(&test, &result));
 }
 
@@ -621,7 +696,10 @@ fn test_follow_alias_namespace() {
         "module First\n  module Second\n    class Foo\n    end\n  end\nend\n\nmodule Namespace\n  Second = First::Second\nend\n",
     );
 
-    assert_eq!(Some("First::Second".to_string()), test.index.follow_aliased_namespace("Namespace::Second"));
+    assert_eq!(
+        Some("First::Second".to_string()),
+        test.index.follow_aliased_namespace("Namespace::Second")
+    );
 }
 
 #[test]
@@ -645,8 +723,13 @@ fn test_resolving_alias_to_existing_constant_from_inner_namespace() {
         "module Parent\n  CONST = 123\nend\n\nmodule First\n  module Namespace\n    class Foo\n      include Parent\n\n      module InnerNamespace\n        Constants = Namespace::Foo::CONST\n      end\n    end\n  end\nend\n",
     );
 
-    let ids =
-        test.index.resolve("Namespace::Foo::CONST", &nesting(&["First", "Namespace", "Foo", "InnerNamespace"])).unwrap();
+    let ids = test
+        .index
+        .resolve(
+            "Namespace::Foo::CONST",
+            &nesting(&["First", "Namespace", "Foo", "InnerNamespace"]),
+        )
+        .unwrap();
     let entry = test.index.entry(ids[0]);
     assert_eq!("Parent::CONST", entry.name);
     assert_eq!("Constant", kind_name(entry));
@@ -657,7 +740,10 @@ fn test_prevents_multiple_calls_to_index_all() {
     let mut test = TestCase::new();
     let progress = |_: u32| {};
     assert_eq!(Ok(()), try_index_all(&mut test.index, &[], None, &progress));
-    assert_eq!(Err(IndexNotEmptyError), try_index_all(&mut test.index, &[], None, &progress));
+    assert_eq!(
+        Err(IndexNotEmptyError),
+        try_index_all(&mut test.index, &[], None, &progress)
+    );
 }
 
 #[test]
@@ -671,7 +757,8 @@ fn test_index_can_handle_entries_from_untitled_scheme() {
     assert_eq!("Untitled-1", entry.file_name());
     assert_eq!(None, entry.file_path());
 
-    test.index.handle_change_with_source(uri, "# I added this comment!\nclass Foo\nend\n");
+    test.index
+        .handle_change_with_source(uri, "# I added this comment!\nclass Foo\nend\n");
 
     let entry = test.first("Foo");
     assert_eq!(Some("I added this comment!"), entry.comments.as_deref());
@@ -680,10 +767,17 @@ fn test_index_can_handle_entries_from_untitled_scheme() {
 #[test]
 fn test_instance_variable_completion_returns_class_variables_too() {
     let mut test = TestCase::new();
-    test.index("class Parent\n  @@abc = 123\nend\n\nclass Child < Parent\n  @@adf = 123\n\n  def self.do\n  end\nend\n");
+    test.index(
+        "class Parent\n  @@abc = 123\nend\n\nclass Child < Parent\n  @@adf = 123\n\n  def self.do\n  end\nend\n",
+    );
 
-    let ids = test.index.instance_variable_completion_candidates("@", "Child::<Class:Child>");
-    assert_eq!(strings(&["@@adf", "@@abc"]), names_of(&test.index, &ids[..2.min(ids.len())]));
+    let ids = test
+        .index
+        .instance_variable_completion_candidates("@", "Child::<Class:Child>");
+    assert_eq!(
+        strings(&["@@adf", "@@abc"]),
+        names_of(&test.index, &ids[..2.min(ids.len())])
+    );
 }
 
 #[test]
@@ -691,7 +785,9 @@ fn test_class_variable_completion_from_singleton_context() {
     let mut test = TestCase::new();
     test.index("class Foo\n  @@hello = 123\n\n  def self.do\n  end\nend\n");
 
-    let candidates = test.index.class_variable_completion_candidates("@@", "Foo::<Class:Foo>");
+    let candidates = test
+        .index
+        .class_variable_completion_candidates("@@", "Foo::<Class:Foo>");
     assert!(!candidates.is_empty());
     assert_eq!("@@hello", test.index.entry(candidates[0]).name);
 }
@@ -701,7 +797,10 @@ fn test_resolve_class_variable_in_singleton_context() {
     let mut test = TestCase::new();
     test.index("class Foo\n  @@hello = 123\nend\n");
 
-    let candidates = test.index.resolve_class_variable("@@hello", "Foo::<Class:Foo>").unwrap();
+    let candidates = test
+        .index
+        .resolve_class_variable("@@hello", "Foo::<Class:Foo>")
+        .unwrap();
     assert!(!candidates.is_empty());
     assert_eq!("@@hello", test.index.entry(candidates[0]).name);
 }
@@ -709,12 +808,18 @@ fn test_resolve_class_variable_in_singleton_context() {
 #[test]
 fn test_actual_nesting() {
     assert_eq!(strings(&["Foo"]), actual_nesting(&[], Some("Foo")));
-    assert_eq!(strings(&["TopLevel", "Foo"]), actual_nesting(&strings(&["First", "::TopLevel"]), Some("Foo")));
+    assert_eq!(
+        strings(&["TopLevel", "Foo"]),
+        actual_nesting(&strings(&["First", "::TopLevel"]), Some("Foo"))
+    );
     assert_eq!(
         strings(&["TopLevel", "Another", "Foo"]),
         actual_nesting(&strings(&["::TopLevel", "Another"]), Some("Foo"))
     );
-    assert_eq!(strings(&["TopLevel"]), actual_nesting(&strings(&["First", "::TopLevel"]), None));
+    assert_eq!(
+        strings(&["TopLevel"]),
+        actual_nesting(&strings(&["First", "::TopLevel"]), None)
+    );
 }
 
 fn constant_name_of_first_class(source: &str) -> Option<String> {
@@ -740,13 +845,28 @@ fn test_build_non_redundant_name() {
     let nesting = |parts: &[&str]| -> Vec<String> { parts.iter().map(|part| part.to_string()).collect() };
     assert_eq!(
         "Namespace::Foo::Constants",
-        build_non_redundant_full_name("Namespace::Foo::Constants", &nesting(&["Namespace", "Foo", "InnerNamespace"]))
+        build_non_redundant_full_name(
+            "Namespace::Foo::Constants",
+            &nesting(&["Namespace", "Foo", "InnerNamespace"])
+        )
     );
-    assert_eq!("Namespace::Foo::Constants", build_non_redundant_full_name("Namespace::Foo::Constants", &nesting(&["Namespace", "Foo"])));
-    assert_eq!("Namespace::Foo::Constants", build_non_redundant_full_name("Foo::Constants", &nesting(&["Namespace", "Foo"])));
-    assert_eq!("Bar::Namespace::Foo::Constants", build_non_redundant_full_name("Namespace::Foo::Constants", &nesting(&["Bar"])));
+    assert_eq!(
+        "Namespace::Foo::Constants",
+        build_non_redundant_full_name("Namespace::Foo::Constants", &nesting(&["Namespace", "Foo"]))
+    );
+    assert_eq!(
+        "Namespace::Foo::Constants",
+        build_non_redundant_full_name("Foo::Constants", &nesting(&["Namespace", "Foo"]))
+    );
+    assert_eq!(
+        "Bar::Namespace::Foo::Constants",
+        build_non_redundant_full_name("Namespace::Foo::Constants", &nesting(&["Bar"]))
+    );
     assert_eq!(
         "First::Namespace::Foo::Constants",
-        build_non_redundant_full_name("Namespace::Foo::Constants", &nesting(&["First", "Namespace", "Foo", "InnerNamespace"]))
+        build_non_redundant_full_name(
+            "Namespace::Foo::Constants",
+            &nesting(&["First", "Namespace", "Foo", "InnerNamespace"])
+        )
     );
 }

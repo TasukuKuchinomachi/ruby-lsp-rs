@@ -1,0 +1,16 @@
+---
+- file: a.rbs
+  diagnostics:
+  - range:
+      start:
+        line: 7
+        character: 24
+      end:
+        line: 7
+        character: 41
+    severity: ERROR
+    message: |-
+      Type application of `::NumberBox` doesn't satisfy the constraints: ::String <: ::Numeric
+        ::String <: ::Numeric
+          ::Object <: ::Numeric
+    code: RBS::UnsatisfiableTypeApplication

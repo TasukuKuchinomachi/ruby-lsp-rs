@@ -6,12 +6,10 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
-use rbs_environment::Environment;
 use ruby_environment::RubyEnvironment;
 use ruby_lsp_rs::indexer::Index;
 use ruby_lsp_rs::indexer::indexing::{index_single, index_single_with_require_path};
 use ruby_lsp_rs::server::{Server, ServerOptions};
-use ruby_type_check::project::{LoadedEnvironment, LoadedTarget};
 use serde_json::{Value, json};
 
 pub const DEFAULT_URI: &str = "file:///fake.rb";
@@ -28,8 +26,6 @@ pub struct TestOptions {
     pub initialization_options: Option<Value>,
     /// Stands in for Ruby LSP's `stub_test_library`, since detection depends on the bundle's dependencies
     pub test_library: Option<String>,
-    /// RBS environment of the built-in type checker, which is inactive without one
-    pub type_checking_environment: Option<Arc<Environment>>,
 }
 
 pub struct TestServer {
@@ -42,7 +38,13 @@ pub struct TestServer {
 
 pub fn with_server(source: Option<&str>, uri: &str, options: TestOptions) -> TestServer {
     let (server_connection, client) = Connection::memory();
-    let mut server = Server::new(server_connection, ServerOptions { test_mode: true });
+    let mut server = Server::new(
+        server_connection,
+        ServerOptions {
+            test_mode: true,
+            ..ServerOptions::default()
+        },
+    );
     let initialization_options = options
         .initialization_options
         .clone()
@@ -55,18 +57,16 @@ pub fn with_server(source: Option<&str>, uri: &str, options: TestOptions) -> Tes
     if let Some(test_library) = &options.test_library {
         global_state.test_library = test_library.clone();
     }
-    if let Some(environment) = &options.type_checking_environment {
-        let workspace_path = std::path::PathBuf::from(global_state.workspace_path());
-        global_state.type_checking.set_environment(&workspace_path, LoadedEnvironment {
-            targets: vec![LoadedTarget { name: None, environment: environment.clone() }],
-            steepfile: None,
-            duration: Duration::ZERO,
-        });
-    }
     let index = server.global_state().index.clone();
     let thread = std::thread::spawn(move || server.run());
 
-    let test_server = TestServer { client, uri: uri.to_string(), index, thread: Some(thread), next_id: 1 };
+    let test_server = TestServer {
+        client,
+        uri: uri.to_string(),
+        index,
+        thread: Some(thread),
+        next_id: 1,
+    };
     if let Some(source) = source {
         let language_id = if uri.ends_with(".erb") { "erb" } else { "ruby" };
         test_server.did_open(uri, source, language_id);
@@ -77,13 +77,25 @@ pub fn with_server(source: Option<&str>, uri: &str, options: TestOptions) -> Tes
 
 pub fn uninitialized_server(queued_messages: Vec<Message>) -> TestServer {
     let (server_connection, client) = Connection::memory();
-    let server = Server::new(server_connection, ServerOptions { test_mode: true });
+    let server = Server::new(
+        server_connection,
+        ServerOptions {
+            test_mode: true,
+            ..ServerOptions::default()
+        },
+    );
     let index = server.global_state().index.clone();
     for message in queued_messages {
         client.sender.send(message).unwrap();
     }
     let thread = std::thread::spawn(move || server.run());
-    TestServer { client, uri: DEFAULT_URI.to_string(), index, thread: Some(thread), next_id: 1000 }
+    TestServer {
+        client,
+        uri: DEFAULT_URI.to_string(),
+        index,
+        thread: Some(thread),
+        next_id: 1000,
+    }
 }
 
 impl TestServer {
@@ -102,7 +114,10 @@ impl TestServer {
     }
 
     pub fn notify(&self, method: &str, params: Value) {
-        self.client.sender.send(Message::Notification(Notification::new(method.to_string(), params))).unwrap();
+        self.client
+            .sender
+            .send(Message::Notification(Notification::new(method.to_string(), params)))
+            .unwrap();
     }
 
     pub fn did_open(&self, uri: &str, source: &str, language_id: &str) {
@@ -115,13 +130,20 @@ impl TestServer {
     pub fn send_request(&mut self, method: &str, params: Value) -> RequestId {
         let id = RequestId::from(self.next_id);
         self.next_id += 1;
-        self.client.sender.send(Message::Request(Request::new(id.clone(), method.to_string(), params))).unwrap();
+        self.client
+            .sender
+            .send(Message::Request(Request::new(id.clone(), method.to_string(), params)))
+            .unwrap();
         id
     }
 
     pub fn wait_for_response(&self, id: &RequestId) -> Response {
         loop {
-            let message = self.client.receiver.recv_timeout(RESPONSE_TIMEOUT).expect("No message received from server");
+            let message = self
+                .client
+                .receiver
+                .recv_timeout(RESPONSE_TIMEOUT)
+                .expect("No message received from server");
             if let Message::Response(response) = message
                 && &response.id == id
             {
@@ -132,7 +154,11 @@ impl TestServer {
 
     pub fn wait_for_message(&self, mut predicate: impl FnMut(&Message) -> bool) -> Message {
         loop {
-            let message = self.client.receiver.recv_timeout(RESPONSE_TIMEOUT).expect("No message received from server");
+            let message = self
+                .client
+                .receiver
+                .recv_timeout(RESPONSE_TIMEOUT)
+                .expect("No message received from server");
             if predicate(&message) {
                 return message;
             }
@@ -158,15 +184,24 @@ impl TestServer {
             "textDocument/definition",
             json!({ "textDocument": { "uri": uri }, "position": { "line": line, "character": character } }),
         );
-        result.as_array().cloned().unwrap_or_else(|| panic!("Expected an array, got {result}"))
+        result
+            .as_array()
+            .cloned()
+            .unwrap_or_else(|| panic!("Expected an array, got {result}"))
     }
 }
 
 impl Drop for TestServer {
     fn drop(&mut self) {
         let id = RequestId::from(-1);
-        let _ = self.client.sender.send(Message::Request(Request::new(id, "shutdown".to_string(), Value::Null)));
-        let _ = self.client.sender.send(Message::Notification(Notification::new("exit".to_string(), Value::Null)));
+        let _ = self
+            .client
+            .sender
+            .send(Message::Request(Request::new(id, "shutdown".to_string(), Value::Null)));
+        let _ = self.client.sender.send(Message::Notification(Notification::new(
+            "exit".to_string(),
+            Value::Null,
+        )));
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -182,8 +217,14 @@ pub fn fixture_path(name: &str) -> PathBuf {
 }
 
 pub fn ruby_config(key: &str) -> Option<String> {
-    let output = std::process::Command::new("ruby").args(["-e", &format!("print RbConfig::CONFIG[{key:?}]")]).output().ok()?;
-    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+    let output = std::process::Command::new("ruby")
+        .args(["-e", &format!("print RbConfig::CONFIG[{key:?}]")])
+        .output()
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 pub fn rbs_core_path() -> Option<PathBuf> {
@@ -194,7 +235,10 @@ pub fn rbs_core_path() -> Option<PathBuf> {
         .args(["-e", "print Gem::Specification.find_by_name('rbs').full_gem_path"])
         .output()
         .ok()?;
-    output.status.success().then(|| PathBuf::from(String::from_utf8_lossy(&output.stdout).into_owned()).join("core"))
+    output
+        .status
+        .success()
+        .then(|| PathBuf::from(String::from_utf8_lossy(&output.stdout).into_owned()).join("core"))
 }
 
 pub fn fake_uri(uri: &str) -> String {

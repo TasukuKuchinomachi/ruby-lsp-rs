@@ -1,0 +1,16 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 0
+      end:
+        line: 2
+        character: 0
+    severity: ERROR
+    message: |-
+      Type checking failed due to error in library RBS file
+      Different superclasses are specified for `::Integer`
+      (<rbs gem directory>/core/integer.rbs:95:0)
+    code: Ruby::LibraryRBSError

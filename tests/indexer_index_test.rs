@@ -17,12 +17,20 @@ fn strings(values: &[&str]) -> Vec<String> {
 }
 
 fn resolve_first<'a>(test: &'a mut TestCase, name: &str, nesting: &[&str]) -> &'a Entry {
-    let ids = test.index.resolve(name, &strings(nesting)).unwrap_or_else(|| panic!("Expected {name} to resolve"));
+    let ids = test
+        .index
+        .resolve(name, &strings(nesting))
+        .unwrap_or_else(|| panic!("Expected {name} to resolve"));
     assert!(!ids.is_empty());
     test.index.entry(ids[0])
 }
 
-fn resolve_method_first<'a>(test: &'a mut TestCase, method_name: &str, receiver_name: &str, inherited_only: bool) -> &'a Entry {
+fn resolve_method_first<'a>(
+    test: &'a mut TestCase,
+    method_name: &str,
+    receiver_name: &str,
+    inherited_only: bool,
+) -> &'a Entry {
     let ids = test
         .index
         .resolve_method(method_name, receiver_name, inherited_only)
@@ -39,7 +47,13 @@ fn write_temporary_file(name: &str, source: &str) -> (PathBuf, IndexablePath) {
     std::fs::create_dir_all(&directory).unwrap();
     let path = directory.join("foo.rb");
     std::fs::write(&path, source).unwrap();
-    (directory, IndexablePath { path, require_path: None })
+    (
+        directory,
+        IndexablePath {
+            path,
+            require_path: None,
+        },
+    )
 }
 
 #[test]
@@ -81,7 +95,10 @@ fn test_index_resolve() {
     let mut test = TestCase::new();
     index_single(&mut test.index, FOO_URI, RESOLVE_SOURCE, true);
 
-    assert_eq!("Foo::Baz::Something", resolve_first(&mut test, "Something", &["Foo", "Baz"]).name);
+    assert_eq!(
+        "Foo::Baz::Something",
+        resolve_first(&mut test, "Something", &["Foo", "Baz"]).name
+    );
     assert_eq!("Foo::Bar", resolve_first(&mut test, "Bar", &["Foo"]).name);
     assert_eq!("Foo::Bar", resolve_first(&mut test, "Bar", &["Foo", "Baz"]).name);
     assert_eq!("Foo::Bar", resolve_first(&mut test, "Foo::Bar", &["Foo", "Baz"]).name);
@@ -119,7 +136,11 @@ end
     );
 
     let names = |test: &TestCase, query: &str| -> Vec<String> {
-        test.index.fuzzy_search(Some(query), |_| true).into_iter().map(|id| test.index.entry(id).name.clone()).collect()
+        test.index
+            .fuzzy_search(Some(query), |_| true)
+            .into_iter()
+            .map(|id| test.index.entry(id).name.clone())
+            .collect()
     };
 
     assert_eq!(strings(&["Zws", "Qtl::Zwo::Something"]), names(&test, "Zws"));
@@ -127,7 +148,10 @@ end
         strings(&["Qtl::Zwo::Something", "Qtl::Zws", "Qtl::Zwo", "Qtl", "Zws", "blocking"]),
         names(&test, "qtlzwssomeking")
     );
-    assert_eq!(strings(&["Qtl::Zwo", "Qtl::Zws", "Qtl::Zwo::Something", "Qtl"]), names(&test, "QltZwo"));
+    assert_eq!(
+        strings(&["Qtl::Zwo", "Qtl::Zws", "Qtl::Zwo::Something", "Qtl"]),
+        names(&test, "QltZwo")
+    );
 }
 
 #[test]
@@ -135,7 +159,14 @@ fn test_index_single_ignores_directories() {
     let mut test = TestCase::new();
     let directory = std::env::temp_dir().join(format!("ruby_lsp_rs_this_is_a_dir_{}.rb", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
-    index_file(&mut test.index, &IndexablePath { path: directory.clone(), require_path: None }, true);
+    index_file(
+        &mut test.index,
+        &IndexablePath {
+            path: directory.clone(),
+            require_path: None,
+        },
+        true,
+    );
     std::fs::remove_dir_all(&directory).unwrap();
     test.assert_no_indexed_entries();
 }
@@ -143,18 +174,40 @@ fn test_index_single_ignores_directories() {
 #[test]
 fn test_searching_for_require_paths() {
     let mut test = TestCase::new();
-    index_single_with_require_path(&mut test.index, FOO_URI.into(), b"class Foo\nend\n", true, Some("path/foo"));
-    index_single_with_require_path(&mut test.index, OTHER_FOO_URI.into(), b"class Foo\nend\n", true, Some("path/other_foo"));
+    index_single_with_require_path(
+        &mut test.index,
+        FOO_URI.into(),
+        b"class Foo\nend\n",
+        true,
+        Some("path/foo"),
+    );
+    index_single_with_require_path(
+        &mut test.index,
+        OTHER_FOO_URI.into(),
+        b"class Foo\nend\n",
+        true,
+        Some("path/other_foo"),
+    );
 
-    let require_paths: Vec<String> =
-        test.index.search_require_paths("path").into_iter().map(|(require_path, _)| require_path.to_string()).collect();
+    let require_paths: Vec<String> = test
+        .index
+        .search_require_paths("path")
+        .into_iter()
+        .map(|(require_path, _)| require_path.to_string())
+        .collect();
     assert_eq!(strings(&["path/other_foo", "path/foo"]), require_paths);
 }
 
 #[test]
 fn test_searching_for_entries_based_on_prefix() {
     let mut test = TestCase::new();
-    index_single_with_require_path(&mut test.index, FOO_URI.into(), b"class Foo::Bizw\nend\n", true, Some("path/foo"));
+    index_single_with_require_path(
+        &mut test.index,
+        FOO_URI.into(),
+        b"class Foo::Bizw\nend\n",
+        true,
+        Some("path/foo"),
+    );
     index_single_with_require_path(
         &mut test.index,
         OTHER_FOO_URI.into(),
@@ -179,7 +232,12 @@ fn test_searching_for_entries_based_on_prefix() {
 #[test]
 fn test_resolve_normalizes_top_level_names() {
     let mut test = TestCase::new();
-    index_single(&mut test.index, FOO_URI, "class Bar; end\n\nmodule Foo\n  class Bar; end\nend\n", true);
+    index_single(
+        &mut test.index,
+        FOO_URI,
+        "class Bar; end\n\nmodule Foo\n  class Bar; end\nend\n",
+        true,
+    );
 
     assert_eq!("Foo::Bar", resolve_first(&mut test, "::Foo::Bar", &[]).name);
     assert_eq!("Bar", resolve_first(&mut test, "::Bar", &["Foo"]).name);
@@ -272,12 +330,24 @@ end
     let first_entry = test.index.entry(ids[0]);
     assert_eq!("bar", first_entry.name);
     assert_eq!(Some("Foo"), first_entry.owner());
-    assert!(first_entry.comments.as_deref().unwrap().contains("Hello from first `bar`"));
+    assert!(
+        first_entry
+            .comments
+            .as_deref()
+            .unwrap()
+            .contains("Hello from first `bar`")
+    );
 
     let second_entry = test.index.entry(ids[1]);
     assert_eq!("bar", second_entry.name);
     assert_eq!(Some("Foo"), second_entry.owner());
-    assert!(second_entry.comments.as_deref().unwrap().contains("Hello from second `bar`"));
+    assert!(
+        second_entry
+            .comments
+            .as_deref()
+            .unwrap()
+            .contains("Hello from second `bar`")
+    );
 }
 
 #[test]
@@ -320,7 +390,14 @@ fn test_prefix_search_for_methods() {
 #[test]
 fn test_index_single_does_not_fail_for_non_existing_file() {
     let mut test = TestCase::new();
-    index_file(&mut test.index, &IndexablePath { path: PathBuf::from("/fake/path/foo.rb"), require_path: None }, true);
+    index_file(
+        &mut test.index,
+        &IndexablePath {
+            path: PathBuf::from("/fake/path/foo.rb"),
+            require_path: None,
+        },
+        true,
+    );
     test.assert_no_indexed_entries();
 }
 
@@ -343,8 +420,14 @@ end
 ",
     );
 
-    assert_eq!(strings(&["B", "A", "Foo", "Object", "Kernel", "BasicObject"]), ancestors(&mut test, "Foo"));
-    assert_eq!(strings(&["Bar", "B", "A", "Object", "Kernel", "BasicObject"]), ancestors(&mut test, "Bar"));
+    assert_eq!(
+        strings(&["B", "A", "Foo", "Object", "Kernel", "BasicObject"]),
+        ancestors(&mut test, "Foo")
+    );
+    assert_eq!(
+        strings(&["Bar", "B", "A", "Object", "Kernel", "BasicObject"]),
+        ancestors(&mut test, "Bar")
+    );
 }
 
 #[test]
@@ -380,7 +463,20 @@ end
     );
 
     assert_eq!(
-        strings(&["D", "A", "Foo", "B", "E", "F", "A", "C", "Bar", "Object", "Kernel", "BasicObject"]),
+        strings(&[
+            "D",
+            "A",
+            "Foo",
+            "B",
+            "E",
+            "F",
+            "A",
+            "C",
+            "Bar",
+            "Object",
+            "Kernel",
+            "BasicObject"
+        ]),
         ancestors(&mut test, "Foo")
     );
 }
@@ -406,14 +502,22 @@ end
 ",
     );
 
-    assert_eq!(strings(&["Foo", "B", "A", "Object", "Kernel", "BasicObject"]), ancestors(&mut test, "Foo"));
-    assert_eq!(strings(&["B", "A", "Bar", "Object", "Kernel", "BasicObject"]), ancestors(&mut test, "Bar"));
+    assert_eq!(
+        strings(&["Foo", "B", "A", "Object", "Kernel", "BasicObject"]),
+        ancestors(&mut test, "Foo")
+    );
+    assert_eq!(
+        strings(&["B", "A", "Bar", "Object", "Kernel", "BasicObject"]),
+        ancestors(&mut test, "Bar")
+    );
 }
 
 #[test]
 fn test_linearizing_ancestors_is_cached() {
     let mut test = TestCase::new();
-    test.index("module C; end\nmodule A; end\nmodule B\n  include A\nend\n\nclass Foo\n  include B\n  include A\nend\n");
+    test.index(
+        "module C; end\nmodule A; end\nmodule B\n  include A\nend\n\nclass Foo\n  include B\n  include A\nend\n",
+    );
     test.index.linearized_ancestors_of("Foo").unwrap();
     assert!(test.index.has_cached_ancestors("Foo"));
     assert!(test.index.has_cached_ancestors("A"));
@@ -439,8 +543,14 @@ end
 ",
     );
 
-    assert_eq!(strings(&["A", "Foo", "Object", "Kernel", "BasicObject"]), ancestors(&mut test, "Foo"));
-    assert_eq!(strings(&["A", "Bar", "A", "Object", "Kernel", "BasicObject"]), ancestors(&mut test, "Bar"));
+    assert_eq!(
+        strings(&["A", "Foo", "Object", "Kernel", "BasicObject"]),
+        ancestors(&mut test, "Foo")
+    );
+    assert_eq!(
+        strings(&["A", "Bar", "A", "Object", "Kernel", "BasicObject"]),
+        ancestors(&mut test, "Bar")
+    );
 }
 
 #[test]
@@ -469,7 +579,10 @@ end
 ",
     );
 
-    assert_eq!(strings(&["A", "B", "C", "Foo", "Object", "Kernel", "BasicObject"]), ancestors(&mut test, "Foo"));
+    assert_eq!(
+        strings(&["A", "B", "C", "Foo", "Object", "Kernel", "BasicObject"]),
+        ancestors(&mut test, "Foo")
+    );
 }
 
 #[test]
@@ -491,7 +604,10 @@ end
 ",
     );
 
-    assert_eq!(strings(&["Foo", "C", "B", "A", "Object", "Kernel", "BasicObject"]), ancestors(&mut test, "Foo"));
+    assert_eq!(
+        strings(&["Foo", "C", "B", "A", "Object", "Kernel", "BasicObject"]),
+        ancestors(&mut test, "Foo")
+    );
 }
 
 #[test]
@@ -515,7 +631,15 @@ end
     );
 
     assert_eq!(
-        strings(&["Foo::Qux", "Foo::Bar", "Foo::Baz", "Foo::Something", "Object", "Kernel", "BasicObject"]),
+        strings(&[
+            "Foo::Qux",
+            "Foo::Bar",
+            "Foo::Baz",
+            "Foo::Something",
+            "Object",
+            "Kernel",
+            "BasicObject"
+        ]),
         ancestors(&mut test, "Foo::Bar")
     );
 }
@@ -524,8 +648,14 @@ end
 fn test_linearizing_ancestors_for_non_existing_namespaces() {
     let mut test = TestCase::new();
     test.index("def Bar(a); end\n");
-    assert_eq!(Err(NonExistingNamespaceError), test.index.linearized_ancestors_of("Foo"));
-    assert_eq!(Err(NonExistingNamespaceError), test.index.linearized_ancestors_of("Bar"));
+    assert_eq!(
+        Err(NonExistingNamespaceError),
+        test.index.linearized_ancestors_of("Foo")
+    );
+    assert_eq!(
+        Err(NonExistingNamespaceError),
+        test.index.linearized_ancestors_of("Bar")
+    );
 }
 
 #[test]
@@ -590,7 +720,10 @@ end
 ",
     );
 
-    assert_eq!(strings(&["Child", "Parent", "Object", "Kernel", "BasicObject"]), ancestors(&mut test, "Child"));
+    assert_eq!(
+        strings(&["Child", "Parent", "Object", "Kernel", "BasicObject"]),
+        ancestors(&mut test, "Child")
+    );
 }
 
 #[test]
@@ -735,7 +868,12 @@ CONST = 4
 ",
     );
 
-    assert_eq!(14, resolve_first(&mut test, "CONST", &["Namespace", "Bar"]).location.start_line);
+    assert_eq!(
+        14,
+        resolve_first(&mut test, "CONST", &["Namespace", "Bar"])
+            .location
+            .start_line
+    );
 }
 
 #[test]
@@ -758,8 +896,16 @@ end
 ",
     );
 
-    assert_eq!(2, resolve_first(&mut test, "Foo::CONST::TARGET", &[]).location.start_line);
-    assert_eq!(2, resolve_first(&mut test, "Namespace::Bar::CONST::TARGET", &[]).location.start_line);
+    assert_eq!(
+        2,
+        resolve_first(&mut test, "Foo::CONST::TARGET", &[]).location.start_line
+    );
+    assert_eq!(
+        2,
+        resolve_first(&mut test, "Namespace::Bar::CONST::TARGET", &[])
+            .location
+            .start_line
+    );
 }
 
 #[test]
@@ -779,8 +925,18 @@ end
 ",
     );
 
-    assert_eq!(2, resolve_first(&mut test, "CONST", &["Namespace", "Child"]).location.start_line);
-    assert_eq!(5, resolve_first(&mut test, "Namespace::Child::CONST", &[]).location.start_line);
+    assert_eq!(
+        2,
+        resolve_first(&mut test, "CONST", &["Namespace", "Child"])
+            .location
+            .start_line
+    );
+    assert_eq!(
+        5,
+        resolve_first(&mut test, "Namespace::Child::CONST", &[])
+            .location
+            .start_line
+    );
 }
 
 #[test]
@@ -836,7 +992,12 @@ end
 ",
     );
 
-    assert_eq!(6, resolve_first(&mut test, "CONST", &["First", "Second"]).location.start_line);
+    assert_eq!(
+        6,
+        resolve_first(&mut test, "CONST", &["First", "Second"])
+            .location
+            .start_line
+    );
 }
 
 #[test]
@@ -940,5 +1101,10 @@ end
 ",
     );
 
-    assert_eq!(2, resolve_first(&mut test, "A::B::Foo::CONST", &["A", "B"]).location.start_line);
+    assert_eq!(
+        2,
+        resolve_first(&mut test, "A::B::Foo::CONST", &["A", "B"])
+            .location
+            .start_line
+    );
 }

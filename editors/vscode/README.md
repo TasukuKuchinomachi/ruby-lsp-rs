@@ -24,6 +24,7 @@ steep-vscode や Shopify Ruby LSP と同時に有効にすると hover や診断
 | `rubyLspRs.server.path` | 同梱のサーバー | サーバーのパス |
 | `rubyLspRs.typeChecker.enable` | `true` | 型推論・型検査 |
 | `rubyLspRs.typeChecker.diagnostics.enable` | `true` | 型エラーの診断 |
+| `rubyLspRs.typeChecker.inferMoreThanSteep` | `false` | Steep より多く型を推論する。hover・inlay hint・補完などの型だけが変わり、診断は `steep check` と同じまま（規則はリポジトリの README を参照） |
 | `rubyLspRs.definition.target` | `"implementation"` | 定義へ移動の飛び先。`"signature"` で RBS、`"both"` で両方 |
 | `rubyLspRs.inlayHints.methodReturnTypes.enable` | `true` | `def` の戻り値の型 |
 | `rubyLspRs.inlayHints.methodParameterTypes.enable` | `true` | `def` の引数の型 |
@@ -48,12 +49,12 @@ inlay hint は rust-analyzer と同じく、キーを押している間だけ表
 
 | 操作 | 飛び先 |
 | --- | --- |
-| 定義へ移動（`F12` / `Cmd+クリック`） | Ruby の実装。推論したレシーバーの型から探します。実装が無ければ RBS |
+| 定義へ移動（`F12` / `Cmd+クリック`） | Ruby の実装。Steep の型検査の結果から探します。実装が無ければ RBS |
 | 宣言へ移動 | RBS のシグネチャ |
 | 型定義へ移動 | 変数や式の型のクラス |
-| hover 内のリンク | `Signature` は RBS、`Implementation` は Ruby の実装 |
+| 実装へ移動 | Ruby の実装 |
 
-RBS ファイルの中で定義へ移動すると、メソッド名・`attr_*`・`alias`・クラス名・定数名からは Ruby の実装へ、型名からは Ruby の実装と RBS の宣言の両方へ飛びます。
+RBS ファイルの中での移動は Steep の language server と同じです。メソッド名・クラス名・定数名からは Ruby の実装へ、型名からは RBS の宣言へ飛びます。
 
 ## コマンド
 

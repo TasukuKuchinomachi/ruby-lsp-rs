@@ -5,7 +5,10 @@ use serde_json::{Value, json};
 use support::{DEFAULT_URI, TestOptions, TestServer, rbs_core_path, with_server};
 
 fn no_typechecker() -> TestOptions {
-    TestOptions { stub_no_typechecker: true, ..TestOptions::default() }
+    TestOptions {
+        stub_no_typechecker: true,
+        ..TestOptions::default()
+    }
 }
 
 fn hover(server: &mut TestServer, line: u32, character: u32) -> Value {
@@ -18,17 +21,25 @@ fn hover(server: &mut TestServer, line: u32, character: u32) -> Value {
 
 fn hover_contents(server: &mut TestServer, line: u32, character: u32) -> String {
     let result = hover(server, line, character);
-    result["contents"]["value"].as_str().unwrap_or_else(|| panic!("Expected hover contents, got {result}")).to_string()
+    result["contents"]["value"]
+        .as_str()
+        .unwrap_or_else(|| panic!("Expected hover contents, got {result}"))
+        .to_string()
 }
 
 fn index_ruby_core(server: &TestServer) -> bool {
-    let Some(rbs_core_path) = rbs_core_path() else { return false };
+    let Some(rbs_core_path) = rbs_core_path() else {
+        return false;
+    };
     RbsIndexer::new(&mut server.index()).index_core_directory(&rbs_core_path);
     true
 }
 
 fn assert_contains(contents: &str, expected: &str) {
-    assert!(contents.contains(expected), "Expected {contents:?} to contain {expected:?}");
+    assert!(
+        contents.contains(expected),
+        "Expected {contents:?} to contain {expected:?}"
+    );
 }
 
 #[test]
@@ -45,7 +56,10 @@ fn hovering_on_erb() {
         return;
     }
     let contents = hover_contents(&mut server, 0, 4);
-    assert!(contents.contains("String\n") || contents.contains("String`"), "{contents}");
+    assert!(
+        contents.contains("String\n") || contents.contains("String`"),
+        "{contents}"
+    );
 }
 
 #[test]
@@ -106,7 +120,8 @@ fn hovering_methods_with_two_definitions() {
 
 #[test]
 fn hovering_methods_invoked_on_explicit_self() {
-    let source = "# typed: false\n\nclass A\n  # Hello from `foo`\n  def foo; end\n\n  def bar\n    self.foo\n  end\nend\n";
+    let source =
+        "# typed: false\n\nclass A\n  # Hello from `foo`\n  def foo; end\n\n  def bar\n    self.foo\n  end\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, no_typechecker());
     assert_contains(&hover_contents(&mut server, 7, 9), "Hello from `foo`");
 }
@@ -135,7 +150,9 @@ fn rake_specification() -> Option<Value> {
 
 #[test]
 fn hovering_over_gemfile_dependency_name() {
-    let Some(specification) = rake_specification() else { return };
+    let Some(specification) = rake_specification() else {
+        return;
+    };
     let mut server = with_server(Some("gem 'rake'\n"), "file:///Gemfile", TestOptions::default());
     let contents = hover_contents(&mut server, 0, 5);
     for key in ["name", "version", "homepage"] {
@@ -145,7 +162,11 @@ fn hovering_over_gemfile_dependency_name() {
 
 #[test]
 fn hovering_over_gemfile_dependency_triggers_only_for_first_arg() {
-    let mut server = with_server(Some("gem 'rake', '~> 1.0'\n"), "file:///Gemfile", TestOptions::default());
+    let mut server = with_server(
+        Some("gem 'rake', '~> 1.0'\n"),
+        "file:///Gemfile",
+        TestOptions::default(),
+    );
     assert_eq!(hover(&mut server, 0, 13), Value::Null);
 }
 
@@ -226,7 +247,10 @@ fn hover_for_inherited_instance_variables() {
 fn hover_for_methods_shows_parameters() {
     let source = "class Foo\n  def bar(a, b = 1, *c, d:, e: 1, **f, &g)\n  end\n\n  def baz\n    bar\n  end\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
-    assert_contains(&hover_contents(&mut server, 5, 4), "bar(a, b = <default>, *c, d:, e: <default>, **f, &g)");
+    assert_contains(
+        &hover_contents(&mut server, 5, 4),
+        "bar(a, b = <default>, *c, d:, e: <default>, **f, &g)",
+    );
 }
 
 #[test]
@@ -289,7 +313,8 @@ fn hover_is_disabled_for_instance_variables_on_typed_strict() {
 
 #[test]
 fn hover_is_disabled_on_super_for_typed_true() {
-    let source = "# typed: true\nclass Parent\n  def foo; end\nend\nclass Child < Parent\n  def foo\n    super\n  end\nend\n";
+    let source =
+        "# typed: true\nclass Parent\n  def foo; end\nend\nclass Child < Parent\n  def foo\n    super\n  end\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
     assert_eq!(hover(&mut server, 6, 4), Value::Null);
 }
@@ -305,12 +330,18 @@ fn hover_for_guessed_receivers() {
 
 #[test]
 fn hover_for_keywords() {
-    let cases = [("yield", "def foo\n  yield\nend\n"), ("break", "while true\n  break\nend\n")];
+    let cases = [
+        ("yield", "def foo\n  yield\nend\n"),
+        ("break", "while true\n  break\nend\n"),
+    ];
     for (keyword, source) in cases {
         let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
         let contents = hover_contents(&mut server, 1, 2);
         assert_contains(&contents, &format!("```ruby\n{keyword}\n```"));
-        assert_contains(&contents, ruby_lsp_rs::requests::support::static_docs::keyword_documentation(keyword).unwrap());
+        assert_contains(
+            &contents,
+            ruby_lsp_rs::requests::support::static_docs::keyword_documentation(keyword).unwrap(),
+        );
         let expected_uri = ruby_lsp_rs::uri::from_path_buf(
             &ruby_lsp_rs::requests::support::static_docs::static_docs_path().join(format!("{keyword}.md")),
         );

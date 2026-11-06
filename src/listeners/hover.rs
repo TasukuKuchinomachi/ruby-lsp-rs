@@ -68,7 +68,14 @@ impl<'a, 'pr> Hover<'a, 'pr> {
         node_context: &'a NodeContext<'pr>,
         sorbet_level: SorbetLevel,
     ) -> Hover<'a, 'pr> {
-        Hover { response_builder, global_state, index, path: crate::uri::to_path(uri), node_context, sorbet_level }
+        Hover {
+            response_builder,
+            global_state,
+            index,
+            path: crate::uri::to_path(uri),
+            node_context,
+            sorbet_level,
+        }
     }
 
     pub fn dispatch(&mut self, target: &Node<'_>) {
@@ -83,7 +90,10 @@ impl<'a, 'pr> Hover<'a, 'pr> {
             }
             "StringNode" => self.on_string_node_enter(target),
             "InterpolatedStringNode" => {
-                let opening = target.as_interpolated_string_node().expect("type name was checked").opening_loc();
+                let opening = target
+                    .as_interpolated_string_node()
+                    .expect("type name was checked")
+                    .opening_loc();
                 self.generate_heredoc_hover(opening.map(|location| location_slice(&location)));
             }
             "ConstantReadNode" | "ConstantPathNode" => {
@@ -146,8 +156,12 @@ impl<'a, 'pr> Hover<'a, 'pr> {
             .is_some_and(|file_name| file_name == GEMFILE_NAME);
 
         if is_gemfile && let Some(call_node) = self.node_context.call_node() {
-            let first_argument = call_node.arguments().and_then(|arguments| arguments.arguments().iter().next());
-            if constant_id_name(&call_node.name()) == "gem" && first_argument.is_some_and(|argument| argument.same_node(node)) {
+            let first_argument = call_node
+                .arguments()
+                .and_then(|arguments| arguments.arguments().iter().next());
+            if constant_id_name(&call_node.name()) == "gem"
+                && first_argument.is_some_and(|argument| argument.same_node(node))
+            {
                 self.generate_gem_hover(&call_node);
                 return;
             }
@@ -160,7 +174,9 @@ impl<'a, 'pr> Hover<'a, 'pr> {
         if self.sorbet_level.is_true_or_higher() && self_receiver(node) {
             return;
         }
-        let Some(message) = node.message_loc().map(|location| location_slice(&location)) else { return };
+        let Some(message) = node.message_loc().map(|location| location_slice(&location)) else {
+            return;
+        };
         self.handle_method_hover(&message, false);
     }
 
@@ -169,7 +185,9 @@ impl<'a, 'pr> Hover<'a, 'pr> {
         if !opening_content.starts_with("<<") {
             return;
         }
-        let Some((heredoc_type, delimiter)) = match_heredoc_opening(&opening_content) else { return };
+        let Some((heredoc_type, delimiter)) = match_heredoc_opening(&opening_content) else {
+            return;
+        };
 
         let message = if heredoc_type == Some('~') {
             format!(
@@ -184,10 +202,14 @@ impl<'a, 'pr> Hover<'a, 'pr> {
     }
 
     fn handle_keyword_documentation(&mut self, keyword: &str) {
-        let Some(content) = keyword_documentation(keyword) else { return };
+        let Some(content) = keyword_documentation(keyword) else {
+            return;
+        };
         let documentation_uri = keyword_documentation_uri(keyword);
-        self.response_builder.push(&format!("```ruby\n{keyword}\n```"), HoverCategory::Title);
-        self.response_builder.push(&format!("[Read more]({documentation_uri})"), HoverCategory::Links);
+        self.response_builder
+            .push(&format!("```ruby\n{keyword}\n```"), HoverCategory::Title);
+        self.response_builder
+            .push(&format!("[Read more]({documentation_uri})"), HoverCategory::Links);
         self.response_builder.push(content, HoverCategory::Documentation);
     }
 
@@ -195,21 +217,32 @@ impl<'a, 'pr> Hover<'a, 'pr> {
         if self.sorbet_level.is_true_or_higher() {
             return;
         }
-        let Some(surrounding_method) = self.node_context.surrounding_method.clone() else { return };
+        let Some(surrounding_method) = self.node_context.surrounding_method.clone() else {
+            return;
+        };
         self.handle_method_hover(&surrounding_method, true);
     }
 
     fn handle_method_hover(&mut self, message: &str, inherited_only: bool) {
-        let Some(receiver_type) = TypeInferrer::new(self.index).infer_receiver_type(self.node_context) else { return };
-        let Some(methods) = self.index.resolve_method(message, &receiver_type.name, inherited_only) else { return };
-        let Some(first_method) = methods.first().map(|id| self.index.entry(*id)) else { return };
+        let Some(receiver_type) = TypeInferrer::new(self.index).infer_receiver_type(self.node_context) else {
+            return;
+        };
+        let Some(methods) = self.index.resolve_method(message, &receiver_type.name, inherited_only) else {
+            return;
+        };
+        let Some(first_method) = methods.first().map(|id| self.index.entry(*id)) else {
+            return;
+        };
 
         let mut title = format!("{message}{}", first_method.decorated_parameters());
         title.push_str(&first_method.formatted_signatures());
 
         if receiver_type.guessed {
             title.push_str(&format!("\n\nGuessed receiver: {}", receiver_type.name));
-            self.response_builder.push(&format!("[Learn more about guessed types]({GUESSED_TYPES_URL})\n"), HoverCategory::Links);
+            self.response_builder.push(
+                &format!("[Learn more about guessed types]({GUESSED_TYPES_URL})\n"),
+                HoverCategory::Links,
+            );
         }
 
         self.push_entries(&title, &methods);
@@ -219,25 +252,39 @@ impl<'a, 'pr> Hover<'a, 'pr> {
         if self.sorbet_level.is_strict() {
             return;
         }
-        let Some(receiver_type) = TypeInferrer::new(self.index).infer_receiver_type(self.node_context) else { return };
-        let Some(entries) = self.index.resolve_instance_variable(name, &receiver_type.name) else { return };
+        let Some(receiver_type) = TypeInferrer::new(self.index).infer_receiver_type(self.node_context) else {
+            return;
+        };
+        let Some(entries) = self.index.resolve_instance_variable(name, &receiver_type.name) else {
+            return;
+        };
         self.push_entries(name, &entries);
     }
 
     fn handle_global_variable_hover(&mut self, name: &str) {
-        let Some(entries) = self.index.get_owned(name) else { return };
+        let Some(entries) = self.index.get_owned(name) else {
+            return;
+        };
         self.push_entries(name, &entries);
     }
 
     fn handle_class_variable_hover(&mut self, name: &str) {
-        let Some(receiver_type) = TypeInferrer::new(self.index).infer_receiver_type(self.node_context) else { return };
-        let Some(entries) = self.index.resolve_class_variable(name, &receiver_type.name) else { return };
+        let Some(receiver_type) = TypeInferrer::new(self.index).infer_receiver_type(self.node_context) else {
+            return;
+        };
+        let Some(entries) = self.index.resolve_class_variable(name, &receiver_type.name) else {
+            return;
+        };
         self.push_entries(name, &entries);
     }
 
     fn generate_hover(&mut self, name: &str) {
-        let Some(entries) = self.index.resolve(name, &self.node_context.nesting) else { return };
-        let Some(first_entry) = entries.first().map(|id| self.index.entry(*id)) else { return };
+        let Some(entries) = self.index.resolve(name, &self.node_context.nesting) else {
+            return;
+        };
+        let Some(first_entry) = entries.first().map(|id| self.index.entry(*id)) else {
+            return;
+        };
 
         let full_name = first_entry.name.clone();
         if first_entry.is_private() && full_name != format!("{}::{name}", self.node_context.fully_qualified_name()) {
@@ -253,11 +300,17 @@ impl<'a, 'pr> Hover<'a, 'pr> {
     }
 
     fn generate_gem_hover(&mut self, node: &CallNode<'_>) {
-        let Some(first_argument) = node.arguments().and_then(|arguments| arguments.arguments().iter().next()) else {
+        let Some(first_argument) = node
+            .arguments()
+            .and_then(|arguments| arguments.arguments().iter().next())
+        else {
             return;
         };
-        let Some(string) = first_argument.as_string_node() else { return };
-        let Some(specification) = find_gem_specification(self.global_state, &location_slice(&string.content_loc())) else {
+        let Some(string) = first_argument.as_string_node() else {
+            return;
+        };
+        let Some(specification) = find_gem_specification(self.global_state, &location_slice(&string.content_loc()))
+        else {
             return;
         };
 
@@ -268,14 +321,25 @@ impl<'a, 'pr> Hover<'a, 'pr> {
             .unwrap_or("This rubygem does not have a description or summary.");
         let information = remove_leading_spaces_of_each_line(information);
 
-        let remote_url = [specification.homepage.as_deref(), specification.source_code_uri.as_deref()]
-            .into_iter()
-            .flatten()
-            .find(|page| ALLOWED_REMOTE_PROVIDERS.iter().any(|provider| page.starts_with(provider)));
-        let remote_link = remote_url.map(|url| format!(" - [open remote]({url})")).unwrap_or_default();
+        let remote_url = [
+            specification.homepage.as_deref(),
+            specification.source_code_uri.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .find(|page| {
+            ALLOWED_REMOTE_PROVIDERS
+                .iter()
+                .any(|provider| page.starts_with(provider))
+        });
+        let remote_link = remote_url
+            .map(|url| format!(" - [open remote]({url})"))
+            .unwrap_or_default();
 
-        self.response_builder
-            .push(&format!("**{}** ({}) {remote_link}", specification.name, specification.version), HoverCategory::Title);
+        self.response_builder.push(
+            &format!("**{}** ({}) {remote_link}", specification.name, specification.version),
+            HoverCategory::Title,
+        );
         self.response_builder.push(&information, HoverCategory::Documentation);
     }
 }
@@ -288,7 +352,8 @@ fn match_heredoc_opening(opening_content: &str) -> Option<(Option<char>, String)
     let heredoc_type = characters.next_if(|character| *character == '-' || *character == '~');
     let quote = characters.next_if(|character| matches!(character, '\'' | '"' | '`'));
     let delimiter: String =
-        std::iter::from_fn(|| characters.next_if(|character| character.is_ascii_alphanumeric() || *character == '_')).collect();
+        std::iter::from_fn(|| characters.next_if(|character| character.is_ascii_alphanumeric() || *character == '_'))
+            .collect();
     if delimiter.is_empty() {
         return None;
     }
@@ -301,7 +366,9 @@ fn match_heredoc_opening(opening_content: &str) -> Option<(Option<char>, String)
 }
 
 fn remove_leading_spaces_of_each_line(text: &str) -> String {
-    text.split_inclusive('\n').map(|line| line.trim_start_matches(' ')).collect()
+    text.split_inclusive('\n')
+        .map(|line| line.trim_start_matches(' '))
+        .collect()
 }
 
 #[derive(Debug, Deserialize)]
@@ -336,7 +403,10 @@ end
 /// its locked gems are considered, like `Gem::Specification.find_by_name` inside Ruby LSP's bundle
 fn find_gem_specification(global_state: &GlobalState, name: &str) -> Option<GemSpecification> {
     let locked_gems = &global_state.ruby_environment.locked_gems;
-    let locked_version = locked_gems.iter().find(|gem| gem.name == name).map(|gem| gem.version.clone());
+    let locked_version = locked_gems
+        .iter()
+        .find(|gem| gem.name == name)
+        .map(|gem| gem.version.clone());
     if !locked_gems.is_empty() && locked_version.is_none() {
         return None;
     }
@@ -354,7 +424,9 @@ fn find_gem_specification(global_state: &GlobalState, name: &str) -> Option<GemS
     if !output.status.success() {
         return None;
     }
-    serde_json::from_slice::<Option<GemSpecification>>(&output.stdout).ok().flatten()
+    serde_json::from_slice::<Option<GemSpecification>>(&output.stdout)
+        .ok()
+        .flatten()
 }
 
 #[cfg(test)]

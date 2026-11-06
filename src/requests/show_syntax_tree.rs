@@ -54,5 +54,9 @@ fn ast_for_range(parsed: &ParsedDocument<'_>, range: Range) -> Result<String, su
     }
 
     let inspector = Inspector::new(&parsed.line_index);
-    Ok(found_nodes.iter().map(|node| inspector.inspect(node)).collect::<Vec<_>>().join("\n"))
+    Ok(found_nodes
+        .iter()
+        .map(|node| inspector.inspect(node))
+        .collect::<Vec<_>>()
+        .join("\n"))
 }

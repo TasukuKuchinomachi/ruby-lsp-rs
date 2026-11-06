@@ -1,0 +1,7 @@
+class Vault
+  def open: () -> String
+
+  private
+
+  def secret: () -> String
+end

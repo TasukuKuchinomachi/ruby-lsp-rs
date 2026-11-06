@@ -1,0 +1,23 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 3
+        character: 16
+      end:
+        line: 3
+        character: 30
+    severity: ERROR
+    message: Type `top` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 4
+        character: 16
+      end:
+        line: 4
+        character: 20
+    severity: ERROR
+    message: Type `top` does not have method `to_s`
+    code: Ruby::NoMethod

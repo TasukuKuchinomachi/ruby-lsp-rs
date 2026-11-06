@@ -20,15 +20,24 @@ struct VisibilityScope {
 
 impl VisibilityScope {
     fn public_scope() -> Self {
-        VisibilityScope { visibility: Visibility::Public, module_function: false }
+        VisibilityScope {
+            visibility: Visibility::Public,
+            module_function: false,
+        }
     }
 
     fn module_function_scope() -> Self {
-        VisibilityScope { visibility: Visibility::Private, module_function: true }
+        VisibilityScope {
+            visibility: Visibility::Private,
+            module_function: true,
+        }
     }
 
     fn with_visibility(visibility: Visibility) -> Self {
-        VisibilityScope { visibility, module_function: false }
+        VisibilityScope {
+            visibility,
+            module_function: false,
+        }
     }
 }
 
@@ -54,9 +63,20 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
         uri: Arc<str>,
         collect_comments: bool,
     ) -> Self {
-        let line_index = LineIndex::new(source, super::index::indexer_column_encoding(index.configuration.encoding));
-        let comments_by_line = if collect_comments { comments_by_line(parse_result, &line_index) } else { HashMap::new() };
-        let source_lines = if collect_comments { split_lines(source) } else { Vec::new() };
+        let line_index = LineIndex::new(
+            source,
+            super::index::indexer_column_encoding(index.configuration.encoding),
+        );
+        let comments_by_line = if collect_comments {
+            comments_by_line(parse_result, &line_index)
+        } else {
+            HashMap::new()
+        };
+        let source_lines = if collect_comments {
+            split_lines(source)
+        } else {
+            Vec::new()
+        };
         DeclarationListener {
             index,
             uri,
@@ -72,7 +92,8 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
     }
 
     fn location(&self, location: &ruby_prism::Location<'_>) -> Location {
-        self.line_index.location_of(location.start_offset(), location.end_offset())
+        self.line_index
+            .location_of(location.start_offset(), location.end_offset())
     }
 
     fn start_line(&self, node: &Node<'_>) -> usize {
@@ -83,7 +104,12 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
         if !self.collect_comments {
             return None;
         }
-        Some(collect_comments(&self.comments_by_line, &self.source_lines, self.start_line(node), &self.index.configuration))
+        Some(collect_comments(
+            &self.comments_by_line,
+            &self.source_lines,
+            self.start_line(node),
+            &self.index.configuration,
+        ))
     }
 
     fn current_owner(&self) -> Option<EntryId> {
@@ -95,7 +121,10 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
     }
 
     fn current_visibility_scope(&self) -> VisibilityScope {
-        self.visibility_stack.last().copied().unwrap_or_else(VisibilityScope::public_scope)
+        self.visibility_stack
+            .last()
+            .copied()
+            .unwrap_or_else(VisibilityScope::public_scope)
     }
 
     fn pop_namespace_stack(&mut self) {
@@ -113,12 +142,21 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
 
     fn last_name_in_stack(&self) -> Option<String> {
         let name = self.stack.last()?;
-        Some(name.split("::").filter(|part| !part.is_empty()).last().unwrap_or("").to_string())
+        Some(
+            name.split("::")
+                .filter(|part| !part.is_empty())
+                .last()
+                .unwrap_or("")
+                .to_string(),
+        )
     }
 
     fn fully_qualify_name(&self, name: &str) -> String {
-        let qualified =
-            if self.stack.is_empty() || name.starts_with("::") { name.to_string() } else { format!("{}::{name}", self.stack.join("::")) };
+        let qualified = if self.stack.is_empty() || name.starts_with("::") {
+            name.to_string()
+        } else {
+            format!("{}::{name}", self.stack.join("::"))
+        };
         qualified.strip_prefix("::").map(str::to_string).unwrap_or(qualified)
     }
 
@@ -162,7 +200,11 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
             self.uri.clone(),
             location,
             comments,
-            EntryKind::Method { owner, signatures, name_location },
+            EntryKind::Method {
+                owner,
+                signatures,
+                name_location,
+            },
         );
         entry.visibility = visibility;
         self.index.add(entry, false)
@@ -203,14 +245,25 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
         });
 
         let kind = match alias_target {
-            Some(target) => EntryKind::UnresolvedConstantAlias { target, nesting: self.stack.clone() },
+            Some(target) => EntryKind::UnresolvedConstantAlias {
+                target,
+                nesting: self.stack.clone(),
+            },
             None => EntryKind::Constant,
         };
-        self.index.add(Entry::new(name, self.uri.clone(), location, comments, kind), false);
+        self.index
+            .add(Entry::new(name, self.uri.clone(), location, comments, kind), false);
     }
 
-    fn handle_constant_path_write(&mut self, node: &Node<'_>, target: &ruby_prism::ConstantPathNode<'_>, value: Node<'_>) {
-        let ignored = target.parent().is_some_and(|parent| parent.as_constant_read_node().is_none());
+    fn handle_constant_path_write(
+        &mut self,
+        node: &Node<'_>,
+        target: &ruby_prism::ConstantPathNode<'_>,
+        value: Node<'_>,
+    ) {
+        let ignored = target
+            .parent()
+            .is_some_and(|parent| parent.as_constant_read_node().is_none());
         if ignored {
             return;
         }
@@ -221,7 +274,10 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
     fn handle_global_variable(&mut self, node: &Node<'_>, name: String, location: &ruby_prism::Location<'_>) {
         let comments = self.comments(node);
         let location = self.location(location);
-        self.index.add(Entry::new(name, self.uri.clone(), location, comments, EntryKind::GlobalVariable), false);
+        self.index.add(
+            Entry::new(name, self.uri.clone(), location, comments, EntryKind::GlobalVariable),
+            false,
+        );
     }
 
     fn handle_class_variable(&mut self, node: &Node<'_>, name: String, location: &ruby_prism::Location<'_>) {
@@ -231,11 +287,25 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
         let comments = self.comments(node);
         let mut owner = self.current_owner();
         if owner.is_some_and(|id| self.index.entry(id).is_singleton_class()) {
-            owner = self.owner_stack.iter().rev().copied().find(|id| !self.index.entry(*id).name.contains("<Class:"));
+            owner = self
+                .owner_stack
+                .iter()
+                .rev()
+                .copied()
+                .find(|id| !self.index.entry(*id).name.contains("<Class:"));
         }
         let owner = owner.map(|id| self.index.entry(id).name.clone());
         let location = self.location(location);
-        self.index.add(Entry::new(name, self.uri.clone(), location, comments, EntryKind::ClassVariable { owner }), false);
+        self.index.add(
+            Entry::new(
+                name,
+                self.uri.clone(),
+                location,
+                comments,
+                EntryKind::ClassVariable { owner },
+            ),
+            false,
+        );
     }
 
     fn handle_instance_variable(&mut self, node: &Node<'_>, name: String, location: &ruby_prism::Location<'_>) {
@@ -252,13 +322,26 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
         let owner = owner.map(|id| self.index.entry(id).name.clone());
         let location = self.location(location);
         let comments = self.comments(node);
-        self.index.add(Entry::new(name, self.uri.clone(), location, comments, EntryKind::InstanceVariable { owner }), false);
+        self.index.add(
+            Entry::new(
+                name,
+                self.uri.clone(),
+                location,
+                comments,
+                EntryKind::InstanceVariable { owner },
+            ),
+            false,
+        );
     }
 
     fn handle_private_constant(&mut self, call: &ruby_prism::CallNode<'_>) {
         let Some(arguments) = call.arguments() else { return };
-        let Some(first_argument) = arguments.arguments().iter().next() else { return };
-        let Some(mut name) = string_or_symbol_value(&first_argument) else { return };
+        let Some(first_argument) = arguments.arguments().iter().next() else {
+            return;
+        };
+        let Some(mut name) = string_or_symbol_value(&first_argument) else {
+            return;
+        };
         if let Some(receiver) = call.receiver() {
             name = format!("{}::{name}", node_slice(&receiver));
         }
@@ -273,9 +356,15 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
     fn handle_alias_method(&mut self, call: &ruby_prism::CallNode<'_>) {
         let Some(arguments) = call.arguments() else { return };
         let mut iterator = arguments.arguments().iter();
-        let (Some(new_name), Some(old_name)) = (iterator.next(), iterator.next()) else { return };
-        let Some(new_name_value) = string_or_symbol_value(&new_name) else { return };
-        let Some(old_name_value) = string_or_symbol_value(&old_name) else { return };
+        let (Some(new_name), Some(old_name)) = (iterator.next(), iterator.next()) else {
+            return;
+        };
+        let Some(new_name_value) = string_or_symbol_value(&new_name) else {
+            return;
+        };
+        let Some(old_name_value) = string_or_symbol_value(&old_name) else {
+            return;
+        };
         let comments = self.comments(&call.as_node());
         let owner = self.current_owner_name();
         let location = self.location(&new_name.location());
@@ -285,7 +374,11 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
                 self.uri.clone(),
                 location,
                 comments,
-                EntryKind::UnresolvedMethodAlias { new_name: new_name_value, old_name: old_name_value, owner },
+                EntryKind::UnresolvedMethodAlias {
+                    new_name: new_name_value,
+                    old_name: old_name_value,
+                    owner,
+                },
             ),
             false,
         );
@@ -293,7 +386,10 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
 
     fn handle_attribute(&mut self, call: &ruby_prism::CallNode<'_>, reader: bool, writer: bool) {
         let Some(arguments) = call.arguments() else { return };
-        if call.receiver().is_some_and(|receiver| receiver.as_self_node().is_none()) {
+        if call
+            .receiver()
+            .is_some_and(|receiver| receiver.as_self_node().is_none())
+        {
             return;
         }
         let comments = self.comments(&call.as_node());
@@ -304,9 +400,13 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
             let name_and_location = if let Some(symbol) = argument.as_symbol_node() {
                 symbol.value_loc().map(|location| (location_slice(&location), location))
             } else {
-                argument.as_string_node().map(|string| (location_slice(&string.content_loc()), string.content_loc()))
+                argument
+                    .as_string_node()
+                    .map(|string| (location_slice(&string.content_loc()), string.content_loc()))
             };
-            let Some((name, location)) = name_and_location else { continue };
+            let Some((name, location)) = name_and_location else {
+                continue;
+            };
             let location = self.location(&location);
 
             if reader {
@@ -358,7 +458,9 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
                 continue;
             }
 
-            let Ok(full_name) = constant_full_name(&argument) else { continue };
+            let Ok(full_name) = constant_full_name(&argument) else {
+                continue;
+            };
             match operation {
                 "include" => push_mixin(self.index, owner, ModuleOperation::Include(full_name)),
                 "prepend" => push_mixin(self.index, owner, ModuleOperation::Prepend(full_name)),
@@ -383,11 +485,17 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
 
         let owner_name = self.index.entry(owner).name.clone();
         for argument in arguments.arguments().iter() {
-            let Some(method_name) = string_or_symbol_value(&argument) else { continue };
-            let Some(entries) = self.index.resolve_method(&method_name, &owner_name, false) else { continue };
+            let Some(method_name) = string_or_symbol_value(&argument) else {
+                continue;
+            };
+            let Some(entries) = self.index.resolve_method(&method_name, &owner_name, false) else {
+                continue;
+            };
 
             for entry_id in entries {
-                let Some(entry_owner_name) = self.index.entry(entry_id).owner().map(str::to_string) else { continue };
+                let Some(entry_owner_name) = self.index.entry(entry_id).owner().map(str::to_string) else {
+                    continue;
+                };
                 self.index.entry_mut(entry_id).visibility = Visibility::Private;
 
                 let singleton = self.index.existing_or_new_singleton_class(&entry_owner_name);
@@ -418,12 +526,18 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
         let Some(arguments) = call.arguments() else { return };
         let arguments: Vec<Node<'_>> = arguments.arguments().iter().collect();
 
-        if arguments.first().is_some_and(|argument| argument.as_def_node().is_some()) {
-            self.visibility_stack.push(VisibilityScope::with_visibility(Visibility::Private));
+        if arguments
+            .first()
+            .is_some_and(|argument| argument.as_def_node().is_some())
+        {
+            self.visibility_stack
+                .push(VisibilityScope::with_visibility(Visibility::Private));
             return;
         }
 
-        let Some(owner_name) = self.current_owner_name() else { return };
+        let Some(owner_name) = self.current_owner_name() else {
+            return;
+        };
 
         let mut others: Vec<Node<'_>> = Vec::new();
         let mut arrays: Vec<Node<'_>> = Vec::new();
@@ -446,7 +560,9 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
                 if let Some(string) = argument.as_string_node() {
                     Some(bytes_to_string(string.unescaped()))
                 } else {
-                    argument.as_symbol_node().and_then(|symbol| symbol.value_loc().map(|location| location_slice(&location)))
+                    argument
+                        .as_symbol_node()
+                        .and_then(|symbol| symbol.value_loc().map(|location| location_slice(&location)))
                 }
             })
             .collect();
@@ -454,7 +570,9 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
         for name in names {
             let singleton = self.index.existing_or_new_singleton_class(&owner_name);
             let singleton_name = self.index.entry(singleton).name.clone();
-            let Some(entries) = self.index.resolve_method(&name, &singleton_name, false) else { continue };
+            let Some(entries) = self.index.resolve_method(&name, &singleton_name, false) else {
+                continue;
+            };
             for id in entries {
                 self.index.entry_mut(id).visibility = Visibility::Private;
             }
@@ -462,9 +580,15 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
     }
 
     fn handle_visibility_change(&mut self, call: &ruby_prism::CallNode<'_>, visibility: Visibility) {
-        let Some(owner_name) = self.current_owner_name() else { return };
+        let Some(owner_name) = self.current_owner_name() else {
+            return;
+        };
         let method_names: Vec<String> = match call.arguments() {
-            Some(arguments) => arguments.arguments().iter().filter_map(|argument| string_or_symbol_value(&argument)).collect(),
+            Some(arguments) => arguments
+                .arguments()
+                .iter()
+                .filter_map(|argument| string_or_symbol_value(&argument))
+                .collect(),
             None => Vec::new(),
         };
 
@@ -474,7 +598,9 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
         }
 
         for method_name in method_names {
-            let Some(entries) = self.index.resolve_method(&method_name, &owner_name, false) else { continue };
+            let Some(entries) = self.index.resolve_method(&method_name, &owner_name, false) else {
+                continue;
+            };
             for id in entries {
                 self.index.entry_mut(id).visibility = visibility;
             }
@@ -508,11 +634,13 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
 
     fn on_call_node_leave(&mut self, call: &ruby_prism::CallNode<'_>) {
         let message = constant_id_name(&call.name());
-        if matches!(message.as_str(), "public" | "protected" | "private" | "private_class_method")
-            && call
-                .arguments()
-                .and_then(|arguments| arguments.arguments().iter().next())
-                .is_some_and(|argument| argument.as_def_node().is_some())
+        if matches!(
+            message.as_str(),
+            "public" | "protected" | "private" | "private_class_method"
+        ) && call
+            .arguments()
+            .and_then(|arguments| arguments.arguments().iter().next())
+            .is_some_and(|argument| argument.as_def_node().is_some())
         {
             self.visibility_stack.pop();
         }
@@ -598,7 +726,10 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
         let location = self.location(&node.location());
         let name_location = self.location(&expression.location());
 
-        let existing = self.index.get(&real_nesting.join("::")).and_then(|ids| ids.first().copied());
+        let existing = self
+            .index
+            .get(&real_nesting.join("::"))
+            .and_then(|ids| ids.first().copied());
         let id = match existing {
             Some(id) => {
                 let entry = self.index.entry_mut(id);
@@ -646,7 +777,10 @@ impl<'index, 'source> DeclarationListener<'index, 'source> {
 
         for (index, target) in targets.iter().enumerate() {
             let current_value = values.get(index).map(crate::prism::NodeExt::clone_node);
-            if current_value.as_ref().is_some_and(|value| value.as_splat_node().is_some()) {
+            if current_value
+                .as_ref()
+                .is_some_and(|value| value.as_splat_node().is_some())
+            {
                 values.clear();
             }
 
@@ -706,7 +840,11 @@ fn parameter_name(node: &Node<'_>) -> Option<String> {
         if let Some(splat) = rest.as_splat_node() {
             let name = splat.expression().map(|expression| node_slice(&expression));
             let operator = location_slice(&splat.operator_loc());
-            names.push(if operator == "*" { Some(format!("*{}", name.unwrap_or_default())) } else { name });
+            names.push(if operator == "*" {
+                Some(format!("*{}", name.unwrap_or_default()))
+            } else {
+                name
+            });
         }
         if rest.as_implicit_rest_node().is_some() {
             names.push(None);
@@ -714,12 +852,18 @@ fn parameter_name(node: &Node<'_>) -> Option<String> {
     }
 
     names.extend(multi_target.rights().iter().map(|right| parameter_name(&right)));
-    let joined = names.into_iter().map(Option::unwrap_or_default).collect::<Vec<_>>().join(", ");
+    let joined = names
+        .into_iter()
+        .map(Option::unwrap_or_default)
+        .collect::<Vec<_>>()
+        .join(", ");
     Some(format!("({joined})"))
 }
 
 fn list_parameters(parameters: Option<ruby_prism::ParametersNode<'_>>) -> Vec<Parameter> {
-    let Some(parameters_node) = parameters else { return Vec::new() };
+    let Some(parameters_node) = parameters else {
+        return Vec::new();
+    };
     let mut parameters = Vec::new();
 
     for required in parameters_node.requireds().iter() {
@@ -737,7 +881,10 @@ fn list_parameters(parameters: Option<ruby_prism::ParametersNode<'_>>) -> Vec<Pa
     if let Some(rest) = parameters_node.rest()
         && let Some(rest) = rest.as_rest_parameter_node()
     {
-        let name = rest.name().map(|name| constant_id_name(&name)).unwrap_or_else(|| REST_PARAMETER_DEFAULT_NAME.to_string());
+        let name = rest
+            .name()
+            .map(|name| constant_id_name(&name))
+            .unwrap_or_else(|| REST_PARAMETER_DEFAULT_NAME.to_string());
         parameters.push(Parameter::Rest(name));
     }
 
@@ -766,7 +913,10 @@ fn list_parameters(parameters: Option<ruby_prism::ParametersNode<'_>>) -> Vec<Pa
     }
 
     if let Some(block) = parameters_node.block() {
-        let name = block.name().map(|name| constant_id_name(&name)).unwrap_or_else(|| BLOCK_PARAMETER_DEFAULT_NAME.to_string());
+        let name = block
+            .name()
+            .map(|name| constant_id_name(&name))
+            .unwrap_or_else(|| BLOCK_PARAMETER_DEFAULT_NAME.to_string());
         parameters.push(Parameter::Block(name));
     }
 
@@ -813,7 +963,9 @@ impl<'pr> Visit<'pr> for DeclarationListener<'_, '_> {
         let constant_path = node.constant_path();
         let nesting = actual_nesting(&self.stack, Some(&node_slice(&constant_path)));
         let parent_class = match node.superclass() {
-            Some(superclass) if superclass.as_constant_read_node().is_some() || superclass.as_constant_path_node().is_some() => {
+            Some(superclass)
+                if superclass.as_constant_read_node().is_some() || superclass.as_constant_path_node().is_some() =>
+            {
                 Some(node_slice(&superclass))
             }
             _ => {
@@ -898,7 +1050,11 @@ impl<'pr> Visit<'pr> for DeclarationListener<'_, '_> {
                 self.uri.clone(),
                 location,
                 comments,
-                EntryKind::UnresolvedMethodAlias { new_name: method_name, old_name: node_slice(&node.old_name()), owner },
+                EntryKind::UnresolvedMethodAlias {
+                    new_name: method_name,
+                    old_name: node_slice(&node.old_name()),
+                    owner,
+                },
             ),
             false,
         );

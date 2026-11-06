@@ -1,0 +1,75 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 4
+        character: 25
+      end:
+        line: 4
+        character: 37
+    severity: ERROR
+    message: |-
+      Cannot find compatible overloading of method `+` of type `(::Integer | ::Float)`
+      Method types:
+        def +: ((::Integer & ::Complex)) -> (::Integer | ::Complex)
+             | ((::Integer & ::Numeric)) -> (::Integer | ::Float)
+             | ((::Float & ::Complex)) -> (::Float | ::Complex)
+             | ((::Float & ::Numeric)) -> ::Float
+             | ((::Rational & ::Complex)) -> (::Rational | ::Complex)
+             | ((::Rational & ::Numeric)) -> (::Rational | ::Float)
+             | (::Complex) -> ::Complex
+             | ((::Complex & ::Numeric)) -> (::Complex | ::Float)
+    code: Ruby::UnresolvedOverloading
+  - range:
+      start:
+        line: 10
+        character: 6
+      end:
+        line: 10
+        character: 12
+    severity: ERROR
+    message: |-
+      Cannot allow method body have type `::String` because declared as type `::Integer`
+        ::String <: ::Integer
+          ::Object <: ::Integer
+            ::BasicObject <: ::Integer
+    code: Ruby::MethodBodyTypeMismatch
+  - range:
+      start:
+        line: 20
+        character: 0
+      end:
+        line: 20
+        character: 26
+    severity: ERROR
+    message: |-
+      Cannot find compatible overloading of method `add` of type `::Calculator`
+      Method types:
+        def add: (::Integer, ::Integer) -> ::Integer
+               | (::Float, ::Float) -> ::Float
+    code: Ruby::UnresolvedOverloading
+  - range:
+      start:
+        line: 21
+        character: 0
+      end:
+        line: 21
+        character: 30
+    severity: ERROR
+    message: |-
+      Cannot find compatible overloading of method `double` of type `::Calculator`
+      Method types:
+        def double: (::Integer) -> ::Integer
+                  | (::String) -> ::String
+    code: Ruby::UnresolvedOverloading
+  - range:
+      start:
+        line: 22
+        character: 34
+      end:
+        line: 22
+        character: 48
+    severity: ERROR
+    message: Type `::Rational` does not have method `no_such_method`
+    code: Ruby::NoMethod

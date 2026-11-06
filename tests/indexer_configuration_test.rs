@@ -11,8 +11,7 @@ struct TemporaryDirectory {
 
 impl TemporaryDirectory {
     fn new(name: &str) -> Self {
-        let path = std::env::temp_dir()
-            .join(format!("ruby_lsp_rs_configuration_test_{}_{name}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("ruby_lsp_rs_configuration_test_{}_{name}", std::process::id()));
         let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path).unwrap();
         TemporaryDirectory { path }
@@ -41,13 +40,19 @@ fn rubylibdir() -> String {
 }
 
 fn configuration_for(workspace_path: &Path, environment: &RubyEnvironment) -> Configuration {
-    let mut configuration = Configuration { workspace_path: workspace_path.to_path_buf(), ..Configuration::default() };
+    let mut configuration = Configuration {
+        workspace_path: workspace_path.to_path_buf(),
+        ..Configuration::default()
+    };
     configuration.initialize_from_environment(environment);
     configuration
 }
 
 fn paths_of(indexable_paths: &[IndexablePath]) -> Vec<String> {
-    indexable_paths.iter().map(|indexable| indexable.path.to_string_lossy().into_owned()).collect()
+    indexable_paths
+        .iter()
+        .map(|indexable| indexable.path.to_string_lossy().into_owned())
+        .collect()
 }
 
 fn locked_gem(name: &str, full_gem_path: &Path) -> LockedGem {
@@ -76,7 +81,9 @@ fn test_load_configuration_executes_configure_block() {
         ..RubyEnvironment::default()
     };
     let mut configuration = configuration_for(&workspace.path, &environment);
-    configuration.apply_config(&serde_json::json!({ "excluded_patterns": ["**/fixtures/**/*"] })).unwrap();
+    configuration
+        .apply_config(&serde_json::json!({ "excluded_patterns": ["**/fixtures/**/*"] }))
+        .unwrap();
 
     let paths = paths_of(&configuration.indexable_paths(&environment));
     assert!(paths.iter().all(|path| !path.contains("test/fixtures")));
@@ -91,7 +98,9 @@ fn test_indexable_uris_have_expanded_full_paths() {
     workspace.touch("nested/deeper/file.rb");
     let environment = RubyEnvironment::default();
     let mut configuration = configuration_for(&workspace.path, &environment);
-    configuration.apply_config(&serde_json::json!({ "included_patterns": ["**/*.rb"] })).unwrap();
+    configuration
+        .apply_config(&serde_json::json!({ "included_patterns": ["**/*.rb"] }))
+        .unwrap();
 
     let indexable_paths = configuration.indexable_paths(&environment);
     assert!(!indexable_paths.is_empty());
@@ -129,14 +138,21 @@ fn test_indexable_uris_does_not_include_default_gem_path_when_in_bundle() {
     let configuration = configuration_for(&workspace.path, &environment);
 
     let paths = paths_of(&configuration.indexable_paths(&environment));
-    assert!(paths.iter().all(|path| !path.starts_with(&format!("{rubylibdir}/psych"))));
+    assert!(
+        paths
+            .iter()
+            .all(|path| !path.starts_with(&format!("{rubylibdir}/psych")))
+    );
 }
 
 #[test]
 fn test_indexable_uris_includes_default_gems() {
     let workspace = TemporaryDirectory::new("default_gems");
     let rubylibdir = rubylibdir();
-    let environment = RubyEnvironment { rubylibdir: Some(rubylibdir.clone()), ..RubyEnvironment::default() };
+    let environment = RubyEnvironment {
+        rubylibdir: Some(rubylibdir.clone()),
+        ..RubyEnvironment::default()
+    };
     let configuration = configuration_for(&workspace.path, &environment);
 
     let paths = paths_of(&configuration.indexable_paths(&environment));
@@ -158,17 +174,27 @@ fn test_indexable_uris_includes_project_files() {
 
     let paths = paths_of(&configuration.indexable_paths(&environment));
     for path in expected {
-        assert!(paths.contains(&path.to_string_lossy().into_owned()), "{path:?} should be indexed");
+        assert!(
+            paths.contains(&path.to_string_lossy().into_owned()),
+            "{path:?} should be indexed"
+        );
     }
 }
 
 #[test]
 fn test_indexable_uris_avoids_duplicates_if_bundle_path_is_inside_project() {
     let workspace = TemporaryDirectory::new("bundle_path_inside_project");
-    let environment = RubyEnvironment { bundle_path: Some("vendor/bundle".to_string()), ..RubyEnvironment::default() };
+    let environment = RubyEnvironment {
+        bundle_path: Some("vendor/bundle".to_string()),
+        ..RubyEnvironment::default()
+    };
     let configuration = configuration_for(&workspace.path, &environment);
 
-    assert!(configuration.excluded_patterns.contains(&"vendor/bundle/**/*.rb".to_string()));
+    assert!(
+        configuration
+            .excluded_patterns
+            .contains(&"vendor/bundle/**/*.rb".to_string())
+    );
 }
 
 #[test]
@@ -181,7 +207,9 @@ fn test_indexable_uris_does_not_include_gems_own_installed_files() {
         ..RubyEnvironment::default()
     };
     let mut configuration = configuration_for(&workspace.path, &environment);
-    configuration.apply_config(&serde_json::json!({ "excluded_patterns": ["**/excluded_test.rb"] })).unwrap();
+    configuration
+        .apply_config(&serde_json::json!({ "excluded_patterns": ["**/excluded_test.rb"] }))
+        .unwrap();
 
     let paths = paths_of(&configuration.indexable_paths(&environment));
     assert_eq!(1, paths.iter().filter(|path| path.ends_with("lib/my_gem.rb")).count());
@@ -208,9 +236,14 @@ fn test_paths_are_unique() {
     let workspace = TemporaryDirectory::new("unique_paths");
     workspace.touch("lib/project.rb");
     workspace.touch("top_level.rb");
-    let environment = RubyEnvironment { rubylibdir: Some(rubylibdir()), ..RubyEnvironment::default() };
+    let environment = RubyEnvironment {
+        rubylibdir: Some(rubylibdir()),
+        ..RubyEnvironment::default()
+    };
     let mut configuration = configuration_for(&workspace.path, &environment);
-    configuration.apply_config(&serde_json::json!({ "included_patterns": ["**/*.rb", "lib/**/*.rb"] })).unwrap();
+    configuration
+        .apply_config(&serde_json::json!({ "included_patterns": ["**/*.rb", "lib/**/*.rb"] }))
+        .unwrap();
 
     let paths = paths_of(&configuration.indexable_paths(&environment));
     let mut unique_paths = paths.clone();
@@ -222,7 +255,11 @@ fn test_paths_are_unique() {
 #[test]
 fn test_configuration_raises_for_unknown_keys() {
     let mut configuration = Configuration::default();
-    assert!(configuration.apply_config(&serde_json::json!({ "unknown_config": 123 })).is_err());
+    assert!(
+        configuration
+            .apply_config(&serde_json::json!({ "unknown_config": 123 }))
+            .is_err()
+    );
 }
 
 #[test]
@@ -253,11 +290,21 @@ fn test_indexable_uris_respect_given_workspace_path() {
     workspace.touch("file2.rb");
     let environment = RubyEnvironment::default();
     let mut configuration = configuration_for(&workspace.path, &environment);
-    configuration.apply_config(&serde_json::json!({ "excluded_patterns": ["ignore/**/*.rb"] })).unwrap();
+    configuration
+        .apply_config(&serde_json::json!({ "excluded_patterns": ["ignore/**/*.rb"] }))
+        .unwrap();
 
     let indexable_paths = configuration.indexable_paths(&environment);
-    assert!(indexable_paths.iter().all(|indexable| !indexable.path.starts_with(workspace.path.join("ignore"))));
-    assert!(indexable_paths.iter().all(|indexable| indexable.path.starts_with(&workspace.path)));
+    assert!(
+        indexable_paths
+            .iter()
+            .all(|indexable| !indexable.path.starts_with(workspace.path.join("ignore")))
+    );
+    assert!(
+        indexable_paths
+            .iter()
+            .all(|indexable| indexable.path.starts_with(&workspace.path))
+    );
     assert_eq!(2, indexable_paths.len());
 }
 
@@ -269,7 +316,11 @@ fn test_includes_top_level_files() {
     let configuration = configuration_for(&workspace.path, &environment);
 
     let indexable_paths = configuration.indexable_paths(&environment);
-    assert!(indexable_paths.iter().any(|indexable| indexable.path.file_name().unwrap() == "find_me.rb"));
+    assert!(
+        indexable_paths
+            .iter()
+            .any(|indexable| indexable.path.file_name().unwrap() == "find_me.rb")
+    );
 }
 
 #[test]
@@ -285,7 +336,13 @@ fn test_indexables_include_non_test_files_in_test_directories() {
     let project_paths: Vec<String> = configuration
         .indexable_paths(&environment)
         .iter()
-        .filter_map(|indexable| indexable.path.strip_prefix(&workspace.path).ok().map(|path| path.to_string_lossy().into_owned()))
+        .filter_map(|indexable| {
+            indexable
+                .path
+                .strip_prefix(&workspace.path)
+                .ok()
+                .map(|path| path.to_string_lossy().into_owned())
+        })
         .collect();
     assert!(project_paths.contains(&"test/requests/support/expectations_test_runner.rb".to_string()));
     assert!(project_paths.contains(&"test/test_helper.rb".to_string()));

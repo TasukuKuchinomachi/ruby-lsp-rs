@@ -38,7 +38,10 @@ pub struct DetectionResult {
 
 impl DetectionResult {
     fn new(value: &str, reason: &str) -> DetectionResult {
-        DetectionResult { value: value.to_string(), reason: reason.to_string() }
+        DetectionResult {
+            value: value.to_string(),
+            reason: reason.to_string(),
+        }
     }
 }
 
@@ -64,8 +67,10 @@ impl ClientCapabilities {
 
         self.supports_request_delegation = truthy(&capabilities["experimental"]["requestDelegation"]);
         if let Some(operations) = workspace["workspaceEdit"]["resourceOperations"].as_array() {
-            self.supported_resource_operations =
-                operations.iter().filter_map(|operation| operation.as_str().map(str::to_string)).collect();
+            self.supported_resource_operations = operations
+                .iter()
+                .filter_map(|operation| operation.as_str().map(str::to_string))
+                .collect();
         }
 
         self.window_show_message_supports_extra_properties =
@@ -81,7 +86,9 @@ impl ClientCapabilities {
     }
 
     pub fn supports_rename(&self) -> bool {
-        self.supported_resource_operations.iter().any(|operation| operation == "rename")
+        self.supported_resource_operations
+            .iter()
+            .any(|operation| operation == "rename")
     }
 }
 
@@ -96,7 +103,9 @@ pub struct RequestConfig {
 
 impl RequestConfig {
     pub fn new(configuration: Value) -> RequestConfig {
-        RequestConfig { configuration: configuration.as_object().cloned().unwrap_or_default() }
+        RequestConfig {
+            configuration: configuration.as_object().cloned().unwrap_or_default(),
+        }
     }
 
     pub fn is_enabled(&self, feature: &str) -> bool {
@@ -147,8 +156,10 @@ impl GlobalState {
             "inlayHint".to_string(),
             RequestConfig::new(json!({ "enableAll": false, "implicitRescue": false, "implicitHashValue": false })),
         );
-        feature_configuration
-            .insert("codeLens".to_string(), RequestConfig::new(json!({ "enableAll": false, "enableTestCodeLens": true })));
+        feature_configuration.insert(
+            "codeLens".to_string(),
+            RequestConfig::new(json!({ "enableAll": false, "enableTestCodeLens": true })),
+        );
 
         GlobalState {
             workspace_uri: crate::uri::from_path_buf(&current_directory),
@@ -206,8 +217,14 @@ impl GlobalState {
         if self.dependency_paths.is_empty() {
             return false;
         }
-        !self.dependency_paths.iter().any(|path| file_path.starts_with(path.as_str()))
-            && !self.rubylibdir.as_ref().is_some_and(|rubylibdir| file_path.starts_with(rubylibdir.as_str()))
+        !self
+            .dependency_paths
+            .iter()
+            .any(|path| file_path.starts_with(path.as_str()))
+            && !self
+                .rubylibdir
+                .as_ref()
+                .is_some_and(|rubylibdir| file_path.starts_with(rubylibdir.as_str()))
     }
 
     pub fn workspace_path_from_options(options: &Value) -> Option<PathBuf> {
@@ -233,13 +250,19 @@ impl GlobalState {
 
         let initialization_options = &options["initializationOptions"];
         if let Some(ruby_command) = initialization_options["rubyCommand"].as_array() {
-            let ruby_command: Vec<String> =
-                ruby_command.iter().filter_map(|part| part.as_str().map(str::to_string)).collect();
+            let ruby_command: Vec<String> = ruby_command
+                .iter()
+                .filter_map(|part| part.as_str().map(str::to_string))
+                .collect();
             if !ruby_command.is_empty() {
                 self.ruby_command = ruby_command;
             }
         }
-        let rubocop_has_addon = self.ruby_environment.rubocop_version.as_deref().is_some_and(|version| version_at_least(version, &[1, 70, 0]));
+        let rubocop_has_addon = self
+            .ruby_environment
+            .rubocop_version
+            .as_deref()
+            .is_some_and(|version| version_at_least(version, &[1, 70, 0]));
 
         let specified_formatter = initialization_options["formatter"].as_str();
         if let Some(specified_formatter) = specified_formatter {
@@ -259,16 +282,23 @@ impl GlobalState {
             let formatter_result = self.detect_formatter(&direct_dependencies, &all_dependencies);
             self.formatter = formatter_result.value;
             notifications.push(PendingNotification::window_log_message(
-                &format!("Auto detected formatter: {} ({})", self.formatter, formatter_result.reason),
+                &format!(
+                    "Auto detected formatter: {} ({})",
+                    self.formatter, formatter_result.reason
+                ),
                 message_type::LOG,
             ));
         }
 
-        let mut specified_linters: Option<Vec<String>> = initialization_options["linters"]
-            .as_array()
-            .map(|linters| linters.iter().filter_map(|linter| linter.as_str().map(str::to_string)).collect());
-        let linters_include_rubocop =
-            specified_linters.as_ref().is_some_and(|linters| linters.iter().any(|linter| linter == "rubocop"));
+        let mut specified_linters: Option<Vec<String>> = initialization_options["linters"].as_array().map(|linters| {
+            linters
+                .iter()
+                .filter_map(|linter| linter.as_str().map(str::to_string))
+                .collect()
+        });
+        let linters_include_rubocop = specified_linters
+            .as_ref()
+            .is_some_and(|linters| linters.iter().any(|linter| linter == "rubocop"));
 
         if specified_formatter == Some("rubocop") || linters_include_rubocop {
             notifications.push(PendingNotification::window_log_message(
@@ -277,7 +307,8 @@ impl GlobalState {
             ));
         }
 
-        if linters_include_rubocop && !rubocop_has_addon
+        if linters_include_rubocop
+            && !rubocop_has_addon
             && let Some(linters) = specified_linters.as_mut()
         {
             linters.retain(|linter| linter != "rubocop");
@@ -295,8 +326,10 @@ impl GlobalState {
             None => {
                 let linter_results = self.detect_linters(&direct_dependencies, &all_dependencies);
                 self.linters = linter_results.iter().map(|result| result.value.clone()).collect();
-                let linter_messages: Vec<String> =
-                    linter_results.iter().map(|result| format!("{} ({})", result.value, result.reason)).collect();
+                let linter_messages: Vec<String> = linter_results
+                    .iter()
+                    .map(|result| format!("{} ({})", result.value, result.reason))
+                    .collect();
                 notifications.push(PendingNotification::window_log_message(
                     &format!("Auto detected linters: {}", linter_messages.join(", ")),
                     message_type::LOG,
@@ -307,7 +340,10 @@ impl GlobalState {
         let test_library_result = self.detect_test_library(&direct_dependencies);
         self.test_library = test_library_result.value;
         notifications.push(PendingNotification::window_log_message(
-            &format!("Detected test library: {} ({})", self.test_library, test_library_result.reason),
+            &format!(
+                "Detected test library: {} ({})",
+                self.test_library, test_library_result.reason
+            ),
             message_type::LOG,
         ));
 
@@ -342,7 +378,8 @@ impl GlobalState {
         }
 
         if options["capabilities"].is_object() {
-            self.client_capabilities.apply_client_capabilities(&options["capabilities"]);
+            self.client_capabilities
+                .apply_client_capabilities(&options["capabilities"]);
         }
 
         if let Some(addon_settings) = initialization_options["addonSettings"].as_object() {
@@ -355,9 +392,13 @@ impl GlobalState {
             self.enabled_feature_flags = flags.iter().map(|(key, value)| (key.clone(), truthy(value))).collect();
         }
 
-        self.telemetry_machine_id = initialization_options["telemetryMachineId"].as_str().map(str::to_string);
+        self.telemetry_machine_id = initialization_options["telemetryMachineId"]
+            .as_str()
+            .map(str::to_string);
 
-        self.type_checking.settings.merge(&initialization_options["typeChecker"]);
+        self.type_checking
+            .settings
+            .merge(&initialization_options["typeChecker"]);
 
         if let Some(features) = initialization_options["featuresConfiguration"].as_object() {
             for (feature_name, configuration) in features {
@@ -371,7 +412,10 @@ impl GlobalState {
     }
 
     fn detect_formatter(&self, direct_dependencies: &[String], all_dependencies: &[String]) -> DetectionResult {
-        if direct_dependencies.iter().any(|dependency| dependency.starts_with("rubocop")) {
+        if direct_dependencies
+            .iter()
+            .any(|dependency| dependency.starts_with("rubocop"))
+        {
             return DetectionResult::new("rubocop_internal", "direct dependency matching /^rubocop/");
         }
         if direct_dependencies.iter().any(|dependency| dependency == "syntax_tree") {
@@ -385,10 +429,19 @@ impl GlobalState {
 
     fn detect_linters(&self, direct_dependencies: &[String], all_dependencies: &[String]) -> Vec<DetectionResult> {
         let mut linters = Vec::new();
-        if direct_dependencies.iter().any(|dependency| dependency.starts_with("rubocop")) {
-            linters.push(DetectionResult::new("rubocop_internal", "direct dependency matching /^rubocop/"));
+        if direct_dependencies
+            .iter()
+            .any(|dependency| dependency.starts_with("rubocop"))
+        {
+            linters.push(DetectionResult::new(
+                "rubocop_internal",
+                "direct dependency matching /^rubocop/",
+            ));
         } else if all_dependencies.iter().any(|dependency| dependency == "rubocop") && self.dot_rubocop_yml_present() {
-            linters.push(DetectionResult::new("rubocop_internal", "transitive dependency with .rubocop.yml present"));
+            linters.push(DetectionResult::new(
+                "rubocop_internal",
+                "transitive dependency with .rubocop.yml present",
+            ));
         }
         linters
     }
@@ -400,7 +453,10 @@ impl GlobalState {
             DetectionResult::new("rails", "bin/rails present")
         } else if dependencies.iter().any(|dependency| dependency == "minitest") {
             DetectionResult::new("minitest", "direct dependency matching /^minitest$/")
-        } else if dependencies.iter().any(|dependency| dependency.starts_with("test-unit")) {
+        } else if dependencies
+            .iter()
+            .any(|dependency| dependency.starts_with("test-unit"))
+        {
             DetectionResult::new("test-unit", "direct dependency matching /^test-unit/")
         } else {
             DetectionResult::new("unknown", "no test library detected")
@@ -420,7 +476,10 @@ fn detect_typechecker(dependencies: &[String]) -> Option<DetectionResult> {
     if std::env::var_os("RUBY_LSP_BYPASS_TYPECHECKER").is_some() {
         return None;
     }
-    if !dependencies.iter().any(|dependency| dependency.starts_with("sorbet-static")) {
+    if !dependencies
+        .iter()
+        .any(|dependency| dependency.starts_with("sorbet-static"))
+    {
         return None;
     }
     Some(DetectionResult::new("sorbet", "sorbet-static in dependencies"))
@@ -442,11 +501,15 @@ fn dependency_paths(environment: &RubyEnvironment) -> Vec<String> {
     let mut paths: Vec<String> = Vec::new();
     for gem in &environment.locked_gems {
         let gem_path = Path::new(&gem.full_gem_path);
-        let Some(gems_directory) = gem_path.parent() else { continue };
+        let Some(gems_directory) = gem_path.parent() else {
+            continue;
+        };
         if gems_directory.file_name().is_none_or(|name| name != "gems") {
             continue;
         }
-        let Some(bundle_path) = gems_directory.parent() else { continue };
+        let Some(bundle_path) = gems_directory.parent() else {
+            continue;
+        };
         let bundle_path = bundle_path.to_string_lossy().into_owned();
         if !paths.contains(&bundle_path) {
             paths.push(bundle_path);
@@ -470,7 +533,10 @@ mod tests {
     #[test]
     fn detects_formatter_and_linters() {
         let mut state = GlobalState::new();
-        state.apply_options(&json!({}), environment_with(&["rubocop-shopify"], &["rubocop-shopify", "rubocop"]));
+        state.apply_options(
+            &json!({}),
+            environment_with(&["rubocop-shopify"], &["rubocop-shopify", "rubocop"]),
+        );
         assert_eq!(state.formatter, "rubocop_internal");
         assert_eq!(state.linters, vec!["rubocop_internal".to_string()]);
 
@@ -479,7 +545,10 @@ mod tests {
         assert_eq!(state.formatter, "syntax_tree");
 
         let mut state = GlobalState::new();
-        state.apply_options(&json!({ "initializationOptions": { "formatter": "none", "linters": ["rubocop"] } }), environment_with(&[], &[]));
+        state.apply_options(
+            &json!({ "initializationOptions": { "formatter": "none", "linters": ["rubocop"] } }),
+            environment_with(&[], &[]),
+        );
         assert_eq!(state.formatter, "none");
         assert_eq!(state.linters, vec!["rubocop_internal".to_string()]);
     }
@@ -487,7 +556,10 @@ mod tests {
     #[test]
     fn detects_test_library_and_type_checker() {
         let mut state = GlobalState::new();
-        state.apply_options(&json!({}), environment_with(&["rspec-rails"], &["sorbet-static-and-runtime", "sorbet-static"]));
+        state.apply_options(
+            &json!({}),
+            environment_with(&["rspec-rails"], &["sorbet-static-and-runtime", "sorbet-static"]),
+        );
         assert_eq!(state.test_library, "rspec");
         assert!(state.has_type_checker);
 
@@ -500,12 +572,18 @@ mod tests {
     #[test]
     fn negotiates_position_encoding() {
         let mut state = GlobalState::new();
-        state.apply_options(&json!({ "capabilities": { "general": { "positionEncodings": ["utf-16", "utf-8"] } } }), environment_with(&[], &[]));
+        state.apply_options(
+            &json!({ "capabilities": { "general": { "positionEncodings": ["utf-16", "utf-8"] } } }),
+            environment_with(&[], &[]),
+        );
         assert_eq!(state.encoding, Encoding::Utf8);
         assert_eq!(state.index().configuration.encoding, Encoding::Utf8);
 
         let mut state = GlobalState::new();
-        state.apply_options(&json!({ "capabilities": { "general": { "positionEncodings": ["utf-32"] } } }), environment_with(&[], &[]));
+        state.apply_options(
+            &json!({ "capabilities": { "general": { "positionEncodings": ["utf-32"] } } }),
+            environment_with(&[], &[]),
+        );
         assert_eq!(state.encoding, Encoding::Utf32);
 
         let mut state = GlobalState::new();
@@ -523,8 +601,18 @@ mod tests {
             } }),
             environment_with(&[], &[]),
         );
-        assert!(state.feature_configuration("inlayHint").unwrap().is_enabled("implicitRescue"));
-        assert!(!state.feature_configuration("inlayHint").unwrap().is_enabled("implicitHashValue"));
+        assert!(
+            state
+                .feature_configuration("inlayHint")
+                .unwrap()
+                .is_enabled("implicitRescue")
+        );
+        assert!(
+            !state
+                .feature_configuration("inlayHint")
+                .unwrap()
+                .is_enabled("implicitHashValue")
+        );
         assert!(state.is_feature_enabled("anything"));
     }
 

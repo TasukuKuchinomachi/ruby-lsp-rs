@@ -1,0 +1,31 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 3
+        character: 18
+      end:
+        line: 3
+        character: 24
+    severity: ERROR
+    message: |-
+      Cannot pass a value of type `singleton(::String)` as an argument of type `singleton(::Plugin)`
+        singleton(::String) <: singleton(::Plugin)
+          singleton(::Object) <: singleton(::Plugin)
+            singleton(::BasicObject) <: singleton(::Plugin)
+              ::Class <: singleton(::Plugin)
+                ::Module <: singleton(::Plugin)
+                  ::Object <: singleton(::Plugin)
+                    ::BasicObject <: singleton(::Plugin)
+    code: Ruby::ArgumentTypeMismatch
+  - range:
+      start:
+        line: 6
+        character: 18
+      end:
+        line: 6
+        character: 32
+    severity: ERROR
+    message: Type `::Plugin` does not have method `no_such_method`
+    code: Ruby::NoMethod

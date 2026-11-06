@@ -1,0 +1,68 @@
+---
+- file: app/a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 0
+      end:
+        line: 1
+        character: 8
+    severity: ERROR
+    message: 'UnexpectedError: sig/library.rbs:2:2...2:23: ::Foo#bar has duplicated
+      definitions in sig/project.rbs:2:2...2:23(RBS::DuplicatedMethodDefinitionError)'
+    code: Ruby::UnexpectedError
+  - range:
+      start:
+        line: 2
+        character: 0
+      end:
+        line: 2
+        character: 7
+    severity: ERROR
+    message: 'UnexpectedError: sig/library.rbs:6:2...6:21: ::Mixin#baz has duplicated
+      definitions in sig/project.rbs:7:2...7:21(RBS::DuplicatedMethodDefinitionError)'
+    code: Ruby::UnexpectedError
+  - range:
+      start:
+        line: 3
+        character: 0
+      end:
+        line: 3
+        character: 7
+    severity: ERROR
+    message: 'UnexpectedError: sig/library.rbs:10:2...10:26: ::Baz#name has duplicated
+      definitions in sig/project.rbs:15:2...15:24(RBS::DuplicatedMethodDefinitionError)'
+    code: Ruby::UnexpectedError
+- file: sig/library.rbs
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 2
+      end:
+        line: 2
+        character: 23
+    severity: ERROR
+    message: Non-overloading method definition of `bar` in `::Foo` cannot be duplicated
+    code: RBS::DuplicatedMethodDefinition
+  - range:
+      start:
+        line: 6
+        character: 2
+      end:
+        line: 6
+        character: 21
+    severity: ERROR
+    message: Non-overloading method definition of `baz` in `::Mixin` cannot be duplicated
+    code: RBS::DuplicatedMethodDefinition
+  - range:
+      start:
+        line: 10
+        character: 2
+      end:
+        line: 10
+        character: 26
+    severity: ERROR
+    message: Non-overloading method definition of `name` in `::Baz` cannot be duplicated
+    code: RBS::DuplicatedMethodDefinition

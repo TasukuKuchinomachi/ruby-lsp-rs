@@ -5,7 +5,8 @@ use serde_json::{Value, json};
 use support::{DEFAULT_URI, TestOptions, TestServer, rbs_core_path, with_server};
 
 fn signature_help(server: &mut TestServer, line: u32, character: u32, context: Option<Value>) -> Value {
-    let mut params = json!({ "textDocument": { "uri": DEFAULT_URI }, "position": { "line": line, "character": character } });
+    let mut params =
+        json!({ "textDocument": { "uri": DEFAULT_URI }, "position": { "line": line, "character": character } });
     if let Some(context) = context {
         params["context"] = context;
     }
@@ -17,22 +18,31 @@ fn first_signature(result: &Value) -> &Value {
 }
 
 fn index_ruby_core(server: &TestServer) -> bool {
-    let Some(rbs_core_path) = rbs_core_path() else { return false };
+    let Some(rbs_core_path) = rbs_core_path() else {
+        return false;
+    };
     RbsIndexer::new(&mut server.index()).index_core_directory(&rbs_core_path);
     true
 }
 
 fn assert_contains(contents: &Value, expected: &str) {
     let contents = contents.as_str().unwrap();
-    assert!(contents.contains(expected), "Expected {contents:?} to contain {expected:?}");
+    assert!(
+        contents.contains(expected),
+        "Expected {contents:?} to contain {expected:?}"
+    );
 }
 
 #[test]
 fn initial_request() {
     let source = "class Foo\n  def bar(a, b)\n  end\n\n  def baz\n    bar()\n  end\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
-    let result =
-        signature_help(&mut server, 5, 7, Some(json!({ "triggerCharacter": "(", "activeSignatureHelp": null })));
+    let result = signature_help(
+        &mut server,
+        5,
+        7,
+        Some(json!({ "triggerCharacter": "(", "activeSignatureHelp": null })),
+    );
     assert_eq!(first_signature(&result)["label"], "bar(a, b)");
     assert_eq!(result["activeParameter"], 0);
 }
@@ -41,8 +51,12 @@ fn initial_request() {
 fn concats_documentations_from_both_definitions() {
     let source = "class Foo\n  # first definition\n  def bar(a, b)\n  end\n\n  def baz\n    bar()\n  end\nend\n\nclass Foo\n  # second definition\n  def bar(c, d)\n  end\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
-    let result =
-        signature_help(&mut server, 6, 7, Some(json!({ "triggerCharacter": "(", "activeSignatureHelp": null })));
+    let result = signature_help(
+        &mut server,
+        6,
+        7,
+        Some(json!({ "triggerCharacter": "(", "activeSignatureHelp": null })),
+    );
     let signature = first_signature(&result);
     assert_eq!(signature["label"], "bar(a, b)");
     assert_eq!(result["activeParameter"], 0);
@@ -63,8 +77,12 @@ fn help_after_comma() {
 fn keyword_arguments() {
     let source = "class Foo\n  def bar(a:, b:)\n  end\n\n  def baz\n    bar(b: 1,)\n  end\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
-    let result =
-        signature_help(&mut server, 5, 12, Some(json!({ "triggerCharacter": ",", "activeSignatureHelp": null })));
+    let result = signature_help(
+        &mut server,
+        5,
+        12,
+        Some(json!({ "triggerCharacter": ",", "activeSignatureHelp": null })),
+    );
     assert_eq!(first_signature(&result)["label"], "bar(a:, b:)");
     assert_eq!(result["activeParameter"], 1);
 }
@@ -73,8 +91,12 @@ fn keyword_arguments() {
 fn skipped_arguments() {
     let source = "class Foo\n  def bar(a, b = 123, c:, d:)\n  end\n\n  def baz\n    bar(a, c: 1,)\n  end\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
-    let result =
-        signature_help(&mut server, 5, 15, Some(json!({ "triggerCharacter": ",", "activeSignatureHelp": null })));
+    let result = signature_help(
+        &mut server,
+        5,
+        15,
+        Some(json!({ "triggerCharacter": ",", "activeSignatureHelp": null })),
+    );
     assert_eq!(first_signature(&result)["label"], "bar(a, b = <default>, c:, d:)");
     assert_eq!(result["activeParameter"], 2);
 }
@@ -128,8 +150,12 @@ fn help_in_nested_method_calls_with_arguments() {
 fn singleton_methods() {
     let source = "class Foo\n  def self.bar(a, b)\n  end\nend\n\nFoo.bar()\n";
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
-    let result =
-        signature_help(&mut server, 5, 7, Some(json!({ "triggerCharacter": "(", "activeSignatureHelp": null })));
+    let result = signature_help(
+        &mut server,
+        5,
+        7,
+        Some(json!({ "triggerCharacter": "(", "activeSignatureHelp": null })),
+    );
     assert_eq!(first_signature(&result)["label"], "bar(a, b)");
     assert_eq!(result["activeParameter"], 0);
 }
@@ -147,8 +173,12 @@ fn aliased_methods() {
 fn help_is_disabled_on_typed_true() {
     let source = "# typed: true\nclass Foo\n  def bar(a, b)\n  end\n\n  def baz\n    bar()\n  end\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
-    let result =
-        signature_help(&mut server, 6, 7, Some(json!({ "triggerCharacter": "(", "activeSignatureHelp": null })));
+    let result = signature_help(
+        &mut server,
+        6,
+        7,
+        Some(json!({ "triggerCharacter": "(", "activeSignatureHelp": null })),
+    );
     assert_eq!(result, Value::Null);
 }
 
@@ -165,9 +195,21 @@ fn guessed_types() {
 #[test]
 fn automatically_detects_active_overload() {
     let cases = [
-        ("5.step()\n", 7, "step(limit = <default>, step = <default>, &<anonymous block>)"),
-        ("5.step(1)\n", 8, "step(limit = <default>, step = <default>, &<anonymous block>)"),
-        ("5.step(to: 5)\n", 8, "step(by: <default>, to: <default>, &<anonymous block>)"),
+        (
+            "5.step()\n",
+            7,
+            "step(limit = <default>, step = <default>, &<anonymous block>)",
+        ),
+        (
+            "5.step(1)\n",
+            8,
+            "step(limit = <default>, step = <default>, &<anonymous block>)",
+        ),
+        (
+            "5.step(to: 5)\n",
+            8,
+            "step(by: <default>, to: <default>, &<anonymous block>)",
+        ),
     ];
     for (source, character, expected_label) in cases {
         let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
@@ -176,6 +218,9 @@ fn automatically_detects_active_overload() {
         }
         let result = signature_help(&mut server, 0, character, Some(json!({})));
         let active_signature = result["activeSignature"].as_u64().unwrap() as usize;
-        assert_eq!(result["signatures"][active_signature]["label"], expected_label, "{source}");
+        assert_eq!(
+            result["signatures"][active_signature]["label"], expected_label,
+            "{source}"
+        );
     }
 }

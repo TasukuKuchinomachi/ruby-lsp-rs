@@ -19,6 +19,7 @@ pub mod folding_ranges;
 pub mod formatting;
 pub mod go_to_relevant_file;
 pub mod hover;
+pub mod implementation;
 pub mod inlay_hints;
 pub mod on_type_formatting;
 pub mod prepare_rename;
@@ -50,8 +51,12 @@ use crate::store::{NonExistingDocumentError, Store};
 
 pub const DELEGATE_REQUEST_ERROR_CODE: i32 = -32900;
 
-pub const AUTOMATIC_REQUESTS: &[&str] =
-    &["textDocument/documentSymbol", "textDocument/documentLink", "textDocument/codeLens", "textDocument/foldingRange"];
+pub const AUTOMATIC_REQUESTS: &[&str] = &[
+    "textDocument/documentSymbol",
+    "textDocument/documentLink",
+    "textDocument/codeLens",
+    "textDocument/foldingRange",
+];
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RequestError {
@@ -73,9 +78,9 @@ impl RequestError {
 
     pub fn message(&self) -> String {
         match self {
-            RequestError::InvalidParams(message) | RequestError::RequestFailed(message) | RequestError::Internal(message) => {
-                message.clone()
-            }
+            RequestError::InvalidParams(message)
+            | RequestError::RequestFailed(message)
+            | RequestError::Internal(message) => message.clone(),
             RequestError::Delegate => "DELEGATE_REQUEST".to_string(),
         }
     }
@@ -119,7 +124,10 @@ impl Outgoing {
     }
 
     pub fn show_message(&self, message: &str, message_type: u8) {
-        self.notify("window/showMessage", json!({ "type": message_type, "message": message }));
+        self.notify(
+            "window/showMessage",
+            json!({ "type": message_type, "message": message }),
+        );
     }
 
     pub fn log(&self, message: &str) {
@@ -193,6 +201,7 @@ pub fn handler_for(method: &str) -> Option<RequestHandler> {
         "textDocument/definition" => definition::handle,
         "textDocument/declaration" => declaration::handle,
         "textDocument/typeDefinition" => type_definition::handle,
+        "textDocument/implementation" => implementation::handle,
         "textDocument/prepareTypeHierarchy" => prepare_type_hierarchy::handle,
         "textDocument/rename" => rename::handle,
         "textDocument/prepareRename" => prepare_rename::handle,

@@ -6,7 +6,10 @@ use serde_json::{Value, json};
 use support::{DEFAULT_URI, TestOptions, range_json, rbs_core_path, ruby_config, with_server};
 
 fn no_typechecker() -> TestOptions {
-    TestOptions { stub_no_typechecker: true, ..TestOptions::default() }
+    TestOptions {
+        stub_no_typechecker: true,
+        ..TestOptions::default()
+    }
 }
 
 fn target_start_line(location: &Value) -> u64 {
@@ -19,8 +22,17 @@ fn range_start_line(location: &Value) -> u64 {
 
 #[test]
 fn jumping_to_default_gems() {
-    let Some(rubylibdir) = ruby_config("rubylibdir") else { return };
-    let mut server = with_server(Some("Pathname"), DEFAULT_URI, TestOptions { rubylibdir: Some(rubylibdir.clone()), ..TestOptions::default() });
+    let Some(rubylibdir) = ruby_config("rubylibdir") else {
+        return;
+    };
+    let mut server = with_server(
+        Some("Pathname"),
+        DEFAULT_URI,
+        TestOptions {
+            rubylibdir: Some(rubylibdir.clone()),
+            ..TestOptions::default()
+        },
+    );
     server.index_file(&Path::new(&rubylibdir).join("pathname.rb"), None);
     assert!(!server.definition(0, 0).is_empty());
 }
@@ -43,11 +55,16 @@ fn multibyte_character_precision() {
 
 #[test]
 fn jumping_to_default_require_of_a_gem() {
-    let Some(rubylibdir) = ruby_config("rubylibdir") else { return };
+    let Some(rubylibdir) = ruby_config("rubylibdir") else {
+        return;
+    };
     let mut server = with_server(Some("require \"bundler\""), DEFAULT_URI, TestOptions::default());
     let bundler_path = Path::new(&rubylibdir).join("bundler.rb");
     server.index_file(&bundler_path, Some("bundler"));
-    for entry in std::fs::read_dir(Path::new(&rubylibdir).join("bundler")).unwrap().filter_map(Result::ok) {
+    for entry in std::fs::read_dir(Path::new(&rubylibdir).join("bundler"))
+        .unwrap()
+        .filter_map(Result::ok)
+    {
         let path = entry.path();
         if path.extension().is_some_and(|extension| extension == "rb") {
             let require_path = ruby_lsp_rs::uri::require_path(&path.to_string_lossy(), &rubylibdir);
@@ -55,7 +72,10 @@ fn jumping_to_default_require_of_a_gem() {
         }
     }
     let response = server.definition(0, 10);
-    assert_eq!(response[0]["uri"], json!(ruby_lsp_rs::uri::from_path_buf(&bundler_path)));
+    assert_eq!(
+        response[0]["uri"],
+        json!(ruby_lsp_rs::uri::from_path_buf(&bundler_path))
+    );
 }
 
 #[test]
@@ -227,7 +247,10 @@ fn definitions_for_unknown_receiver_is_capped() {
 #[test]
 fn definitions_are_listed_in_erb_files_as_unknown_receiver() {
     let mut server = with_server(Some("<%= foo %>\n"), "file:///fake.erb", TestOptions::default());
-    server.index_source("file:///fake/path/foo.rb", "class Bar\n  def foo; end\n\n  def bar; end\nend\n");
+    server.index_source(
+        "file:///fake/path/foo.rb",
+        "class Bar\n  def foo; end\n\n  def bar; end\nend\n",
+    );
     let response = server.definition(0, 4);
     assert_eq!(response.len(), 1);
     assert_eq!(response[0]["targetRange"], range_json(1, 2, 1, 14));
@@ -243,7 +266,8 @@ fn definition_precision_for_methods_with_block_arguments() {
 
 #[test]
 fn definition_for_method_call_inside_arguments() {
-    let source = "class Foo\n  def foo; end\n\n  def bar(a:, b:); end\n\n  def baz\n    bar(a: foo, b: 42)\n  end\nend\n";
+    let source =
+        "class Foo\n  def foo; end\n\n  def bar(a:, b:); end\n\n  def baz\n    bar(a: foo, b: 42)\n  end\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
     let response = server.definition(6, 11);
     assert_eq!(target_start_line(&response[0]), 1);
@@ -281,7 +305,10 @@ fn definition_apply_target_correction() {
     let source = "$foo &&= 1\n$foo += 1\n$foo ||= 1\n$foo = 1\nclass Foo\n  @foo &&= 1\n  @foo += 1\n  @foo ||= 1\n  @foo = 1\nend\n";
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
     for line in [0, 1, 2, 3, 5, 6, 7, 8] {
-        assert!(server.definition(line, 7).is_empty(), "line {line} should not have definitions");
+        assert!(
+            server.definition(line, 7).is_empty(),
+            "line {line} should not have definitions"
+        );
     }
 }
 
@@ -340,7 +367,8 @@ fn definition_for_inherited_instance_variables() {
 
 #[test]
 fn definition_for_singleton_methods() {
-    let source = "class Foo\n  def self.bar\n  end\n\n  class << self\n    def baz; end\n  end\nend\n\nFoo.bar\nFoo.baz\n";
+    let source =
+        "class Foo\n  def self.bar\n  end\n\n  class << self\n    def baz; end\n  end\nend\n\nFoo.bar\nFoo.baz\n";
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
     assert_eq!(target_start_line(&server.definition(9, 4)[0]), 1);
     assert_eq!(target_start_line(&server.definition(10, 4)[0]), 5);
@@ -397,7 +425,9 @@ fn definition_call_node_precision() {
     let mut server = with_server(Some(source), DEFAULT_URI, TestOptions::default());
     assert_eq!(
         server.definition(8, 19),
-        vec![json!({ "targetUri": DEFAULT_URI, "targetRange": range_json(7, 15, 7, 18), "targetSelectionRange": range_json(7, 15, 7, 18) })]
+        vec![
+            json!({ "targetUri": DEFAULT_URI, "targetRange": range_json(7, 15, 7, 18), "targetSelectionRange": range_json(7, 15, 7, 18) })
+        ]
     );
     let message_definitions = server.definition(8, 23);
     assert!(!message_definitions.is_empty());
@@ -420,9 +450,16 @@ fn definition_does_proper_dependency_checking_for_unsaved_files_for_constants() 
 
 #[test]
 fn require_relative_resolves_against_the_document_directory() {
-    let mut server = with_server(Some("require_relative \"../lib/foo\"\n"), "file:///project/test/foo_test.rb", no_typechecker());
+    let mut server = with_server(
+        Some("require_relative \"../lib/foo\"\n"),
+        "file:///project/test/foo_test.rb",
+        no_typechecker(),
+    );
     let response = server.definition(0, 20);
-    assert_eq!(response, vec![json!({ "uri": "file:///project/lib/foo.rb", "range": range_json(0, 0, 0, 0) })]);
+    assert_eq!(
+        response,
+        vec![json!({ "uri": "file:///project/lib/foo.rb", "range": range_json(0, 0, 0, 0) })]
+    );
 }
 
 #[test]
@@ -432,5 +469,8 @@ fn definition_for_non_existing_document_is_an_invalid_params_error() {
         "textDocument/definition",
         json!({ "textDocument": { "uri": "file:///does/not/exist.rb" }, "position": { "line": 0, "character": 0 } }),
     );
-    assert_eq!(response.response_result.unwrap_err().code, lsp_server::ErrorCode::InvalidParams as i32);
+    assert_eq!(
+        response.response_result.unwrap_err().code,
+        lsp_server::ErrorCode::InvalidParams as i32
+    );
 }

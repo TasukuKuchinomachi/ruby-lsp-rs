@@ -19,8 +19,14 @@ pub struct DocumentLinkItem {
 }
 
 enum GemFiles {
-    Directory { version: String, full_gem_path: String },
-    Default { version: String, files: HashMap<String, String> },
+    Directory {
+        version: String,
+        full_gem_path: String,
+    },
+    Default {
+        version: String,
+        files: HashMap<String, String>,
+    },
 }
 
 /// Mirrors `GEM_TO_VERSION_MAP` and `DocumentLink.gem_paths`. Instead of globbing every installed gem up front, files
@@ -44,7 +50,10 @@ impl GemPaths {
         for stub in gem_stubs {
             lookup.insert(
                 stub.name.clone(),
-                GemFiles::Directory { version: stub.version.clone(), full_gem_path: stub.full_gem_path.clone() },
+                GemFiles::Directory {
+                    version: stub.version.clone(),
+                    full_gem_path: stub.full_gem_path.clone(),
+                },
             );
         }
         for stub in default_gem_stubs {
@@ -60,14 +69,24 @@ impl GemPaths {
                     (path.to_string(), format!("{rubylibdir}/{path}"))
                 })
                 .collect();
-            lookup.insert(stub.name.clone(), GemFiles::Default { version: stub.version.clone(), files });
+            lookup.insert(
+                stub.name.clone(),
+                GemFiles::Default {
+                    version: stub.version.clone(),
+                    files,
+                },
+            );
         }
 
         GemPaths { versions, lookup }
     }
 
     pub fn from_environment(environment: &RubyEnvironment) -> GemPaths {
-        GemPaths::new(&environment.gem_stubs, &environment.default_gem_stubs, environment.rubylibdir.as_deref().unwrap_or_default())
+        GemPaths::new(
+            &environment.gem_stubs,
+            &environment.default_gem_stubs,
+            environment.rubylibdir.as_deref().unwrap_or_default(),
+        )
     }
 
     fn version_of(&self, gem_name: &str) -> Option<&str> {
@@ -89,7 +108,9 @@ impl GemPaths {
 /// Whether `Dir.glob("**/*.rb", base: base)` would list `path`. The glob skips hidden files and directories
 fn matches_ruby_files_glob(base: &str, path: &str) -> bool {
     let components: Vec<&str> = path.split('/').collect();
-    let well_formed = components.iter().all(|component| !component.is_empty() && !component.starts_with('.'));
+    let well_formed = components
+        .iter()
+        .all(|component| !component.is_empty() && !component.starts_with('.'));
     well_formed && path.ends_with(".rb") && Path::new(base).join(path).exists()
 }
 
@@ -116,7 +137,9 @@ impl<'a, 'b> DocumentLink<'a, 'b> {
         for comment in parsed.parse_result.comments() {
             let location = comment.location();
             let end_line = document_link.line(location.end_offset());
-            document_link.lines_to_comments.insert(end_line, (location.start_offset(), location.end_offset()));
+            document_link
+                .lines_to_comments
+                .insert(end_line, (location.start_offset(), location.end_offset()));
         }
         document_link
     }
@@ -150,25 +173,36 @@ impl<'a, 'b> DocumentLink<'a, 'b> {
             return;
         }
         let start_line = self.line(node.start_offset());
-        let Some(comment) = self.lines_to_comments.get(&(start_line - 1)).copied() else { return };
+        let Some(comment) = self.lines_to_comments.get(&(start_line - 1)).copied() else {
+            return;
+        };
         let end_line = self.line(node.end_offset());
         self.sig_comments.insert(end_line, comment);
     }
 
     fn extract_document_link(&mut self, node: &Node<'_>) {
         let start_line = self.line(node.start_offset());
-        let comment = self.lines_to_comments.get(&(start_line - 1)).or_else(|| self.sig_comments.get(&(start_line - 1)));
-        let Some((start_offset, end_offset)) = comment.copied() else { return };
+        let comment = self
+            .lines_to_comments
+            .get(&(start_line - 1))
+            .or_else(|| self.sig_comments.get(&(start_line - 1)));
+        let Some((start_offset, end_offset)) = comment.copied() else {
+            return;
+        };
 
         let source = self.parsed.document.ruby_source();
-        let Some(uri_string) = find_link_uri(&source[start_offset..end_offset]) else { return };
+        let Some(uri_string) = find_link_uri(&source[start_offset..end_offset]) else {
+            return;
+        };
 
         let resolved = if uri_string.starts_with("pkg:gem/") {
             self.parse_package_url(uri_string)
         } else {
             self.parse_source_uri(uri_string)
         };
-        let Some((file_path, line_number)) = resolved else { return };
+        let Some((file_path, line_number)) = resolved else {
+            return;
+        };
 
         self.response.push(DocumentLinkItem {
             range: self.parsed.byte_range(start_offset, end_offset),
@@ -185,7 +219,9 @@ impl<'a, 'b> DocumentLink<'a, 'b> {
             Some((path, line_number)) => (path, line_number),
             None => (subpath, ""),
         };
-        let file_path = self.gem_paths.file_path(&package_url.name, &gem_version, &cgi_unescape(path))?;
+        let file_path = self
+            .gem_paths
+            .file_path(&package_url.name, &gem_version, &cgi_unescape(path))?;
         Some((file_path, line_number.to_string()))
     }
 
@@ -193,7 +229,9 @@ impl<'a, 'b> DocumentLink<'a, 'b> {
         let uri = SourceUri::parse(uri_string).ok()?;
         let gem_version = self.resolve_version(uri.gem_version.as_deref(), &uri.gem_name)?;
         let path = uri.path.as_deref()?;
-        let file_path = self.gem_paths.file_path(&uri.gem_name, &gem_version, &cgi_unescape(path))?;
+        let file_path = self
+            .gem_paths
+            .file_path(&uri.gem_name, &gem_version, &cgi_unescape(path))?;
         Some((file_path, uri.line_number.unwrap_or_else(|| "0".to_string())))
     }
 
@@ -243,17 +281,29 @@ mod tests {
 
     #[test]
     fn finds_the_leftmost_link_in_comments() {
-        assert_eq!(find_link_uri("# source://foo/1.0/a.rb#12"), Some("source://foo/1.0/a.rb#12"));
+        assert_eq!(
+            find_link_uri("# source://foo/1.0/a.rb#12"),
+            Some("source://foo/1.0/a.rb#12")
+        );
         assert_eq!(find_link_uri("# source://foo/1.0/a.rb#"), None);
         assert_eq!(find_link_uri("# source://#1"), Some("source://#1"));
-        assert_eq!(find_link_uri("# pkg:gem/foo#a.rb:1 trailing"), Some("pkg:gem/foo#a.rb:1 trailing"));
+        assert_eq!(
+            find_link_uri("# pkg:gem/foo#a.rb:1 trailing"),
+            Some("pkg:gem/foo#a.rb:1 trailing")
+        );
         assert_eq!(find_link_uri("# pkg:gem/foo"), None);
-        assert_eq!(find_link_uri("=begin\nsource://a/1/b.rb#2\n=end"), Some("source://a/1/b.rb#2"));
+        assert_eq!(
+            find_link_uri("=begin\nsource://a/1/b.rb#2\n=end"),
+            Some("source://a/1/b.rb#2")
+        );
     }
 
     #[test]
     fn extracts_versions_from_rbi_file_names() {
-        assert_eq!(version_from_rbi_path("/sorbet/rbi/gems/foo%401.2.3.rbi").as_deref(), Some("1.2.3"));
+        assert_eq!(
+            version_from_rbi_path("/sorbet/rbi/gems/foo%401.2.3.rbi").as_deref(),
+            Some("1.2.3")
+        );
         assert_eq!(version_from_rbi_path("/sorbet/rbi/gems/foo@1.2.3.rbi"), None);
         assert_eq!(version_from_rbi_path("/sorbet/rbi/gems/foo%401.2.3.rb"), None);
     }

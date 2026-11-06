@@ -1,0 +1,3 @@
+class Container
+  def pair: [T, S] (T, S) -> [T, S]
+end

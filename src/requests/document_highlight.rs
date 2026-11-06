@@ -16,8 +16,12 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
     delegate_request_if_needed(context.global_state, document, offset)?;
 
     let node_context = parsed.locate(offset, &[]);
-    let mut listener =
-        DocumentHighlightListener::new(&parsed, node_context.node.as_ref(), node_context.parent.as_ref(), params.position);
+    let mut listener = DocumentHighlightListener::new(
+        &parsed,
+        node_context.node.as_ref(),
+        node_context.parent.as_ref(),
+        params.position,
+    );
     listener.visit(&parsed.ast());
     to_result(listener.into_response())
 }

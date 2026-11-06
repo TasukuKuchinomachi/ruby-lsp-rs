@@ -1,0 +1,8 @@
+target :application do
+  check "lib"
+  ignore "lib/generated"
+  signature "sig"
+  ignore_signature "sig/broken"
+
+  configure_code_diagnostics(Steep::Diagnostic::Ruby.all_error)
+end

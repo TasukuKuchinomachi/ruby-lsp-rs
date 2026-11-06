@@ -42,7 +42,10 @@ fn test_to_standardized_path_on_windows_with_lowercase_drive() {
 
 #[test]
 fn test_to_standardized_path_on_windows_with_received_uri() {
-    assert_eq!("c:/some/windows/path/to/file.rb", to_path("file:///c%3A/some/windows/path/to/file.rb").unwrap());
+    assert_eq!(
+        "c:/some/windows/path/to/file.rb",
+        to_path("file:///c%3A/some/windows/path/to/file.rb").unwrap()
+    );
 }
 
 #[test]
@@ -54,7 +57,10 @@ fn test_plus_signs_are_properly_unescaped() {
 #[test]
 fn test_from_path_windows_long_file_paths() {
     let uri = from_path("//?/C:/hostedtoolcache/windows/Ruby/3.3.1/x64/lib/ruby/3.3.0/open-uri.rb");
-    assert_eq!("C:/hostedtoolcache/windows/Ruby/3.3.1/x64/lib/ruby/3.3.0/open-uri.rb", to_path(&uri).unwrap());
+    assert_eq!(
+        "C:/hostedtoolcache/windows/Ruby/3.3.1/x64/lib/ruby/3.3.0/open-uri.rb",
+        to_path(&uri).unwrap()
+    );
 }
 
 #[test]

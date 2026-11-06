@@ -1,0 +1,13 @@
+type pair = [Integer, String]
+
+class Convertible
+  def to_ary: () -> [Symbol, Float]
+end
+
+class BrokenConvertible
+  def to_ary: () -> String
+end
+
+class Generic
+  def pick: [T < String] (Integer, T) -> T
+end

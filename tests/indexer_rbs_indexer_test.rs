@@ -8,7 +8,10 @@ use ruby_lsp_rs::indexer::rbs_indexer::RbsIndexer;
 use ruby_lsp_rs::indexer::{Configuration, Entry, EntryKind, Index};
 
 fn find<'a>(test: &'a TestCase, name: &str, owner: &str) -> &'a Entry {
-    test.entries(name).into_iter().find(|entry| entry.owner() == Some(owner)).unwrap_or_else(|| panic!("{name} owned by {owner}"))
+    test.entries(name)
+        .into_iter()
+        .find(|entry| entry.owner() == Some(owner))
+        .unwrap_or_else(|| panic!("{name} owned by {owner}"))
 }
 
 fn parse_rbs_methods(rbs: &str, method_name: &str) -> Vec<Signature> {
@@ -19,7 +22,10 @@ fn parse_rbs_methods(rbs: &str, method_name: &str) -> Vec<Signature> {
 
 fn assert_file_path(entry: &Entry, file_name: &str) {
     let path = entry.file_path().unwrap();
-    assert!(path.contains("/gems/rbs-") && path.ends_with(&format!("/core/{file_name}")), "{path}");
+    assert!(
+        path.contains("/gems/rbs-") && path.ends_with(&format!("/core/{file_name}")),
+        "{path}"
+    );
     assert_eq!(file_name, entry.file_name());
 }
 
@@ -100,7 +106,11 @@ fn test_attaches_correct_owner_to_singleton_methods() {
 #[test]
 fn test_location_and_name_location_are_the_same() {
     let test = TestCase::new();
-    let entry = test.entries("Array").into_iter().find(|entry| kind_name(entry) == "Class").unwrap();
+    let entry = test
+        .entries("Array")
+        .into_iter()
+        .find(|entry| kind_name(entry) == "Class")
+        .unwrap();
     assert_eq!(entry.location, entry.name_location());
 }
 
@@ -123,10 +133,13 @@ fn test_rbs_method_with_unnamed_required_positionals() {
     assert_eq!(vec!["array"], parameter_names(parameters));
     assert_eq!(vec!["RequiredParameter"], parameter_kinds(parameters));
 
-    let signatures = parse_rbs_methods("class Array
+    let signatures = parse_rbs_methods(
+        "class Array
   def self.try_convert: (untyped) -> Array[untyped]?
 end
-", "try_convert");
+",
+        "try_convert",
+    );
     assert_eq!(vec!["arg0"], parameter_names(&signatures[0].parameters));
 }
 
@@ -136,7 +149,10 @@ fn test_rbs_method_with_optional_positionals() {
     let entry = find(&test, "polar", "Complex::<Class:Complex>");
     let parameters = &entry.signatures()[0].parameters;
     assert_eq!(vec!["arg0", "arg1"], parameter_names(parameters));
-    assert_eq!(vec!["RequiredParameter", "OptionalParameter"], parameter_kinds(parameters));
+    assert_eq!(
+        vec!["RequiredParameter", "OptionalParameter"],
+        parameter_kinds(parameters)
+    );
 }
 
 #[test]
@@ -157,12 +173,24 @@ fn test_rbs_method_with_required_and_optional_parameters() {
     let signatures = entries[0].signatures();
     assert_eq!(3, signatures.len());
 
-    assert_eq!(vec!["pattern", "replacement"], parameter_names(&signatures[0].parameters));
-    assert_eq!(vec!["RequiredParameter", "RequiredParameter"], parameter_kinds(&signatures[0].parameters));
+    assert_eq!(
+        vec!["pattern", "replacement"],
+        parameter_names(&signatures[0].parameters)
+    );
+    assert_eq!(
+        vec!["RequiredParameter", "RequiredParameter"],
+        parameter_kinds(&signatures[0].parameters)
+    );
     assert_eq!(vec!["pattern"], parameter_names(&signatures[1].parameters));
     assert_eq!(vec!["RequiredParameter"], parameter_kinds(&signatures[1].parameters));
-    assert_eq!(vec!["pattern", "<anonymous block>"], parameter_names(&signatures[2].parameters));
-    assert_eq!(vec!["RequiredParameter", "BlockParameter"], parameter_kinds(&signatures[2].parameters));
+    assert_eq!(
+        vec!["pattern", "<anonymous block>"],
+        parameter_names(&signatures[2].parameters)
+    );
+    assert_eq!(
+        vec!["RequiredParameter", "BlockParameter"],
+        parameter_kinds(&signatures[2].parameters)
+    );
 }
 
 #[test]
@@ -186,10 +214,18 @@ fn test_rbs_anonymous_block_parameter() {
         vec!["RequiredParameter", "OptionalParameter", "OptionalParameter"],
         parameter_kinds(&signatures[0].parameters[..3])
     );
-    assert!(!signatures[0].parameters.iter().any(|parameter| matches!(parameter, Parameter::Block(_))));
+    assert!(
+        !signatures[0]
+            .parameters
+            .iter()
+            .any(|parameter| matches!(parameter, Parameter::Block(_)))
+    );
 
     assert_eq!(vec!["file_name", "mode", "perm"], positionals(&signatures[1]));
-    assert_eq!(Some(&Parameter::Block("<anonymous block>".into())), signatures[1].parameters.last());
+    assert_eq!(
+        Some(&Parameter::Block("<anonymous block>".into())),
+        signatures[1].parameters.last()
+    );
 }
 
 #[test]
@@ -198,8 +234,14 @@ fn test_rbs_method_with_rest_positionals() {
     let entry = find(&test, "count", "String");
     let signatures = entry.signatures();
     assert_eq!(1, signatures.len());
-    assert_eq!(vec!["selector_0", "more_selectors"], parameter_names(&signatures[0].parameters));
-    assert_eq!(vec!["RequiredParameter", "RestParameter"], parameter_kinds(&signatures[0].parameters));
+    assert_eq!(
+        vec!["selector_0", "more_selectors"],
+        parameter_names(&signatures[0].parameters)
+    );
+    assert_eq!(
+        vec!["RequiredParameter", "RestParameter"],
+        parameter_kinds(&signatures[0].parameters)
+    );
 }
 
 #[test]
@@ -209,14 +251,25 @@ fn test_rbs_method_with_trailing_positionals() {
     let signatures = entry.signatures();
     assert_eq!(2, signatures.len());
 
-    assert_eq!(vec!["read_array", "write_array", "error_array"], parameter_names(&signatures[0].parameters));
+    assert_eq!(
+        vec!["read_array", "write_array", "error_array"],
+        parameter_names(&signatures[0].parameters)
+    );
     assert_eq!(
         vec!["RequiredParameter", "OptionalParameter", "OptionalParameter"],
         parameter_kinds(&signatures[0].parameters)
     );
-    assert_eq!(vec!["read_array", "write_array", "error_array", "timeout"], parameter_names(&signatures[1].parameters));
     assert_eq!(
-        vec!["RequiredParameter", "OptionalParameter", "OptionalParameter", "OptionalParameter"],
+        vec!["read_array", "write_array", "error_array", "timeout"],
+        parameter_names(&signatures[1].parameters)
+    );
+    assert_eq!(
+        vec![
+            "RequiredParameter",
+            "OptionalParameter",
+            "OptionalParameter",
+            "OptionalParameter"
+        ],
         parameter_kinds(&signatures[1].parameters)
     );
 }
@@ -228,20 +281,32 @@ fn test_rbs_method_with_optional_keywords() {
     let signatures = entry.signatures();
     assert_eq!(4, signatures.len());
 
-    assert_eq!(vec!["limit", "step", "<anonymous block>"], parameter_names(&signatures[0].parameters));
+    assert_eq!(
+        vec!["limit", "step", "<anonymous block>"],
+        parameter_names(&signatures[0].parameters)
+    );
     assert_eq!(
         vec!["OptionalParameter", "OptionalParameter", "BlockParameter"],
         parameter_kinds(&signatures[0].parameters)
     );
     assert_eq!(vec!["limit", "step"], parameter_names(&signatures[1].parameters));
-    assert_eq!(vec!["OptionalParameter", "OptionalParameter"], parameter_kinds(&signatures[1].parameters));
-    assert_eq!(vec!["by", "to", "<anonymous block>"], parameter_names(&signatures[2].parameters));
+    assert_eq!(
+        vec!["OptionalParameter", "OptionalParameter"],
+        parameter_kinds(&signatures[1].parameters)
+    );
+    assert_eq!(
+        vec!["by", "to", "<anonymous block>"],
+        parameter_names(&signatures[2].parameters)
+    );
     assert_eq!(
         vec!["OptionalKeywordParameter", "OptionalKeywordParameter", "BlockParameter"],
         parameter_kinds(&signatures[2].parameters)
     );
     assert_eq!(vec!["by", "to"], parameter_names(&signatures[3].parameters));
-    assert_eq!(vec!["OptionalKeywordParameter", "OptionalKeywordParameter"], parameter_kinds(&signatures[3].parameters));
+    assert_eq!(
+        vec!["OptionalKeywordParameter", "OptionalKeywordParameter"],
+        parameter_kinds(&signatures[3].parameters)
+    );
 }
 
 #[test]
@@ -251,7 +316,10 @@ fn test_rbs_method_with_required_keywords() {
         "foo",
     );
     assert_eq!(vec!["a", "b"], parameter_names(&signatures[0].parameters));
-    assert_eq!(vec!["KeywordParameter", "KeywordParameter"], parameter_kinds(&signatures[0].parameters));
+    assert_eq!(
+        vec!["KeywordParameter", "KeywordParameter"],
+        parameter_kinds(&signatures[0].parameters)
+    );
 }
 
 #[test]
@@ -280,9 +348,17 @@ fn test_parse_simple_rbs() {
         vec!["RequiredParameter", "OptionalParameter", "OptionalParameter"],
         parameter_kinds(&signatures[0].parameters)
     );
-    assert_eq!(vec!["name", "mode", "perm", "<anonymous block>"], parameter_names(&signatures[1].parameters));
     assert_eq!(
-        vec!["RequiredParameter", "OptionalParameter", "OptionalParameter", "BlockParameter"],
+        vec!["name", "mode", "perm", "<anonymous block>"],
+        parameter_names(&signatures[1].parameters)
+    );
+    assert_eq!(
+        vec![
+            "RequiredParameter",
+            "OptionalParameter",
+            "OptionalParameter",
+            "BlockParameter"
+        ],
         parameter_kinds(&signatures[1].parameters)
     );
 }
@@ -296,7 +372,9 @@ fn test_signature_alias() {
         .into_iter()
         .find(|entry| entry.owner() == Some("Array") && kind_name(entry) == "UnresolvedMethodAlias")
         .unwrap();
-    let EntryKind::UnresolvedMethodAlias { new_name, old_name, .. } = &entry.kind else { panic!("expected alias") };
+    let EntryKind::UnresolvedMethodAlias { new_name, old_name, .. } = &entry.kind else {
+        panic!("expected alias")
+    };
     assert_eq!("size", new_name);
     assert_eq!("length", old_name);
     assert!(entry.file_path().unwrap().ends_with("core/array.rbs"));

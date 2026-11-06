@@ -26,7 +26,10 @@ pub fn fake_gem_paths() -> GemPaths {
     let gem_stubs = vec![GemStub {
         name: "syntax_tree".to_string(),
         version: SYNTAX_TREE_VERSION.to_string(),
-        full_gem_path: bundle_path.join(format!("gems/syntax_tree-{SYNTAX_TREE_VERSION}")).to_string_lossy().into_owned(),
+        full_gem_path: bundle_path
+            .join(format!("gems/syntax_tree-{SYNTAX_TREE_VERSION}"))
+            .to_string_lossy()
+            .into_owned(),
     }];
     let default_gem_stubs = vec![
         DefaultGemStub {

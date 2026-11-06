@@ -27,7 +27,7 @@ jobs:
       - name: Build
         env:
           BINDGEN_EXTRA_CLANG_ARGS: -I/usr/include/x86_64-linux-musl
-        run: cargo build --release --locked -p ruby-type-check --target "$TARGET"
+        run: cargo build --release --locked -p steep --bin ruby-type-check --target "$TARGET"
       - name: Package
         run: |
           tar -czf "$ARCHIVE" -C "target/$TARGET/release" ruby-type-check

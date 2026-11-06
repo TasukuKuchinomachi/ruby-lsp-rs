@@ -4,8 +4,14 @@ use ruby_prism::{CallNode, Node};
 
 use crate::prism::{NodeExt, child_nodes, constant_id_name, node_slice};
 
-const NESTING_NODE_TYPES: &[&str] =
-    &["ClassNode", "ModuleNode", "SingletonClassNode", "DefNode", "BlockNode", "LambdaNode"];
+const NESTING_NODE_TYPES: &[&str] = &[
+    "ClassNode",
+    "ModuleNode",
+    "SingletonClassNode",
+    "DefNode",
+    "BlockNode",
+    "LambdaNode",
+];
 
 pub struct NodeContext<'pr> {
     pub node: Option<Node<'pr>>,
@@ -24,7 +30,14 @@ impl<'pr> NodeContext<'pr> {
         call_node: Option<Node<'pr>>,
     ) -> NodeContext<'pr> {
         let (nesting, surrounding_method) = handle_nesting_nodes(&nesting_nodes);
-        NodeContext { node, parent, nesting_nodes, call_node, nesting, surrounding_method }
+        NodeContext {
+            node,
+            parent,
+            nesting_nodes,
+            call_node,
+            nesting,
+            surrounding_method,
+        }
     }
 
     pub fn call_node(&self) -> Option<CallNode<'pr>> {
@@ -73,7 +86,12 @@ impl<'pr> NodeContext<'pr> {
 }
 
 fn last_nesting_part(nesting: &[String]) -> String {
-    nesting.iter().flat_map(|part| part.split("::")).last().unwrap_or("").to_string()
+    nesting
+        .iter()
+        .flat_map(|part| part.split("::"))
+        .last()
+        .unwrap_or("")
+        .to_string()
 }
 
 fn handle_nesting_nodes(nodes: &[Node<'_>]) -> (Vec<String>, Option<String>) {
@@ -89,7 +107,10 @@ fn handle_nesting_nodes(nodes: &[Node<'_>]) -> (Vec<String>, Option<String>) {
             nesting.push(format!("<Class:{}>", last_nesting_part(&nesting)));
         } else if let Some(definition) = node.as_def_node() {
             surrounding_method = Some(constant_id_name(&definition.name()));
-            if definition.receiver().is_some_and(|receiver| receiver.as_self_node().is_some()) {
+            if definition
+                .receiver()
+                .is_some_and(|receiver| receiver.as_self_node().is_some())
+            {
                 nesting.push(format!("<Class:{}>", last_nesting_part(&nesting)));
             }
         }
@@ -123,7 +144,10 @@ pub fn locate<'pr>(root: &Node<'pr>, offset: usize, node_types: &[&str]) -> Node
             continue;
         }
 
-        if nesting_nodes.last().is_some_and(|previous_level| start > previous_level.end_offset()) {
+        if nesting_nodes
+            .last()
+            .is_some_and(|previous_level| start > previous_level.end_offset())
+        {
             nesting_nodes.pop();
         }
 
@@ -133,9 +157,16 @@ pub fn locate<'pr>(root: &Node<'pr>, offset: usize, node_types: &[&str]) -> Node
         }
 
         if let Some(call) = candidate.as_call_node() {
-            let in_arguments =
-                call.arguments().is_some_and(|arguments| covers(arguments.location().start_offset(), arguments.location().end_offset(), offset));
-            let in_block = call.block().is_some_and(|block| covers(block.start_offset(), block.end_offset(), offset));
+            let in_arguments = call.arguments().is_some_and(|arguments| {
+                covers(
+                    arguments.location().start_offset(),
+                    arguments.location().end_offset(),
+                    offset,
+                )
+            });
+            let in_block = call
+                .block()
+                .is_some_and(|block| covers(block.start_offset(), block.end_offset(), offset));
             if in_arguments || in_block {
                 call_node = Some(candidate.clone_node());
             }
@@ -201,18 +232,26 @@ mod tests {
     #[test]
     fn returns_nesting() {
         let source = "module Foo\n  class Other\n    def do_it\n      Hello::Qux\n    end\n  end\nend\n";
-        locate_in(source, offset_of(source, 3, 7), &["ConstantReadNode", "ConstantPathNode"], |context| {
-            assert_eq!(node_slice(context.node.as_ref().unwrap()), "Hello");
-            assert_eq!(context.nesting, vec!["Foo".to_string(), "Other".to_string()]);
-            assert_eq!(context.surrounding_method.as_deref(), Some("do_it"));
-        });
+        locate_in(
+            source,
+            offset_of(source, 3, 7),
+            &["ConstantReadNode", "ConstantPathNode"],
+            |context| {
+                assert_eq!(node_slice(context.node.as_ref().unwrap()), "Hello");
+                assert_eq!(context.nesting, vec!["Foo".to_string(), "Other".to_string()]);
+                assert_eq!(context.surrounding_method.as_deref(), Some("do_it"));
+            },
+        );
     }
 
     #[test]
     fn returns_call_node() {
         let source = "ProfileHelper.find_profile(name: \"foo\")\n";
         locate_in(source, offset_of(source, 0, 34), &[], |context| {
-            assert_eq!(node_slice(context.call_node_as_node().unwrap()), "ProfileHelper.find_profile(name: \"foo\")");
+            assert_eq!(
+                node_slice(context.call_node_as_node().unwrap()),
+                "ProfileHelper.find_profile(name: \"foo\")"
+            );
         });
     }
 

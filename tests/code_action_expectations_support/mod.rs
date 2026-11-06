@@ -19,9 +19,10 @@ pub fn run_prepare_rename(case: &ExpectationCase) -> Result<Value, String> {
     let position = non_empty_params(case)
         .and_then(|params| params.get("position").cloned())
         .unwrap_or(json!({ "line": 0, "character": 0 }));
-    response_result(
-        server.request("textDocument/prepareRename", json!({ "textDocument": { "uri": DEFAULT_URI }, "position": position })),
-    )
+    response_result(server.request(
+        "textDocument/prepareRename",
+        json!({ "textDocument": { "uri": DEFAULT_URI }, "position": position }),
+    ))
 }
 
 pub fn run_code_actions(case: &ExpectationCase) -> Result<Value, String> {

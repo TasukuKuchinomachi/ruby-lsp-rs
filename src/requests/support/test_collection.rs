@@ -25,7 +25,8 @@ impl TestCollection {
         let range = Range::new(start, Position::new(start.line, start.character + 1));
 
         for kind in ["run_test", "run_test_in_terminal", "debug_test"] {
-            self.code_lens.push(json!({ "range": range, "data": { "arguments": arguments, "kind": kind } }));
+            self.code_lens
+                .push(json!({ "range": range, "data": { "arguments": arguments, "kind": kind } }));
         }
     }
 

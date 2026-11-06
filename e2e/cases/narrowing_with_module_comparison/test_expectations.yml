@@ -1,0 +1,33 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 5
+        character: 8
+      end:
+        line: 5
+        character: 22
+    severity: ERROR
+    message: Type `singleton(::Animal)` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 7
+        character: 8
+      end:
+        line: 7
+        character: 22
+    severity: ERROR
+    message: Type `(singleton(::Dog) | singleton(::Car))` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 11
+        character: 8
+      end:
+        line: 11
+        character: 22
+    severity: ERROR
+    message: Type `singleton(::Car)` does not have method `no_such_method`
+    code: Ruby::NoMethod

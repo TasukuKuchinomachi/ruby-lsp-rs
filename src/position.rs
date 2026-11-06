@@ -62,7 +62,11 @@ impl<'a> LineIndex<'a> {
                 line_starts.push(offset + 1);
             }
         }
-        LineIndex { source, line_starts, encoding }
+        LineIndex {
+            source,
+            line_starts,
+            encoding,
+        }
     }
 
     pub fn encoding(&self) -> Encoding {

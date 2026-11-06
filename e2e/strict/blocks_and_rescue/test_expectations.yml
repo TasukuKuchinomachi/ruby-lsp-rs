@@ -1,0 +1,53 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 24
+        character: 29
+      end:
+        line: 24
+        character: 43
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 39
+        character: 12
+      end:
+        line: 39
+        character: 26
+    severity: ERROR
+    message: Type `::StandardError` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 43
+        character: 12
+      end:
+        line: 43
+        character: 26
+    severity: ERROR
+    message: Type `::GenericError[untyped]` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 51
+        character: 12
+      end:
+        line: 51
+        character: 26
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 63
+        character: 10
+      end:
+        line: 63
+        character: 24
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod

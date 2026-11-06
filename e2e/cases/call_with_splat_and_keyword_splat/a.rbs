@@ -1,0 +1,9 @@
+class Receiver
+  def positional: (Integer, Integer) -> void
+
+  def variadic: (*Integer) -> void
+
+  def keywords: (name: String, ?age: Integer) -> void
+
+  def any_keywords: (**Integer) -> void
+end

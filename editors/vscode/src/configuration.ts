@@ -7,6 +7,7 @@ export type DefinitionTarget = "implementation" | "signature" | "both";
 export interface TypeCheckerSettings {
   enabled: boolean;
   diagnostics: { enabled: boolean };
+  inferMoreThanSteep: boolean;
   definition: { target: DefinitionTarget };
   inlayHints: {
     methodReturnTypes: boolean;
@@ -96,6 +97,7 @@ export function readTypeCheckerSettings(): TypeCheckerSettings {
     diagnostics: {
       enabled: configuration.get<boolean>("typeChecker.diagnostics.enable", true),
     },
+    inferMoreThanSteep: configuration.get<boolean>("typeChecker.inferMoreThanSteep", false),
     definition: {
       target: configuration.get<DefinitionTarget>("definition.target", "implementation"),
     },

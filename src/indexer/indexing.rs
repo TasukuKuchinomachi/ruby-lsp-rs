@@ -35,9 +35,17 @@ pub fn index_single_with_require_path(
 
 /// Mirrors `RubyIndexer::Index#index_file`, ignoring paths that cannot be read
 pub fn index_file(index: &mut Index, indexable_path: &IndexablePath, collect_comments: bool) {
-    let Ok(source) = std::fs::read(&indexable_path.path) else { return };
+    let Ok(source) = std::fs::read(&indexable_path.path) else {
+        return;
+    };
     let uri: Arc<str> = Arc::from(crate::uri::from_path_buf(&indexable_path.path));
-    index_single_with_require_path(index, uri, &source, collect_comments, indexable_path.require_path.as_deref());
+    index_single_with_require_path(
+        index,
+        uri,
+        &source,
+        collect_comments,
+        indexable_path.require_path.as_deref(),
+    );
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -46,7 +54,12 @@ pub struct IndexNotEmptyError;
 
 /// Indexes every path (in parallel) plus Ruby core RBS signatures, mirroring `RubyIndexer::Index#index_all`.
 /// `progress` receives a percentage between 0 and 100. Calling it again after a completed indexing does nothing.
-pub fn index_all(index: &mut Index, paths: &[IndexablePath], rbs_core_path: Option<&str>, progress: &(dyn Fn(u32) + Sync)) {
+pub fn index_all(
+    index: &mut Index,
+    paths: &[IndexablePath],
+    rbs_core_path: Option<&str>,
+    progress: &(dyn Fn(u32) + Sync),
+) {
     if let Err(error) = try_index_all(index, paths, rbs_core_path, progress) {
         log::error!("{error}");
     }
@@ -89,7 +102,10 @@ pub fn try_index_all(
         chunk_index
     };
 
-    let chunk_indexes: Vec<Index> = match rayon::ThreadPoolBuilder::new().stack_size(INDEXING_THREAD_STACK_SIZE).build() {
+    let chunk_indexes: Vec<Index> = match rayon::ThreadPoolBuilder::new()
+        .stack_size(INDEXING_THREAD_STACK_SIZE)
+        .build()
+    {
         Ok(pool) => pool.install(|| paths.par_chunks(chunk_size).map(index_chunk).collect()),
         Err(_) => paths.par_chunks(chunk_size).map(index_chunk).collect(),
     };

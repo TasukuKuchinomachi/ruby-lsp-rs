@@ -1,66 +1,76 @@
-use std::path::{Path, PathBuf};
-
 use serde_json::Value;
-use type_checker::HoverKind;
 
-use super::support::common::delegate_request_if_needed;
+use super::support::common::{delegate_request_if_needed, range_from_location};
 use super::{RequestContext, RequestResult, TextDocumentPositionParams, parse_params, to_result};
-use crate::requests::support::implementation_lookup;
+use crate::document::LanguageId;
+use crate::indexer::{EntryKind, Index};
 use crate::requests::support::interface::LocationLink;
-use crate::type_checking::{self, DefinitionTarget, NamedType};
+use crate::type_checking::DefinitionTarget;
+use crate::type_checking::worker::GotoKind;
 
 pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult {
     let params: TextDocumentPositionParams = parse_params(params)?;
     let document = context.store.get(&params.text_document.uri)?;
-    if !document.is_ruby_or_erb() {
-        return Ok(Value::Null);
+    let global_state = &*context.global_state;
+    if document.language_id() != LanguageId::Rbs {
+        if !document.is_ruby_or_erb() {
+            return Ok(Value::Null);
+        }
+        let offset = document.parse().offset_of(params.position)?;
+        delegate_request_if_needed(global_state, document, offset)?;
     }
 
-    let analysis = context.global_state.type_checking.analysis_for(document);
-    let global_state = &*context.global_state;
-    let offset = document.parse().offset_of(params.position)?;
-    delegate_request_if_needed(global_state, document, offset)?;
-
-    let (Some(analysis), Some(environment)) = (analysis, global_state.type_checking.environment_for(document.uri()))
+    let Some(answer) = global_state
+        .type_checking
+        .goto(GotoKind::TypeDefinition, document.uri(), params.position)
     else {
         return Ok(Value::Null);
     };
-    let Some(hover_entry) = analysis.hover_at(offset) else { return Ok(Value::Null) };
-    let shown_type = match &hover_entry.kind {
-        HoverKind::Type(shown_type) => shown_type,
-        HoverKind::Method { return_type, .. } => return_type,
-        HoverKind::Constant { constant_type, .. } => constant_type,
-    };
-
-    let definition_target = global_state.type_checking.settings.definition_target;
-    let workspace_path = PathBuf::from(global_state.workspace_path());
-    let core_directory = global_state.ruby_environment.rbs_core_path.as_deref().map(Path::new);
     let index = global_state.index();
-    let mut links: Vec<LocationLink> = Vec::new();
-    for named_type in type_checking::referenced_named_types(shown_type) {
-        let signature = type_checking::type_declaration(environment, &named_type)
-            .map(|location| type_checking::signature_location_link(location, global_state.encoding));
-        let implementations: Vec<LocationLink> = match &named_type {
-            NamedType::Class { name, .. } => {
-                let core_class = type_checking::is_core_class(environment, name, core_directory);
-                implementation_lookup::preferred_class_implementations(&index, name, core_class.then_some(&workspace_path))
-                    .into_iter()
-                    .map(|id| implementation_lookup::implementation_link(index.entry(id)))
-                    .collect()
-            }
-            NamedType::Interface(_) | NamedType::Alias(_) => Vec::new(),
-        };
-        let chosen: Vec<LocationLink> = match definition_target {
-            DefinitionTarget::Implementation if !implementations.is_empty() => implementations,
-            DefinitionTarget::Signature if signature.is_none() => implementations,
-            DefinitionTarget::Both => implementations.into_iter().chain(signature).collect(),
-            DefinitionTarget::Implementation | DefinitionTarget::Signature => signature.into_iter().collect(),
-        };
-        for link in chosen {
-            if !links.contains(&link) {
-                links.push(link);
-            }
+    let implementations: Vec<LocationLink> = answer
+        .type_names
+        .iter()
+        .flat_map(|class_name| class_implementations(&index, class_name))
+        .collect();
+    let links = match global_state.type_checking.settings.definition_target {
+        DefinitionTarget::Implementation if !implementations.is_empty() => implementations,
+        DefinitionTarget::Signature if answer.links.is_empty() => implementations,
+        DefinitionTarget::Both => implementations.into_iter().chain(answer.links).collect(),
+        DefinitionTarget::Implementation | DefinitionTarget::Signature => answer.links,
+    };
+    let mut unique: Vec<LocationLink> = Vec::new();
+    for link in links {
+        if !unique.contains(&link) {
+            unique.push(link);
         }
     }
-    to_result(links)
+    to_result(unique)
+}
+
+pub fn class_implementations(index: &Index, class_name: &str) -> Vec<LocationLink> {
+    let mut implementations: Vec<LocationLink> = index
+        .get(class_name)
+        .unwrap_or_default()
+        .iter()
+        .map(|id| index.entry(*id))
+        .filter(|entry| matches!(entry.kind, EntryKind::Namespace(_)) && !entry.uri.ends_with(".rbs"))
+        .map(|entry| LocationLink {
+            target_uri: entry.uri.to_string(),
+            target_range: range_from_location(&entry.location),
+            target_selection_range: range_from_location(&entry.name_location()),
+        })
+        .collect();
+    implementations.sort_by(|left, right| {
+        (
+            &left.target_uri,
+            left.target_range.start.line,
+            left.target_range.start.character,
+        )
+            .cmp(&(
+                &right.target_uri,
+                right.target_range.start.line,
+                right.target_range.start.character,
+            ))
+    });
+    implementations
 }

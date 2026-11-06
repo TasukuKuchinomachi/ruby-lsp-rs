@@ -46,12 +46,17 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
         };
         create_reference_target(&mut index, &target, &node_context)?
     };
-    let Some(reference_target) = reference_target else { return to_result(Vec::<Location>::new()) };
+    let Some(reference_target) = reference_target else {
+        return to_result(Vec::<Location>::new());
+    };
 
     let mut locations = Vec::new();
     for_each_workspace_document(&global_state.workspace_path(), context.store, |uri, source| {
         for reference in find_references(&reference_target, &mut index, source, uri, true) {
-            locations.push(Location { uri: uri.to_string(), range: range_from_location(&reference.location) });
+            locations.push(Location {
+                uri: uri.to_string(),
+                range: range_from_location(&reference.location),
+            });
         }
     });
     to_result(locations)
@@ -72,17 +77,23 @@ fn create_reference_target(
         | "InstanceVariableReadNode"
         | "InstanceVariableTargetNode"
         | "InstanceVariableWriteNode" => {
-            let Some(receiver_type) = TypeInferrer::new(index).infer_receiver_type(node_context) else { return Ok(None) };
+            let Some(receiver_type) = TypeInferrer::new(index).infer_receiver_type(node_context) else {
+                return Ok(None);
+            };
             let owner_ancestors = index
                 .linearized_ancestors_of(&receiver_type.name)
                 .map_err(|_| RequestError::Internal(format!("No entry found for {}", receiver_type.name)))?;
-            let Some(name) = variable_name(target) else { return Ok(None) };
+            let Some(name) = variable_name(target) else {
+                return Ok(None);
+            };
             Ok(Some(Target::InstanceVariable { name, owner_ancestors }))
         }
-        "CallNode" => Ok(target.as_call_node().map(|call| Target::Method { method_name: constant_id_name(&call.name()) })),
-        "DefNode" => {
-            Ok(target.as_def_node().map(|definition| Target::Method { method_name: constant_id_name(&definition.name()) }))
-        }
+        "CallNode" => Ok(target.as_call_node().map(|call| Target::Method {
+            method_name: constant_id_name(&call.name()),
+        })),
+        "DefNode" => Ok(target.as_def_node().map(|definition| Target::Method {
+            method_name: constant_id_name(&definition.name()),
+        })),
         _ => Ok(None),
     }
 }

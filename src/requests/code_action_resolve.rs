@@ -58,11 +58,18 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
     let params: CodeActionResolveParams = parse_params(params)?;
     let document = context.store.get(&params.data.uri)?;
     if !document.is_ruby() {
-        return fail_request_and_notify(context.outgoing, "Code actions are currently only available for Ruby documents");
+        return fail_request_and_notify(
+            context.outgoing,
+            "Code actions are currently only available for Ruby documents",
+        );
     }
 
     let parsed = document.parse();
-    let resolver = CodeActionResolve { parsed: &parsed, title: params.title.as_deref(), data: &params.data };
+    let resolver = CodeActionResolve {
+        parsed: &parsed,
+        title: params.title.as_deref(),
+        data: &params.data,
+    };
     let outcome = resolver.perform();
     drop(parsed);
     match outcome {
@@ -128,10 +135,9 @@ impl CodeActionResolve<'_, '_> {
         CodeAction {
             title: title.to_string(),
             kind: None,
-            edit: Some(WorkspaceEdit::from_document_changes(vec![DocumentChange::Edit(TextDocumentEdit::new(
-                self.data.uri.clone(),
-                edits,
-            ))])),
+            edit: Some(WorkspaceEdit::from_document_changes(vec![DocumentChange::Edit(
+                TextDocumentEdit::new(self.data.uri.clone(), edits),
+            )])),
             data: None,
         }
     }
@@ -146,9 +152,14 @@ impl CodeActionResolve<'_, '_> {
 
             let call_context = self.parsed.locate(node.start_offset(), &["CallNode"]);
             let target = call_context.node.filter(|target| {
-                target.as_call_node().and_then(|call| call.block()).is_some_and(|block| block.same_node(&node))
+                target
+                    .as_call_node()
+                    .and_then(|call| call.block())
+                    .is_some_and(|block| block.same_node(&node))
             });
-            let Some(target) = target else { return failure(INVALID_TARGET_RANGE) };
+            let Some(target) = target else {
+                return failure(INVALID_TARGET_RANGE);
+            };
             (target, node)
         } else {
             let target = self.parsed.locate_first_within_range(source_range, &["CallNode"])?;
@@ -185,7 +196,9 @@ impl CodeActionResolve<'_, '_> {
         let extracted_source = self.source().get(start_index..end_index).unwrap_or("");
 
         let node_context = self.parsed.locate(start_index, &["StatementsNode", "BlockNode"]);
-        let Some(closest_statements) = node_context.node.as_ref() else { return failure(INVALID_TARGET_RANGE) };
+        let Some(closest_statements) = node_context.node.as_ref() else {
+            return failure(INVALID_TARGET_RANGE);
+        };
         let statements_children = child_nodes(closest_statements);
         if statements_children.is_empty() {
             return failure(INVALID_TARGET_RANGE);
@@ -216,7 +229,10 @@ impl CodeActionResolve<'_, '_> {
         let (target_range, variable_source) = if parent_is_one_line_block {
             let character = source_range.start.character.saturating_sub(1);
             let position = Position::new(closest_end_line, character);
-            (Range::new(position, position), format!(" {NEW_VARIABLE_NAME} = {extracted_source};"))
+            (
+                Range::new(position, position),
+                format!(" {NEW_VARIABLE_NAME} = {extracted_source};"),
+            )
         } else {
             let (indentation_line_number, target_line) =
                 if closest_start_line <= source_range.start.line && closest_end_line >= source_range.end.line {
@@ -232,7 +248,9 @@ impl CodeActionResolve<'_, '_> {
             let indentation = leading_spaces(indentation_line);
             let position = Position::new(target_line, indentation as u32);
 
-            let Some(line) = lines.get(target_line as usize) else { return failure(INVALID_TARGET_RANGE) };
+            let Some(line) = lines.get(target_line as usize) else {
+                return failure(INVALID_TARGET_RANGE);
+            };
             let indents = " ".repeat(indentation);
             let variable_source = if ruby_strip(line).is_empty() {
                 format!("\n{indents}{NEW_VARIABLE_NAME} = {extracted_source}")
@@ -244,7 +262,10 @@ impl CodeActionResolve<'_, '_> {
 
         Ok(self.code_action(
             EXTRACT_TO_VARIABLE_TITLE,
-            vec![TextEdit::new(source_range, NEW_VARIABLE_NAME), TextEdit::new(target_range, variable_source)],
+            vec![
+                TextEdit::new(source_range, NEW_VARIABLE_NAME),
+                TextEdit::new(target_range, variable_source),
+            ],
         ))
     }
 
@@ -259,26 +280,35 @@ impl CodeActionResolve<'_, '_> {
         let extracted_source = self.source().get(start_index..end_index).unwrap_or("");
 
         let node_context = self.parsed.locate(start_index, &["DefNode"]);
-        let Some(closest_node) = node_context.node.as_ref() else { return failure(INVALID_TARGET_RANGE) };
+        let Some(closest_node) = node_context.node.as_ref() else {
+            return failure(INVALID_TARGET_RANGE);
+        };
 
         let (target_range, new_method_source) = if let Some(definition) = closest_node.as_def_node() {
-            let Some(end_keyword_location) = definition.end_keyword_loc() else { return failure(INVALID_TARGET_RANGE) };
+            let Some(end_keyword_location) = definition.end_keyword_loc() else {
+                return failure(INVALID_TARGET_RANGE);
+            };
             let end = self.parsed.byte_position(end_keyword_location.end_offset());
-            let indentation = " ".repeat(self.parsed.byte_position(end_keyword_location.start_offset()).character as usize);
-            let new_method_source = format!(
-                "\n\n{indentation}def {NEW_METHOD_NAME}\n{indentation}  {extracted_source}\n{indentation}end"
-            );
+            let indentation =
+                " ".repeat(self.parsed.byte_position(end_keyword_location.start_offset()).character as usize);
+            let new_method_source =
+                format!("\n\n{indentation}def {NEW_METHOD_NAME}\n{indentation}  {extracted_source}\n{indentation}end");
             (Range::new(end, end), new_method_source)
         } else {
-            let new_method_source =
-                format!("def {NEW_METHOD_NAME}\n  {}\nend\n\n", extracted_source.replace('\n', "\n  "));
+            let new_method_source = format!(
+                "def {NEW_METHOD_NAME}\n  {}\nend\n\n",
+                extracted_source.replace('\n', "\n  ")
+            );
             let position = Position::new(source_range.start.line.saturating_sub(1), source_range.start.character);
             (Range::new(position, position), new_method_source)
         };
 
         Ok(self.code_action(
             EXTRACT_TO_METHOD_TITLE,
-            vec![TextEdit::new(target_range, new_method_source), TextEdit::new(source_range, NEW_METHOD_NAME)],
+            vec![
+                TextEdit::new(target_range, new_method_source),
+                TextEdit::new(source_range, NEW_METHOD_NAME),
+            ],
         ))
     }
 
@@ -327,7 +357,8 @@ impl CodeActionResolve<'_, '_> {
             let correction_start = nested_block.start_offset() - body.start_offset();
             let correction_end = nested_block.end_offset() - body.start_offset();
             let next_indentation = indentation.map(|indentation| format!("{indentation}  "));
-            let replacement = self.recursively_switch_nested_block_styles(&nested_block, next_indentation.as_deref())?;
+            let replacement =
+                self.recursively_switch_nested_block_styles(&nested_block, next_indentation.as_deref())?;
             body_content.replace_range(correction_start..correction_end, &replacement);
         }
 
@@ -341,14 +372,17 @@ impl CodeActionResolve<'_, '_> {
         let source_range = self.data.range;
 
         let mut node = if source_range.start != source_range.end {
-            self.parsed.locate_first_within_range(source_range, INSTANCE_VARIABLE_NODES)?
+            self.parsed
+                .locate_first_within_range(source_range, INSTANCE_VARIABLE_NODES)?
         } else {
             None
         };
 
         if node.is_none() {
             let node_context = self.parsed.locate_node(source_range.start, INSTANCE_VARIABLE_NODES)?;
-            node = node_context.node.filter(|node| INSTANCE_VARIABLE_NODES.contains(&node.type_name()));
+            node = node_context
+                .node
+                .filter(|node| INSTANCE_VARIABLE_NODES.contains(&node.type_name()));
             if node.is_none() {
                 return failure(INVALID_SELECTION);
             }
@@ -362,7 +396,9 @@ impl CodeActionResolve<'_, '_> {
             Position::new(start.line + 1, start_character_column),
             &["ClassNode", "ModuleNode", "SingletonClassNode"],
         )?;
-        let Some(closest_node) = node_context.node.as_ref() else { return failure(INVALID_TARGET_RANGE) };
+        let Some(closest_node) = node_context.node.as_ref() else {
+            return failure(INVALID_TARGET_RANGE);
+        };
 
         let attribute_name = instance_variable_name(&node).unwrap_or_default();
         let attribute_name = attribute_name.strip_prefix('@').unwrap_or(&attribute_name);
@@ -379,7 +415,10 @@ impl CodeActionResolve<'_, '_> {
         let target_position = Position::new(closest_start.line + 1, 0);
         Ok(self.code_action(
             title,
-            vec![TextEdit::new(Range::new(target_position, target_position), attribute_accessor_source)],
+            vec![TextEdit::new(
+                Range::new(target_position, target_position),
+                attribute_accessor_source,
+            )],
         ))
     }
 }

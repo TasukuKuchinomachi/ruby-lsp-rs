@@ -1,0 +1,5 @@
+target :app do
+  check "a.rb"
+
+  configure_code_diagnostics(Steep::Diagnostic::Ruby.all_error)
+end

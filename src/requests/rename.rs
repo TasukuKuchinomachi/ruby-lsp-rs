@@ -37,8 +37,12 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
         let parsed = document.parse();
         let offset = parsed.offset_of(params.position)?;
         let node_context = parsed.locate(offset, NODE_TYPES);
-        let Some(target) = constant_target(&parsed, &node_context, params.position) else { return Ok(Value::Null) };
-        let Some(name) = constant_name(&target) else { return Ok(Value::Null) };
+        let Some(target) = constant_target(&parsed, &node_context, params.position) else {
+            return Ok(Value::Null);
+        };
+        let Some(name) = constant_name(&target) else {
+            return Ok(Value::Null);
+        };
         let Some(Target::Constant { fully_qualified_name }) =
             resolve_constant_target(&mut index, &target, &node_context.nesting)
         else {
@@ -46,20 +50,29 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
         };
 
         if let Some(conflict_entries) = index.resolve(&params.new_name, &node_context.nesting) {
-            let conflict_name =
-                conflict_entries.first().map(|id| index.entry(*id).name.clone()).unwrap_or_default();
-            return Err(RequestError::RequestFailed(format!("The new name is already in use by {conflict_name}")));
+            let conflict_name = conflict_entries
+                .first()
+                .map(|id| index.entry(*id).name.clone())
+                .unwrap_or_default();
+            return Err(RequestError::RequestFailed(format!(
+                "The new name is already in use by {conflict_name}"
+            )));
         }
         (name, fully_qualified_name)
     };
 
-    let reference_target = Target::Constant { fully_qualified_name: fully_qualified_name.clone() };
+    let reference_target = Target::Constant {
+        fully_qualified_name: fully_qualified_name.clone(),
+    };
     let mut changes: Vec<(String, Vec<TextEdit>)> = Vec::new();
     for_each_workspace_document(&global_state.workspace_path(), context.store, |uri, source| {
         let edits: Vec<TextEdit> = find_references(&reference_target, &mut index, source, uri, true)
             .into_iter()
             .map(|reference| {
-                TextEdit::new(range_from_location(&reference.location), reference.name.replacen(&name, &params.new_name, 1))
+                TextEdit::new(
+                    range_from_location(&reference.location),
+                    reference.name.replacen(&name, &params.new_name, 1),
+                )
             })
             .collect();
         if !edits.is_empty() {
@@ -68,12 +81,22 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
     });
 
     if !global_state.client_capabilities.supports_rename() {
-        return to_result(WorkspaceEdit::from_changes(changes.into_iter().collect::<BTreeMap<_, _>>()));
+        return to_result(WorkspaceEdit::from_changes(
+            changes.into_iter().collect::<BTreeMap<_, _>>(),
+        ));
     }
 
-    let mut document_changes: Vec<DocumentChange> =
-        changes.into_iter().map(|(uri, edits)| DocumentChange::Edit(TextDocumentEdit::new(uri, edits))).collect();
-    collect_file_renames(global_state, &index, &fully_qualified_name, &params.new_name, &mut document_changes);
+    let mut document_changes: Vec<DocumentChange> = changes
+        .into_iter()
+        .map(|(uri, edits)| DocumentChange::Edit(TextDocumentEdit::new(uri, edits)))
+        .collect();
+    collect_file_renames(
+        global_state,
+        &index,
+        &fully_qualified_name,
+        &params.new_name,
+        &mut document_changes,
+    );
     to_result(WorkspaceEdit::from_document_changes(document_changes))
 }
 
@@ -86,7 +109,9 @@ fn collect_file_renames(
 ) {
     let short_name = last_name_part(fully_qualified_name);
     let workspace_path = global_state.workspace_path();
-    let Some(entries) = index.get(fully_qualified_name) else { return };
+    let Some(entries) = index.get(fully_qualified_name) else {
+        return;
+    };
 
     for id in entries {
         let entry = index.entry(*id);

@@ -1,0 +1,14 @@
+---
+- file: a.rbs
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 20
+      end:
+        line: 2
+        character: 22
+    severity: ERROR
+    message: 'a.rbs:2:20...2:22: Syntax error: unexpected token for function parameter
+      name, token=`->` (pARROW)'
+    code: RBS::SyntaxError

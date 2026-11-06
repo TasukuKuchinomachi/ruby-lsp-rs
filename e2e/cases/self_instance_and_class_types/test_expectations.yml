@@ -1,0 +1,23 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 4
+        character: 13
+      end:
+        line: 4
+        character: 27
+    severity: ERROR
+    message: Type `singleton(::HtmlBuilder)` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 6
+        character: 27
+      end:
+        line: 6
+        character: 33
+    severity: ERROR
+    message: Type `::Builder` does not have method `render`
+    code: Ruby::NoMethod

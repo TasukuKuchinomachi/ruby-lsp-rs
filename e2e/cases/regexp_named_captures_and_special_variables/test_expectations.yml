@@ -1,0 +1,53 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 2
+      end:
+        line: 2
+        character: 6
+    severity: ERROR
+    message: Cannot detect the type of the expression
+    code: Ruby::FallbackAny
+  - range:
+      start:
+        line: 6
+        character: 3
+      end:
+        line: 6
+        character: 17
+    severity: ERROR
+    message: Type `(::String | nil)` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 7
+        character: 3
+      end:
+        line: 7
+        character: 17
+    severity: ERROR
+    message: Type `(::MatchData | nil)` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 8
+        character: 3
+      end:
+        line: 8
+        character: 17
+    severity: ERROR
+    message: Type `(::String | nil)` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 9
+        character: 3
+      end:
+        line: 9
+        character: 17
+    severity: ERROR
+    message: Type `(::String | nil)` does not have method `no_such_method`
+    code: Ruby::NoMethod

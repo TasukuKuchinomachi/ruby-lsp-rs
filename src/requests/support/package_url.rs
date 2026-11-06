@@ -78,7 +78,9 @@ impl PackageUrl {
             Some((remainder, qualifiers)) => {
                 let mut parsed = IndexMap::new();
                 for pair in qualifiers.split('&') {
-                    let Some((key, value)) = pair.split_once('=') else { continue };
+                    let Some((key, value)) = pair.split_once('=') else {
+                        continue;
+                    };
                     let key = key.to_lowercase();
                     let value = decode_www_form_component(value)?;
                     if value.is_empty() {
@@ -99,14 +101,22 @@ impl PackageUrl {
 
         string = match string.split_once(':') {
             Some(("pkg", remainder)) => remainder.to_string(),
-            _ => return Err(PackageUrlError::InvalidPackageUrl("invalid or missing \"pkg:\" URL scheme".to_string())),
+            _ => {
+                return Err(PackageUrlError::InvalidPackageUrl(
+                    "invalid or missing \"pkg:\" URL scheme".to_string(),
+                ));
+            }
         };
 
         let trimmed = string.trim_start_matches('/');
         let trimmed = trimmed.strip_suffix('/').unwrap_or(trimmed);
         let (package_type, mut string) = match trimmed.split_once('/') {
             Some((package_type, remainder)) => (package_type.to_string(), remainder.to_string()),
-            None => return Err(PackageUrlError::InvalidPackageUrl("invalid or missing package type".to_string())),
+            None => {
+                return Err(PackageUrlError::InvalidPackageUrl(
+                    "invalid or missing package type".to_string(),
+                ));
+            }
         };
 
         let version = match string.rsplit_once('@') {
@@ -141,8 +151,11 @@ impl fmt::Display for PackageUrl {
             Some(namespace) if !namespace.is_empty() => {
                 let namespace = namespace.strip_prefix('/').unwrap_or(namespace);
                 let namespace = namespace.strip_suffix('/').unwrap_or(namespace);
-                let segments: Vec<String> =
-                    namespace.split('/').filter(|segment| !segment.is_empty()).map(encode_www_form_component).collect();
+                let segments: Vec<String> = namespace
+                    .split('/')
+                    .filter(|segment| !segment.is_empty())
+                    .map(encode_www_form_component)
+                    .collect();
                 purl.push_str(&segments.join("/"));
                 purl.push('/');
                 let name = self.name.strip_prefix('/').unwrap_or(&self.name);
@@ -163,8 +176,12 @@ impl fmt::Display for PackageUrl {
                 .filter_map(|(key, value)| match value {
                     QualifierValue::Text(text) if text.is_empty() => None,
                     QualifierValue::Checksums(checksums) if checksums.is_empty() => None,
-                    QualifierValue::Text(text) => Some(format!("{}={}", key.to_lowercase(), encode_www_form_component(text))),
-                    QualifierValue::Checksums(checksums) => Some(format!("{}={}", key.to_lowercase(), checksums.join(","))),
+                    QualifierValue::Text(text) => {
+                        Some(format!("{}={}", key.to_lowercase(), encode_www_form_component(text)))
+                    }
+                    QualifierValue::Checksums(checksums) => {
+                        Some(format!("{}={}", key.to_lowercase(), checksums.join(",")))
+                    }
                 })
                 .collect();
             if !list.is_empty() {
@@ -209,7 +226,9 @@ pub fn decode_www_form_component(text: &str) -> Result<String, PackageUrlError> 
         match bytes[index] {
             b'+' => decoded.push(b' '),
             b'%' => {
-                let hex = bytes.get(index + 1..index + 3).filter(|hex| hex.iter().all(u8::is_ascii_hexdigit));
+                let hex = bytes
+                    .get(index + 1..index + 3)
+                    .filter(|hex| hex.iter().all(u8::is_ascii_hexdigit));
                 let Some(hex) = hex else {
                     return Err(PackageUrlError::Argument(format!("invalid %-encoding ({text})")));
                 };
@@ -266,25 +285,44 @@ mod tests {
 
     #[test]
     fn parses_all_components() {
-        let purl = PackageUrl::parse("pkg://NPM/%40scope/name@1.0%2B1?arch=x86&checksums=a,b&empty=#/./src/../a%20b/").unwrap();
+        let purl = PackageUrl::parse("pkg://NPM/%40scope/name@1.0%2B1?arch=x86&checksums=a,b&empty=#/./src/../a%20b/")
+            .unwrap();
         assert_eq!(purl.package_type, "npm");
         assert_eq!(purl.namespace.as_deref(), Some("@scope"));
         assert_eq!(purl.name, "name");
         assert_eq!(purl.version.as_deref(), Some("1.0+1"));
         let qualifiers = purl.qualifiers.as_ref().unwrap();
         assert_eq!(qualifiers.get("arch"), Some(&QualifierValue::Text("x86".to_string())));
-        assert_eq!(qualifiers.get("checksums"), Some(&QualifierValue::Checksums(vec!["a".to_string(), "b".to_string()])));
+        assert_eq!(
+            qualifiers.get("checksums"),
+            Some(&QualifierValue::Checksums(vec!["a".to_string(), "b".to_string()]))
+        );
         assert_eq!(qualifiers.get("empty"), None);
         assert_eq!(purl.subpath.as_deref(), Some("src/a b"));
-        assert_eq!(purl.to_string(), "pkg:npm/%40scope/name@1.0%2B1?arch=x86&checksums=a,b#src/a%20b");
+        assert_eq!(
+            purl.to_string(),
+            "pkg:npm/%40scope/name@1.0%2B1?arch=x86&checksums=a,b#src/a%20b"
+        );
     }
 
     #[test]
     fn rejects_invalid_package_urls() {
-        assert!(matches!(PackageUrl::parse("gem/foo"), Err(PackageUrlError::InvalidPackageUrl(_))));
-        assert!(matches!(PackageUrl::parse("pkg:foo"), Err(PackageUrlError::InvalidPackageUrl(_))));
-        assert!(matches!(PackageUrl::parse("pkg:gem/@1.0"), Err(PackageUrlError::Argument(_))));
-        assert!(matches!(PackageUrl::parse("pkg:gem/foo#%zz"), Err(PackageUrlError::Argument(_))));
+        assert!(matches!(
+            PackageUrl::parse("gem/foo"),
+            Err(PackageUrlError::InvalidPackageUrl(_))
+        ));
+        assert!(matches!(
+            PackageUrl::parse("pkg:foo"),
+            Err(PackageUrlError::InvalidPackageUrl(_))
+        ));
+        assert!(matches!(
+            PackageUrl::parse("pkg:gem/@1.0"),
+            Err(PackageUrlError::Argument(_))
+        ));
+        assert!(matches!(
+            PackageUrl::parse("pkg:gem/foo#%zz"),
+            Err(PackageUrlError::Argument(_))
+        ));
     }
 
     #[test]

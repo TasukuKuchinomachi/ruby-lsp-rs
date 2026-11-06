@@ -12,16 +12,26 @@ pub struct Type {
 
 impl Type {
     pub fn known(name: impl Into<String>) -> Type {
-        Type { name: name.into(), guessed: false }
+        Type {
+            name: name.into(),
+            guessed: false,
+        }
     }
 
     pub fn guessed(name: impl Into<String>) -> Type {
-        Type { name: name.into(), guessed: true }
+        Type {
+            name: name.into(),
+            guessed: true,
+        }
     }
 
     pub fn attached(&self) -> Type {
         let parts: Vec<&str> = split_name(&self.name);
-        let attached = if parts.is_empty() { String::new() } else { parts[..parts.len() - 1].join("::") };
+        let attached = if parts.is_empty() {
+            String::new()
+        } else {
+            parts[..parts.len() - 1].join("::")
+        };
         Type::known(attached)
     }
 }
@@ -77,7 +87,9 @@ impl<'index> TypeInferrer<'index> {
             }
         }
 
-        let Some(receiver) = receiver else { return Some(self_receiver_handling(node_context)) };
+        let Some(receiver) = receiver else {
+            return Some(self_receiver_handling(node_context));
+        };
 
         match receiver.type_name() {
             "SelfNode" => Some(self_receiver_handling(node_context)),
@@ -110,7 +122,10 @@ impl<'index> TypeInferrer<'index> {
                 let raw_receiver = receiver_call.message_loc().map(|location| location_slice(&location))?;
                 if raw_receiver == "new" {
                     let receiver_type = self.infer_receiver_for_call_node(&receiver_call, node_context)?;
-                    let new_method = self.index.resolve_method("new", &receiver_type.name, false).and_then(|ids| ids.first().copied());
+                    let new_method = self
+                        .index
+                        .resolve_method("new", &receiver_type.name, false)
+                        .and_then(|ids| ids.first().copied());
                     if let Some(new_method) = new_method
                         && self.index.entry(new_method).owner() != Some("Class")
                     {
@@ -130,7 +145,10 @@ impl<'index> TypeInferrer<'index> {
         let without_prefix = without_prefix.strip_prefix("@@").unwrap_or(without_prefix);
         let guessed_name: String = without_prefix.split('_').map(capitalize).collect();
 
-        let entries = self.index.resolve(&guessed_name, nesting).or_else(|| self.index.first_unqualified_const(&guessed_name))?;
+        let entries = self
+            .index
+            .resolve(&guessed_name, nesting)
+            .or_else(|| self.index.first_unqualified_const(&guessed_name))?;
         let name = self.index.entry(*entries.first()?).name.clone();
         Some(Type::guessed(name))
     }
@@ -155,7 +173,10 @@ impl<'index> TypeInferrer<'index> {
 fn capitalize(word: &str) -> String {
     let mut characters = word.chars();
     match characters.next() {
-        Some(first) => first.to_uppercase().chain(characters.flat_map(char::to_lowercase)).collect(),
+        Some(first) => first
+            .to_uppercase()
+            .chain(characters.flat_map(char::to_lowercase))
+            .collect(),
         None => String::new(),
     }
 }
@@ -170,7 +191,11 @@ fn self_receiver_handling(node_context: &NodeContext<'_>) -> Type {
     }
 
     let parts: Vec<&str> = nesting.iter().flat_map(|part| part.split("::")).collect();
-    Type::known(format!("{}::<Class:{}>", parts.join("::"), parts.last().copied().unwrap_or("")))
+    Type::known(format!(
+        "{}::<Class:{}>",
+        parts.join("::"),
+        parts.last().copied().unwrap_or("")
+    ))
 }
 
 #[cfg(test)]
@@ -182,7 +207,16 @@ mod tests {
         let mut index = Index::default();
         let parse_result = ruby_prism::parse(source.as_bytes());
         let root = parse_result.node();
-        let node_context = locate(&root, offset, &["CallNode", "InstanceVariableReadNode", "ClassVariableReadNode", "SuperNode"]);
+        let node_context = locate(
+            &root,
+            offset,
+            &[
+                "CallNode",
+                "InstanceVariableReadNode",
+                "ClassVariableReadNode",
+                "SuperNode",
+            ],
+        );
         TypeInferrer::new(&mut index).infer_receiver_type(&node_context)
     }
 
@@ -197,10 +231,16 @@ mod tests {
         assert_eq!(infer(source, source.find("baz").unwrap()), Some(Type::known("Foo")));
 
         let source = "module Foo::Bar\n  baz\nend\n";
-        assert_eq!(infer(source, source.find("baz").unwrap()), Some(Type::known("Foo::Bar::<Class:Bar>")));
+        assert_eq!(
+            infer(source, source.find("baz").unwrap()),
+            Some(Type::known("Foo::Bar::<Class:Bar>"))
+        );
 
         let source = "class Foo\n  def self.bar\n    @a\n  end\nend\n";
-        assert_eq!(infer(source, source.find("@a").unwrap()), Some(Type::known("Foo::<Class:Foo>")));
+        assert_eq!(
+            infer(source, source.find("@a").unwrap()),
+            Some(Type::known("Foo::<Class:Foo>"))
+        );
     }
 
     #[test]

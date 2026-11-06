@@ -1,0 +1,2 @@
+class NumberBox[T < Integer = String]
+end

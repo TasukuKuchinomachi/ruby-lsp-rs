@@ -1,0 +1,39 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 8
+      end:
+        line: 2
+        character: 22
+    severity: ERROR
+    message: Type `::Integer` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 5
+        character: 11
+      end:
+        line: 5
+        character: 25
+    severity: ERROR
+    message: Type `::String` does not have method `no_such_method`
+    code: Ruby::NoMethod
+  - range:
+      start:
+        line: 8
+        character: 0
+      end:
+        line: 8
+        character: 20
+    severity: ERROR
+    message: |-
+      Cannot assign a value of type `::Box[::Integer]` to a variable of type `::Box[::String]`
+        ::Box[::Integer] <: ::Box[::String]
+          ::Integer <: ::String
+            ::Numeric <: ::String
+              ::Object <: ::String
+                ::BasicObject <: ::String
+    code: Ruby::IncompatibleAssignment

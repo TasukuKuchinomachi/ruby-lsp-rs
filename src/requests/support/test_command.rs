@@ -30,7 +30,9 @@ pub fn shell_escape(text: &str) -> String {
     for character in text.chars() {
         match character {
             '\n' => escaped.push_str("'\n'"),
-            'A'..='Z' | 'a'..='z' | '0'..='9' | '_' | '-' | '.' | ',' | ':' | '+' | '/' | '@' => escaped.push(character),
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '_' | '-' | '.' | ',' | ':' | '+' | '/' | '@' => {
+                escaped.push(character)
+            }
             _ => {
                 escaped.push('\\');
                 escaped.push(character);
@@ -43,7 +45,11 @@ pub fn shell_escape(text: &str) -> String {
 /// Mirrors `Bundler.default_lockfile`, which raises when no Gemfile is found. Ruby LSP's server runs from the workspace,
 /// so the search starts from the workspace path instead of the current directory of this process
 pub fn base_command(workspace_path: &str) -> &'static str {
-    if bundle_gemfile_exists(Path::new(workspace_path)) { "bundle exec ruby" } else { "ruby" }
+    if bundle_gemfile_exists(Path::new(workspace_path)) {
+        "bundle exec ruby"
+    } else {
+        "ruby"
+    }
 }
 
 fn bundle_gemfile_exists(workspace_path: &Path) -> bool {
@@ -76,15 +82,26 @@ pub fn reporters_directory() -> &'static Path {
 }
 
 pub fn minitest_reporter_path() -> String {
-    reporters_directory().join("lib/ruby_lsp/test_reporters/minitest_reporter.rb").to_string_lossy().into_owned()
+    reporters_directory()
+        .join("lib/ruby_lsp/test_reporters/minitest_reporter.rb")
+        .to_string_lossy()
+        .into_owned()
 }
 
 pub fn test_unit_reporter_path() -> String {
-    reporters_directory().join("lib/ruby_lsp/test_reporters/test_unit_reporter.rb").to_string_lossy().into_owned()
+    reporters_directory()
+        .join("lib/ruby_lsp/test_reporters/test_unit_reporter.rb")
+        .to_string_lossy()
+        .into_owned()
 }
 
 pub fn test_command(workspace_path: &str) -> String {
-    format!("{} -r{} -r{}", base_command(workspace_path), minitest_reporter_path(), test_unit_reporter_path())
+    format!(
+        "{} -r{} -r{}",
+        base_command(workspace_path),
+        minitest_reporter_path(),
+        test_unit_reporter_path()
+    )
 }
 
 #[cfg(test)]

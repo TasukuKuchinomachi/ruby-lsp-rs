@@ -1,0 +1,13 @@
+---
+- file: a.rbs
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 15
+      end:
+        line: 1
+        character: 16
+    severity: ERROR
+    message: The default type of `T` cannot depend on optional type parameters
+    code: RBS::TypeParamDefaultReferenceError

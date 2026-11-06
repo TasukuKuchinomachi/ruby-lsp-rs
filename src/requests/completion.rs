@@ -1,9 +1,11 @@
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::support::common::delegate_request_if_needed;
 use super::support::sorbet_level::SorbetLevel;
 use super::{RequestContext, RequestResult, TextDocumentIdentifier, parse_params, to_result};
+use crate::document::{LanguageId, ParsedDocument};
+use crate::global_state::GlobalState;
 use crate::listeners::completion::{Completion, CompletionItem};
 use crate::position::Position;
 
@@ -49,12 +51,19 @@ struct CompletionParams {
 pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult {
     let params: CompletionParams = parse_params(params)?;
     let document = context.store.get(&params.text_document.uri)?;
+    let global_state = &*context.global_state;
+    if document.language_id() == LanguageId::Rbs {
+        return Ok(
+            match global_state.type_checking.completion(document.uri(), params.position) {
+                Some(completion) => json!({ "isIncomplete": completion.is_incomplete, "items": completion.items }),
+                None => Value::Null,
+            },
+        );
+    }
     if !document.is_ruby_or_erb() {
         return Ok(Value::Null);
     }
 
-    let analysis = context.global_state.type_checking.analysis_for(document);
-    let global_state = &*context.global_state;
     let parsed = document.parse();
     let offset = parsed.offset_of(params.position)?;
 
@@ -67,9 +76,36 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
     };
     delegate_request_if_needed(global_state, document, character_position)?;
 
+    let typed_items = if document.is_ruby() {
+        global_state
+            .type_checking
+            .completion(document.uri(), params.position)
+            .map(|completion| completion.items)
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let items = to_result(index_items(
+        global_state,
+        &parsed,
+        character_position,
+        params.context.as_ref(),
+    ))?;
+    let Value::Array(items) = items else {
+        return Ok(Value::Array(typed_items));
+    };
+    Ok(Value::Array(merge_items(typed_items, items)))
+}
+
+fn index_items(
+    global_state: &GlobalState,
+    parsed: &ParsedDocument<'_>,
+    character_position: usize,
+    completion_context: Option<&CompletionContext>,
+) -> Vec<CompletionItem> {
     let node_context = parsed.locate(character_position, NODE_TYPES);
     let (Some(matched), Some(parent)) = (node_context.node.as_ref(), node_context.parent.as_ref()) else {
-        return to_result(Vec::<CompletionItem>::new());
+        return Vec::new();
     };
     let target = if parent.as_constant_path_node().is_some() && matched.as_constant_read_node().is_some() {
         parent
@@ -77,18 +113,35 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
         matched
     };
 
-    let sorbet_level = SorbetLevel::for_document(global_state, &parsed);
-    let trigger_character = params.context.as_ref().and_then(|context| context.trigger_character.as_deref());
+    let sorbet_level = SorbetLevel::for_document(global_state, parsed);
+    let trigger_character = completion_context.and_then(|context| context.trigger_character.as_deref());
     let mut index = global_state.index();
-    let mut listener = Completion::new(&mut index, &parsed, &node_context, sorbet_level, document.uri(), trigger_character);
-    if let (Some(analysis), Some(environment)) = (
-        analysis.as_deref(),
-        global_state.type_checking.environment_for(document.uri()),
-    ) {
-        listener = listener.with_type_checking(analysis, environment);
-    }
+    let mut listener = Completion::new(
+        &mut index,
+        parsed,
+        &node_context,
+        sorbet_level,
+        parsed.document.uri(),
+        trigger_character,
+    );
     listener.dispatch(target);
-    to_result(listener.into_response())
+    listener.into_response()
+}
+
+fn merge_items(typed_items: Vec<Value>, index_items: Vec<Value>) -> Vec<Value> {
+    if typed_items.is_empty() {
+        return index_items;
+    }
+    let mut merged = typed_items;
+    for item in index_items {
+        let is_guessed = !matches!(item["data"]["guessed_type"], Value::Null | Value::Bool(false));
+        let label = &item["label"];
+        if is_guessed || merged.iter().any(|existing| &existing["label"] == label) {
+            continue;
+        }
+        merged.push(item);
+    }
+    merged
 }
 
 fn previous_character_offset(source: &str, offset: usize) -> Option<usize> {

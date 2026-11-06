@@ -79,7 +79,11 @@ impl Signature {
     }
 
     pub fn format(&self) -> String {
-        self.parameters.iter().map(Parameter::decorated_name).collect::<Vec<_>>().join(", ")
+        self.parameters
+            .iter()
+            .map(Parameter::decorated_name)
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 
     /// Mirrors `Entry::Signature#matches?`, preferring `true` for situations that cannot be analyzed statically.
@@ -110,12 +114,18 @@ impl Signature {
 
         let keyword_hash = arguments.iter().find_map(|argument| argument.as_keyword_hash_node());
         let keyword_args: Option<Vec<Node<'_>>> = keyword_hash.map(|hash| hash.elements().iter().collect());
-        let positional_args: Vec<&Node<'_>> =
-            arguments.iter().filter(|argument| argument.as_keyword_hash_node().is_none()).collect();
-        let forwarding_arguments: Vec<&&Node<'_>> =
-            positional_args.iter().filter(|argument| argument.as_forwarding_arguments_node().is_some()).collect();
-        let positionals: Vec<&&Node<'_>> =
-            positional_args.iter().filter(|argument| argument.as_forwarding_arguments_node().is_none()).collect();
+        let positional_args: Vec<&Node<'_>> = arguments
+            .iter()
+            .filter(|argument| argument.as_keyword_hash_node().is_none())
+            .collect();
+        let forwarding_arguments: Vec<&&Node<'_>> = positional_args
+            .iter()
+            .filter(|argument| argument.as_forwarding_arguments_node().is_some())
+            .collect();
+        let positionals: Vec<&&Node<'_>> = positional_args
+            .iter()
+            .filter(|argument| argument.as_forwarding_arguments_node().is_none())
+            .collect();
 
         if has_forward && min_pos == 0 {
             return true;
@@ -140,7 +150,10 @@ fn positional_arguments_match(
     max_pos: Option<usize>,
 ) -> bool {
     let unaccounted = min_pos as isize - positional_args.len() as isize > 0;
-    (min_pos > 0 && positional_args.iter().any(|argument| argument.as_splat_node().is_some()))
+    (min_pos > 0
+        && positional_args
+            .iter()
+            .any(|argument| argument.as_splat_node().is_some()))
         || (unaccounted
             && keyword_args.is_some_and(|args| args.iter().any(|argument| argument.as_assoc_splat_node().is_some())))
         || (unaccounted && has_forwarding_arguments)
@@ -150,7 +163,10 @@ fn positional_arguments_match(
 
 fn keyword_arguments_match(arguments: Option<&[Node<'_>]>, names: &[&str]) -> bool {
     let Some(arguments) = arguments else { return true };
-    if arguments.iter().any(|argument| argument.as_assoc_splat_node().is_some()) {
+    if arguments
+        .iter()
+        .any(|argument| argument.as_assoc_splat_node().is_some())
+    {
         return true;
     }
 
@@ -197,7 +213,11 @@ pub struct Namespace {
 
 impl Namespace {
     pub fn ancestor_hash(&self) -> (Vec<String>, Option<String>) {
-        let names = self.mixin_operations.iter().map(|operation| operation.module_name().to_string()).collect();
+        let names = self
+            .mixin_operations
+            .iter()
+            .map(|operation| operation.module_name().to_string())
+            .collect();
         match self.kind {
             NamespaceKind::Module => (names, None),
             _ => (names, self.parent_class.clone()),
@@ -224,15 +244,37 @@ pub enum MethodAliasTargetKind {
 pub enum EntryKind {
     Namespace(Namespace),
     Constant,
-    UnresolvedConstantAlias { target: String, nesting: Vec<String> },
-    ConstantAlias { target: String },
+    UnresolvedConstantAlias {
+        target: String,
+        nesting: Vec<String>,
+    },
+    ConstantAlias {
+        target: String,
+    },
     GlobalVariable,
-    ClassVariable { owner: Option<String> },
-    InstanceVariable { owner: Option<String> },
-    Accessor { owner: Option<String> },
-    Method { owner: Option<String>, signatures: Vec<Signature>, name_location: Location },
-    UnresolvedMethodAlias { new_name: String, old_name: String, owner: Option<String> },
-    MethodAlias { target: MethodAliasTarget, owner: Option<String> },
+    ClassVariable {
+        owner: Option<String>,
+    },
+    InstanceVariable {
+        owner: Option<String>,
+    },
+    Accessor {
+        owner: Option<String>,
+    },
+    Method {
+        owner: Option<String>,
+        signatures: Vec<Signature>,
+        name_location: Location,
+    },
+    UnresolvedMethodAlias {
+        new_name: String,
+        old_name: String,
+        owner: Option<String>,
+    },
+    MethodAlias {
+        target: MethodAliasTarget,
+        owner: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -247,7 +289,14 @@ pub struct Entry {
 
 impl Entry {
     pub fn new(name: String, uri: Arc<str>, location: Location, comments: Option<String>, kind: EntryKind) -> Self {
-        Entry { name, uri, location, comments, visibility: Visibility::Public, kind }
+        Entry {
+            name,
+            uri,
+            location,
+            comments,
+            visibility: Visibility::Public,
+            kind,
+        }
     }
 
     pub fn name_location(&self) -> Location {
@@ -320,7 +369,10 @@ impl Entry {
     }
 
     pub fn is_method_like(&self) -> bool {
-        matches!(self.kind, EntryKind::Accessor { .. } | EntryKind::Method { .. } | EntryKind::MethodAlias { .. })
+        matches!(
+            self.kind,
+            EntryKind::Accessor { .. } | EntryKind::Method { .. } | EntryKind::MethodAlias { .. }
+        )
     }
 
     pub fn owner(&self) -> Option<&str> {
@@ -375,7 +427,10 @@ impl Entry {
         }
         self.file_path()
             .map(|path| {
-                std::path::Path::new(&path).file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or(path)
+                std::path::Path::new(&path)
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or(path)
             })
             .unwrap_or_default()
     }

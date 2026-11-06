@@ -1,0 +1,13 @@
+---
+- file: printer.rb
+  diagnostics:
+  - range:
+      start:
+        line: 1
+        character: 6
+      end:
+        line: 1
+        character: 13
+    severity: ERROR
+    message: Cannot find implementation of method `::Printer#output`
+    code: Ruby::MethodDefinitionMissing

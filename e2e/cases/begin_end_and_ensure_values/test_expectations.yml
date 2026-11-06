@@ -1,0 +1,18 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 2
+        character: 6
+      end:
+        line: 2
+        character: 13
+    severity: ERROR
+    message: |-
+      Cannot allow method body have type `(::Symbol | ::String)` because declared as type `::Integer`
+        (::Symbol | ::String) <: ::Integer
+          ::Symbol <: ::Integer
+            ::Object <: ::Integer
+              ::BasicObject <: ::Integer
+    code: Ruby::MethodBodyTypeMismatch

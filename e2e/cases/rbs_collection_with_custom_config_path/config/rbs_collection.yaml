@@ -1,0 +1,8 @@
+sources:
+  - type: local
+    path: ../vendor/collection
+
+path: ../.gem_rbs_collection
+
+gems:
+  - name: greeting

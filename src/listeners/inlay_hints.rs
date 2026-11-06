@@ -25,7 +25,11 @@ pub struct InlayHints<'a, 'b> {
 
 impl<'a, 'b> InlayHints<'a, 'b> {
     pub fn new(parsed: &'a ParsedDocument<'b>, hints_configuration: &'a RequestConfig) -> InlayHints<'a, 'b> {
-        InlayHints { response: Vec::new(), parsed, hints_configuration }
+        InlayHints {
+            response: Vec::new(),
+            parsed,
+            hints_configuration,
+        }
     }
 
     pub fn into_response(self) -> Vec<InlayHint> {

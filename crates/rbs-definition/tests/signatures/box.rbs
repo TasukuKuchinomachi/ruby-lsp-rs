@@ -1,0 +1,20 @@
+module Comparing[T]
+  def compare: (T) -> Integer
+end
+
+class Box[T]
+  include Comparing[T]
+
+  attr_reader value: T
+
+  def initialize: (T value) -> void
+
+  def map: [U] () { (T) -> U } -> Box[U]
+
+  alias fmap map
+end
+
+class StringBox < Box[String]
+  def map: [U] () { (String) -> U } -> Box[U]
+         | ...
+end

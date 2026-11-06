@@ -19,26 +19,44 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.4"
-      - name: Install the rbs gem for core signatures
-        run: gem install rbs
+      - name: Install rbs 4.2.0 for the core signatures
+        run: |
+          gem install rbs --version 4.2.0 --no-document
+          echo "RBS_GEM_DIRECTORY=$(ruby -e 'gem "rbs", "4.2.0"; print Gem.loaded_specs["rbs"].full_gem_path')" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace --locked -- --skip reports_what_steep_expects_for_its_smoke_tests
-      # The test_expectations.yml of Steep's smoke tests are written against the signatures of the rbs version each Steep
-      # release locks, while the indexer tests expect the latest rbs, so the smoke tests of each Steep version see only
-      # its rbs in a gem directory of their own
-      - name: Install rbs 4.0.2 for the smoke tests of Steep 2.0.0
-        run: gem install rbs --version 4.0.2 --install-dir "$RUNNER_TEMP/rbs-4.0.2" --no-document
-      - name: Run the smoke tests of Steep 2.0.0
-        run: cargo test --locked -p ruby-type-check --test smoke
-        env:
-          STEEP_VERSION: "2.0.0"
-          GEM_HOME: ${{ runner.temp }}/rbs-4.0.2
-          GEM_PATH: ${{ runner.temp }}/rbs-4.0.2
-      - name: Install rbs 4.2.0 for the smoke tests of Steep 2.1.0
-        run: gem install rbs --version 4.2.0 --install-dir "$RUNNER_TEMP/rbs-4.2.0" --no-document
-      - name: Run the smoke tests of Steep 2.1.0
-        run: cargo test --locked -p ruby-type-check --test smoke
-        env:
-          STEEP_VERSION: "2.1.0"
-          GEM_HOME: ${{ runner.temp }}/rbs-4.2.0
-          GEM_PATH: ${{ runner.temp }}/rbs-4.2.0
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+
+  steep:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - steep-version: "2.0.0"
+            rbs-version: "4.1.3"
+          - steep-version: "2.0.0"
+            rbs-version: "4.2.0"
+          - steep-version: "2.1.0"
+            rbs-version: "4.2.0"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+      - name: Install prism 1.9.0 as the ruby-prism crate, rbs ${{ matrix.rbs-version }} and Steep ${{ matrix.steep-version }}
+        run: |
+          gem install prism --version 1.9.0 --no-document
+          gem install rbs --version ${{ matrix.rbs-version }} --no-document --conservative
+          gem install steep --version ${{ matrix.steep-version }} --no-document --conservative
+          ruby -e 'require "prism"; abort "prism #{Prism::VERSION} is loaded instead of 1.9.0" unless Prism::VERSION == "1.9.0"'
+          echo "RBS_GEM_DIRECTORY=$(ruby -e 'gem "rbs", "${{ matrix.rbs-version }}"; print Gem.loaded_specs["rbs"].full_gem_path')" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+      - name: Run the smoke tests of Steep ${{ matrix.steep-version }} and the end-to-end cases with rbs ${{ matrix.rbs-version }}
+        run: tools/run_smoke_tests.sh --steep-version=${{ matrix.steep-version }} --rbs-version=${{ matrix.rbs-version }}
+      - name: Compare with the rbs gem ${{ matrix.rbs-version }} and Steep ${{ matrix.steep-version }}
+        run: tools/compare_with_rbs_and_steep.sh --steep-version=${{ matrix.steep-version }} --rbs-version=${{ matrix.rbs-version }}

@@ -18,7 +18,7 @@ impl SelectionRange {
 pub fn covers(range: &Range, position: Position) -> bool {
     let start_covered = range.start.line < position.line
         || (range.start.line == position.line && range.start.character <= position.character);
-    let end_covered =
-        range.end.line > position.line || (range.end.line == position.line && range.end.character >= position.character);
+    let end_covered = range.end.line > position.line
+        || (range.end.line == position.line && range.end.character >= position.character);
     start_covered && end_covered
 }

@@ -12,11 +12,19 @@ fn prepare_type_hierarchy(source: &str, line: u32, character: u32) -> Value {
 }
 
 fn supertypes(server: &mut TestServer, name: &str) -> Value {
-    server.result("typeHierarchy/supertypes", json!({ "textDocument": { "uri": DEFAULT_URI }, "item": { "name": name } }))
+    server.result(
+        "typeHierarchy/supertypes",
+        json!({ "textDocument": { "uri": DEFAULT_URI }, "item": { "name": name } }),
+    )
 }
 
 fn names(result: &Value) -> Vec<String> {
-    result.as_array().unwrap().iter().map(|item| item["name"].as_str().unwrap().to_string()).collect()
+    result
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["name"].as_str().unwrap().to_string())
+        .collect()
 }
 
 #[test]

@@ -1,0 +1,20 @@
+class GenericError[T] < StandardError
+end
+
+class Inventory
+  def items: () { (Integer) -> void } -> void
+  def pairs: () { ([Integer, String]) -> void } -> void
+  def each_untyped: () { (?) -> void } -> void
+  def each_value: () { (untyped) -> void } -> void
+  def legacy: (?) -> Integer
+  def anything: () -> untyped
+  def error_class: () -> Class
+  def each: () { (?) -> void } -> void
+
+  def block_parameters: () -> void
+  def lambdas: () -> void
+  def jumps: () -> void
+  def rescues: () -> void
+  def loops: () -> void
+  def multiple_assignments: () -> void
+end

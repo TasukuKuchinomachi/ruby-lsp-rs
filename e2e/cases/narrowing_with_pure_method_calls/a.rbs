@@ -1,0 +1,5 @@
+class Order
+  %a{pure} def note: () -> String?
+
+  def coupon: () -> String?
+end

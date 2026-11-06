@@ -38,9 +38,18 @@ impl SourceUri {
             return Err(invalid());
         }
 
-        let gem_name = if host == "localhost" { String::new() } else { host.to_string() };
+        let gem_name = if host == "localhost" {
+            String::new()
+        } else {
+            host.to_string()
+        };
         let (gem_version, path) = split_version_and_path(path);
-        Ok(SourceUri { gem_name, gem_version, path, line_number: fragment.map(str::to_string) })
+        Ok(SourceUri {
+            gem_name,
+            gem_version,
+            path,
+            line_number: fragment.map(str::to_string),
+        })
     }
 }
 
@@ -58,7 +67,11 @@ fn parse_authority(authority: &str) -> Option<&str> {
     if host_and_port.starts_with('[') {
         let closing = host_and_port.find(']')?;
         let port = &host_and_port[closing + 1..];
-        if !port.is_empty() && !port.strip_prefix(':').is_some_and(|port| port.bytes().all(|byte| byte.is_ascii_digit())) {
+        if !port.is_empty()
+            && !port
+                .strip_prefix(':')
+                .is_some_and(|port| port.bytes().all(|byte| byte.is_ascii_digit()))
+        {
             return None;
         }
         return Some(&host_and_port[..=closing]);

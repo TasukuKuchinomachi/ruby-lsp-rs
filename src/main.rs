@@ -17,6 +17,7 @@ fn main() {
         }
     }
 
+    ruby_lsp_rs::type_checking::install_panic_hook();
     let (connection, _io_threads) = Connection::stdio();
     let exit_code = Server::new(connection, ServerOptions::default()).run();
     std::process::exit(exit_code);

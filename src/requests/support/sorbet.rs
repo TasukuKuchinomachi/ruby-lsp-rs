@@ -32,7 +32,9 @@ impl Annotation {
     }
 
     fn arity_matches(&self, node: &CallNode<'_>) -> bool {
-        let node_arity = node.arguments().map_or(0, |arguments| arguments.arguments().iter().count());
+        let node_arity = node
+            .arguments()
+            .map_or(0, |arguments| arguments.arguments().iter().count());
         match self.arity {
             Arity::Exactly(arity) => node_arity == arity,
             Arity::AtLeast(minimum) => node_arity >= minimum,

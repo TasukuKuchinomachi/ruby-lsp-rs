@@ -1,0 +1,67 @@
+class BasicObject
+  def initialize: () -> void
+
+  def !: () -> bool
+
+  def ==: (untyped other) -> bool
+end
+
+class Object < BasicObject
+  include Kernel
+
+  def to_s: () -> String
+end
+
+module Kernel : BasicObject
+end
+
+class Module
+end
+
+class Class < Module
+  def new: (*untyped, **untyped) ?{ (*untyped) -> untyped } -> untyped
+end
+
+class String
+  def +: (String other) -> String
+
+  def upcase: () -> String
+
+  def size: () -> Integer
+end
+
+class Integer
+  def +: (Integer other) -> Integer
+
+  def to_s: () -> String
+end
+
+class Float
+end
+
+class Symbol
+end
+
+class NilClass
+end
+
+class TrueClass
+end
+
+class FalseClass
+end
+
+class Array[unchecked out Elem]
+end
+
+class Hash[unchecked out K, unchecked out V]
+end
+
+class Range[out Elem]
+end
+
+class Proc
+end
+
+class Regexp
+end

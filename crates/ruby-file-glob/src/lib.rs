@@ -11,7 +11,9 @@ pub fn fnmatch(pattern: &str, path: &str) -> bool {
 }
 
 fn match_segments(pattern: &[&str], path: &[&str]) -> bool {
-    let Some((first, rest)) = pattern.split_first() else { return path.is_empty() };
+    let Some((first, rest)) = pattern.split_first() else {
+        return path.is_empty();
+    };
 
     if *first == "**" && !rest.is_empty() {
         if match_segments(rest, path) {
@@ -40,7 +42,9 @@ fn starts_with_literal_period(pattern: &[char]) -> bool {
 }
 
 fn match_characters(pattern: &[char], name: &[char]) -> bool {
-    let Some((first, rest)) = pattern.split_first() else { return name.is_empty() };
+    let Some((first, rest)) = pattern.split_first() else {
+        return name.is_empty();
+    };
     match first {
         '*' => (0..=name.len()).any(|consumed| match_characters(rest, &name[consumed..])),
         '?' => !name.is_empty() && match_characters(rest, &name[1..]),
@@ -192,8 +196,9 @@ fn glob_helper(directory: &Path, display: &str, cursors: &[&[&str]], results: &m
         return;
     }
 
-    let (literal, magic): (Vec<&[&str]>, Vec<&[&str]>) =
-        pending.into_iter().partition(|cursor| cursor[0] != "**" && !has_magic(cursor[0]));
+    let (literal, magic): (Vec<&[&str]>, Vec<&[&str]>) = pending
+        .into_iter()
+        .partition(|cursor| cursor[0] != "**" && !has_magic(cursor[0]));
 
     for cursor in literal {
         let child = directory.join(cursor[0]);
@@ -206,7 +211,9 @@ fn glob_helper(directory: &Path, display: &str, cursors: &[&[&str]], results: &m
         return;
     }
 
-    let Ok(entries) = std::fs::read_dir(directory) else { return };
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
     let mut names: Vec<(String, bool)> = entries
         .filter_map(Result::ok)
         .map(|entry| {
@@ -231,7 +238,12 @@ fn glob_helper(directory: &Path, display: &str, cursors: &[&[&str]], results: &m
             }
         }
         if !next_cursors.is_empty() {
-            glob_helper(&directory.join(&name), &join_display(display, &name), &next_cursors, results);
+            glob_helper(
+                &directory.join(&name),
+                &join_display(display, &name),
+                &next_cursors,
+                results,
+            );
         }
     }
 }
@@ -239,12 +251,20 @@ fn glob_helper(directory: &Path, display: &str, cursors: &[&[&str]], results: &m
 pub fn dirname(path: &str) -> String {
     let trimmed = path.trim_end_matches('/');
     if trimmed.is_empty() {
-        return if path.starts_with('/') { "/".to_string() } else { ".".to_string() };
+        return if path.starts_with('/') {
+            "/".to_string()
+        } else {
+            ".".to_string()
+        };
     }
     match trimmed.rfind('/') {
         Some(index) => {
             let parent = trimmed[..index].trim_end_matches('/');
-            if parent.is_empty() { "/".to_string() } else { parent.to_string() }
+            if parent.is_empty() {
+                "/".to_string()
+            } else {
+                parent.to_string()
+            }
         }
         None => ".".to_string(),
     }
@@ -253,7 +273,11 @@ pub fn dirname(path: &str) -> String {
 pub fn basename(path: &str) -> String {
     let trimmed = path.trim_end_matches('/');
     if trimmed.is_empty() {
-        return if path.starts_with('/') { "/".to_string() } else { String::new() };
+        return if path.starts_with('/') {
+            "/".to_string()
+        } else {
+            String::new()
+        };
     }
     trimmed.rsplit('/').next().unwrap_or(trimmed).to_string()
 }
@@ -287,8 +311,14 @@ mod tests {
         assert!(!fnmatch("**/test/**/*", "/a/.b/test/c.rb"));
         assert!(!fnmatch("**/test/**/*", "/test/.c.rb"));
         assert!(fnmatch("**/spec/**/*_spec.rb", "/spec/a/b_spec.rb"));
-        assert!(fnmatch("**/{test,spec,features}/**/{*_test.rb,test_*.rb,*_spec.rb,*.feature}", "/a/test/b/c_test.rb"));
-        assert!(!fnmatch("**/{test,spec,features}/**/{*_test.rb,test_*.rb,*_spec.rb,*.feature}", "/tests/something.rb"));
+        assert!(fnmatch(
+            "**/{test,spec,features}/**/{*_test.rb,test_*.rb,*_spec.rb,*.feature}",
+            "/a/test/b/c_test.rb"
+        ));
+        assert!(!fnmatch(
+            "**/{test,spec,features}/**/{*_test.rb,test_*.rb,*_spec.rb,*.feature}",
+            "/tests/something.rb"
+        ));
         assert!(fnmatch("[a-c]?.rb", "bx.rb"));
         assert!(!fnmatch("[!a-c]?.rb", "bx.rb"));
     }
