@@ -137,7 +137,9 @@ impl ClassEntry {
             .iter()
             .map(|parameter| parameter.name.clone())
             .collect();
-        if rbs_version >= RbsVersion::Version4_2 && declaration_names == entry_names {
+        if rbs_version.skips_aligning_same_type_parameter_names()
+            && declaration_names == entry_names
+        {
             return None;
         }
         let variables: Vec<Type> = entry_names.into_iter().map(Type::Variable).collect();
@@ -150,7 +152,7 @@ impl ClassEntry {
         super_class: &Super,
         rbs_version: RbsVersion,
     ) -> Vec<Type> {
-        if rbs_version < RbsVersion::Version4_2 {
+        if !rbs_version.aligns_super_class_arguments() {
             return super_class.args.clone();
         }
         match self.align_parameters(declaration, rbs_version) {
@@ -166,9 +168,10 @@ impl ClassEntry {
     pub fn self_types(&self, rbs_version: RbsVersion) -> Vec<ModuleSelf> {
         let mut self_types: Vec<ModuleSelf> = Vec::new();
         for declaration in self.declarations() {
-            let substitution = match rbs_version {
-                RbsVersion::Version4_1 => None,
-                RbsVersion::Version4_2 => self.align_parameters(declaration, rbs_version),
+            let substitution = if rbs_version.aligns_module_self_types() {
+                self.align_parameters(declaration, rbs_version)
+            } else {
+                None
             };
             for self_type in declaration.self_types() {
                 let self_type = match &substitution {
@@ -185,7 +188,7 @@ impl ClassEntry {
                 let duplicated = self_types.iter().any(|other| {
                     other.name == self_type.name
                         && other.args == self_type.args
-                        && (rbs_version >= RbsVersion::Version4_2
+                        && (rbs_version.deduplicates_module_self_types_with_locations()
                             || (other.location.is_none() && self_type.location.is_none()))
                 });
                 if !duplicated {
@@ -672,13 +675,15 @@ pub fn rename_type_parameters(
     new_names: &[String],
     rbs_version: RbsVersion,
 ) -> Vec<TypeParameter> {
-    let substituted_names: Vec<String> = match rbs_version {
-        RbsVersion::Version4_1 => new_names.to_vec(),
-        RbsVersion::Version4_2 => parameters
-            .iter()
-            .map(|parameter| parameter.name.clone())
-            .collect(),
-    };
+    let substituted_names: Vec<String> =
+        if rbs_version.renames_bounds_from_old_type_parameter_names() {
+            parameters
+                .iter()
+                .map(|parameter| parameter.name.clone())
+                .collect()
+        } else {
+            new_names.to_vec()
+        };
     let variables: Vec<Type> = new_names.iter().cloned().map(Type::Variable).collect();
     let substitution = Substitution::build(&substituted_names, &variables);
     parameters

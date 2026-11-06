@@ -43,6 +43,8 @@ The type checker is a Rust port of Steep, split into crates that mirror Steep an
 (4.1 or 4.2). Where rbs 4.1.x and 4.2.x build differently, `crates/rbs-definition` follows the version: rbs 4.2.x aligns
 the type parameters of a class or module declaration with those of the entry (`ClassEntry#align_params`) for the
 superclass and the self types too, and renames the bounds of renamed type parameters (`AST::TypeParam.rename`).
+Each difference is a method of `RbsVersion` that tells what the version does, such as `aligns_super_class_arguments`, so
+the definition builders never compare versions, and adding a version means filling in the `match` of each method.
 
 The server uses the services of `crates/steep` as Steep's language server uses them, through `src/type_checking/`:
 

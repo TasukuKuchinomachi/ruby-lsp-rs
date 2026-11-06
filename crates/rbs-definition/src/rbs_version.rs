@@ -31,6 +31,41 @@ impl RbsVersion {
         }
     }
 
+    pub fn skips_aligning_same_type_parameter_names(self) -> bool {
+        match self {
+            RbsVersion::Version4_1 => false,
+            RbsVersion::Version4_2 => true,
+        }
+    }
+
+    pub fn aligns_super_class_arguments(self) -> bool {
+        match self {
+            RbsVersion::Version4_1 => false,
+            RbsVersion::Version4_2 => true,
+        }
+    }
+
+    pub fn aligns_module_self_types(self) -> bool {
+        match self {
+            RbsVersion::Version4_1 => false,
+            RbsVersion::Version4_2 => true,
+        }
+    }
+
+    pub fn deduplicates_module_self_types_with_locations(self) -> bool {
+        match self {
+            RbsVersion::Version4_1 => false,
+            RbsVersion::Version4_2 => true,
+        }
+    }
+
+    pub fn renames_bounds_from_old_type_parameter_names(self) -> bool {
+        match self {
+            RbsVersion::Version4_1 => false,
+            RbsVersion::Version4_2 => true,
+        }
+    }
+
     pub fn supported_names() -> String {
         RbsVersion::ALL
             .iter()
