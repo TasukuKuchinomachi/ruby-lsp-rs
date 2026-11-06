@@ -1,6 +1,8 @@
 steep_version_argument = ARGV.find { |argument| argument.start_with?("--steep-version=") }
 steep_version = steep_version_argument ? ARGV.delete(steep_version_argument).delete_prefix("--steep-version=") : "2.1.0"
-gem "rbs", "4.2.0"
+rbs_version_argument = ARGV.find { |argument| argument.start_with?("--rbs-version=") }
+rbs_version = rbs_version_argument ? ARGV.delete(rbs_version_argument).delete_prefix("--rbs-version=") : "4.2.0"
+gem "rbs", rbs_version
 gem "steep", steep_version
 require "steep"
 

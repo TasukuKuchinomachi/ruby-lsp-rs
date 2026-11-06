@@ -1,4 +1,6 @@
-gem "rbs", "4.2.0"
+rbs_version_argument = ARGV.find { |argument| argument.start_with?("--rbs-version=") }
+rbs_version = rbs_version_argument ? ARGV.delete(rbs_version_argument).delete_prefix("--rbs-version=") : "4.2.0"
+gem "rbs", rbs_version
 require "rbs"
 
 def type_parameters(parameters)

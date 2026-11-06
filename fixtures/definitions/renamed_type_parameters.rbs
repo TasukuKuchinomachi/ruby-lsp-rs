@@ -1,0 +1,58 @@
+module RenamedTypeParameterFixture
+  interface _Walkable[T]
+    def walk: () { (T) -> void } -> void
+  end
+
+  interface _Named
+    def name: () -> String
+  end
+
+  interface _Comparing[T]
+    def compare: (T) -> Integer
+  end
+
+  module RenamedSelfTypes[A] : _Walkable[A]
+    def first: () -> A
+  end
+
+  module RenamedSelfTypes[B] : _Walkable[B]
+    def last: () -> B
+  end
+
+  module RepeatedSelfTypes : _Named
+    def greet: () -> String
+  end
+
+  module RepeatedSelfTypes : _Named, _Named
+  end
+
+  class Base[T]
+    def base: () -> T
+  end
+
+  class RenamedClass[A] < Base[A]
+    include _Walkable[A]
+    attr_reader head: A
+    @items: Array[A]
+    def first: () -> A
+  end
+
+  class RenamedClass[B]
+    include _Comparing[B]
+    attr_accessor tail: B
+    @rest: Array[B]
+    def last: () -> B
+  end
+
+  class BoundedConstructor[T < _Comparing[T]]
+    def initialize: [T < _Comparing[T]] (T) -> void
+  end
+
+  class Includer
+    include RenamedSelfTypes[Integer]
+    include RepeatedSelfTypes
+
+    def walk: () { (Integer) -> void } -> void
+    def name: () -> String
+  end
+end

@@ -1,0 +1,11 @@
+class Container[T]
+  def get: () -> T
+end
+
+class Shelf[A] < Container[A]
+  def first: () -> A
+end
+
+class Shelf[B] < Container[B]
+  def last: () -> B
+end

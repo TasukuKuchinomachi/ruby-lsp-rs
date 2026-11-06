@@ -8,12 +8,19 @@ steep_version=2.1.0
 for argument in "$@"; do
   case $argument in
     --steep-version=2.0.0|--steep-version=2.1.0) steep_version=${argument#*=} ;;
+    --rbs-version=4.1.*|--rbs-version=4.2.*) rbs_version=${argument#*=} ;;
     *)
-      echo "Usage: tools/compare_with_rbs_and_steep.sh [--steep-version=2.0.0|2.1.0]" >&2
+      echo "Usage: tools/compare_with_rbs_and_steep.sh [--steep-version=2.0.0|2.1.0] [--rbs-version=4.1.x|4.2.x]" >&2
       exit 2
       ;;
   esac
 done
+case $steep_version/$rbs_version in
+  2.1.0/4.1.*)
+    echo "Steep 2.1.0 requires rbs 4.2 or later, not rbs $rbs_version" >&2
+    exit 2
+    ;;
+esac
 output=$(mktemp -d)
 rbs_gem=$($ruby_command -e "gem \"rbs\", \"$rbs_version\"; puts Gem.loaded_specs[\"rbs\"].full_gem_path")
 status=0
@@ -64,7 +71,7 @@ compare() {
   if [ "$kind" = steep_shapes ]; then
     rust_version_argument=--steep-version=$steep_version
   fi
-  $ruby_command "$repository/tools/dump_$kind.rb" $ruby_version_argument "$@" > "$output/expected.txt"
+  $ruby_command "$repository/tools/dump_$kind.rb" --rbs-version="$rbs_version" $ruby_version_argument "$@" > "$output/expected.txt"
   cargo run --quiet --release --manifest-path "$repository/Cargo.toml" -p "$(package_of "$kind")" --bin "dump_$kind" -- $rust_version_argument "$rbs_gem" "$@" > "$output/actual.txt"
   report "$label"
 }
@@ -108,7 +115,7 @@ compare_services() {
   label=$1
   kind=$2
   shift 2
-  $ruby_command "$repository/tools/dump_steep_$kind.rb" --steep-version="$steep_version" "$@" > "$output/expected.txt"
+  $ruby_command "$repository/tools/dump_steep_$kind.rb" --rbs-version="$rbs_version" --steep-version="$steep_version" "$@" > "$output/expected.txt"
   RBS_GEM_DIRECTORY="$rbs_gem" cargo run --quiet --release --manifest-path "$repository/Cargo.toml" -p steep --bin "dump_steep_$kind" -- --steep-version="$steep_version" "$@" > "$output/actual.txt"
   report "$label"
 }

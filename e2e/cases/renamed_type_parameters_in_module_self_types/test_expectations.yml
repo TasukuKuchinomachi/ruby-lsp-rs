@@ -1,0 +1,13 @@
+---
+- file: a.rb
+  diagnostics:
+  - range:
+      start:
+        line: 3
+        character: 9
+      end:
+        line: 3
+        character: 23
+    severity: ERROR
+    message: Type `A` does not have method `no_such_method`
+    code: Ruby::NoMethod

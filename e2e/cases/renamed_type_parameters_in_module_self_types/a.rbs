@@ -1,0 +1,11 @@
+interface _Walkable[T]
+  def walk: () -> T
+end
+
+module Walker[A] : _Walkable[A]
+  def first: () -> A
+end
+
+module Walker[B] : _Walkable[B]
+  def last: () -> B
+end

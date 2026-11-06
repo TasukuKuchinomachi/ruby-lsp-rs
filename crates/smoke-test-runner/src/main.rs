@@ -10,6 +10,7 @@ use std::{
 use checker::Checker;
 use std::collections::BTreeSet;
 
+use rbs_definition::rbs_version::RbsVersion;
 use steep::expectations::{Diagnostic, Expectations, Outcome};
 use steep_interface::steep_version::SteepVersion;
 
@@ -19,6 +20,8 @@ const STRICT_EXPECTATIONS_FILE_NAME: &str = "strict_expectations.yml";
 const STRICT_ARGUMENTS_FILE_NAME: &str = "strict_arguments";
 
 const UNEXPECTED_ERROR_CODE: &str = "Ruby::UnexpectedError";
+
+const DEFAULT_RBS_RELEASE: &str = "4.2.0";
 
 const RBS_GEM_DIRECTORY_PLACEHOLDER: &str = "<rbs gem directory>";
 
@@ -42,20 +45,24 @@ const STEEP_ALLOWED_FAILURES: &[AllowedFailure] = &[
 ];
 
 const USAGE: &str = "\
-Usage: smoke-test-runner [--checker=ruby-type-check|steep] [--steep-version=VERSION] [TEST ...]
+Usage: smoke-test-runner [--checker=ruby-type-check|steep] [--steep-version=VERSION] [--rbs-version=VERSION] [TEST ...]
 
 Runs `check --with-expectations=test_expectations.yml` of the checker in every smoke test
 directory, as `rake test:output` of Steep does. A test passes when the checker exits with 0,
 or when the saved diagnostics differ from the expectations only in the lines after the
 first of the messages of Ruby::UnexpectedError, which are the backtrace of the Ruby exception.
 
-The tests are of the Steep VERSION (2.1.0 without --steep-version). A test uses
-test_expectations.steep-VERSION.yml (or strict_expectations.steep-VERSION.yml) instead when
-it has one, in its directory for e2e/cases and e2e/strict, and in e2e/steep-smoke/NAME for
-the smoke tests of Steep. They are the diagnostics of Steep VERSION with rbs 4.2.0 where
-they differ from the expectations: the diagnostics of Steep 2.0.0 differ from those of
-Steep 2.1.0, and the smoke tests of Steep 2.0.0 expect the rbs gem Steep 2.0.0 was released
-with.
+The tests are of the Steep VERSION (2.1.0 without --steep-version), checked with the rbs gem
+of VERSION (4.2.0 without --rbs-version). A test uses the first of these files it has, in its
+directory for e2e/cases and e2e/strict, and in e2e/steep-smoke/NAME for the smoke tests of
+Steep (strict_expectations instead of test_expectations for the runs with --strict):
+    test_expectations.steep-STEEP.rbs-RBS.yml   the diagnostics of Steep STEEP with rbs RBS
+    test_expectations.steep-STEEP.yml           the diagnostics of Steep STEEP with rbs 4.2.0
+    test_expectations.yml
+The versioned files are there only where the diagnostics differ from the next file: the
+diagnostics of Steep 2.0.0 differ from those of Steep 2.1.0, the smoke tests of Steep 2.0.0
+expect the rbs gem Steep 2.0.0 was released with, and rbs 4.1.x builds some definitions
+differently from rbs 4.2.0.
 
 `<rbs gem directory>` in expectations stands for the directory of the rbs gem the checker
 loads, which Steep writes in the messages of diagnostics about the core signatures.
@@ -71,10 +78,14 @@ Tests come from three roots:
 Options:
     --checker=ruby-type-check
                          Run target/<profile>/ruby-type-check (default)
-    --checker=steep      Run Steep VERSION with rbs 4.2.0 through `ruby` in PATH
+    --checker=steep      Run Steep VERSION with the rbs gem of VERSION through `ruby` in PATH
     --steep-version=VERSION
                          Compare with Steep VERSION, 2.0.0 or 2.1.0 (default); ruby-type-check runs
                          with --steep-version=VERSION
+    --rbs-version=VERSION
+                         Compare with Steep using the rbs gem of VERSION, a release of 4.1.x or
+                         4.2.x (4.2.0 by default); ruby-type-check runs with --rbs-version=VERSION.
+                         Steep 2.1.0 requires rbs 4.2.x
     TEST                 Run only the tests named TEST, as `steep/hello`, `e2e/NAME`, `strict/NAME` or `hello`
 ";
 
@@ -93,20 +104,26 @@ impl TestCase {
         words.join(" ")
     }
 
-    fn expectations_file_name(&self, steep_version: SteepVersion) -> String {
+    fn expectations_file_name(&self, steep_version: SteepVersion, rbs_release: &str) -> String {
         let file_name = if self.strict {
             STRICT_EXPECTATIONS_FILE_NAME
         } else {
             EXPECTATIONS_FILE_NAME
         };
-        let version_path = self
-            .version_expectations_directory
-            .join(file_name.replace(".yml", &format!(".steep-{steep_version}.yml")));
-        if version_path.is_file() {
-            version_path.display().to_string()
-        } else {
-            file_name.to_string()
-        }
+        [
+            format!(".steep-{steep_version}.rbs-{rbs_release}.yml"),
+            format!(".steep-{steep_version}.yml"),
+        ]
+        .iter()
+        .map(|suffix| {
+            self.version_expectations_directory
+                .join(file_name.replace(".yml", suffix))
+        })
+        .find(|version_path| version_path.is_file())
+        .map_or_else(
+            || file_name.to_string(),
+            |version_path| version_path.display().to_string(),
+        )
     }
 
     fn extra_arguments(&self) -> Vec<String> {
@@ -135,6 +152,7 @@ struct Options {
 fn parse_arguments() -> Result<Options, String> {
     let mut checker_name = "ruby-type-check".to_string();
     let mut steep_version = SteepVersion::default();
+    let mut rbs_release = DEFAULT_RBS_RELEASE.to_string();
     let mut test_names = Vec::new();
     for argument in env::args().skip(1) {
         if let Some(name) = argument.strip_prefix("--checker=") {
@@ -146,6 +164,8 @@ fn parse_arguments() -> Result<Options, String> {
                     SteepVersion::supported_names()
                 )
             })?;
+        } else if let Some(release) = argument.strip_prefix("--rbs-version=") {
+            rbs_release = release.to_string();
         } else if argument == "-h" || argument == "--help" {
             print!("{USAGE}");
             process::exit(0);
@@ -155,8 +175,20 @@ fn parse_arguments() -> Result<Options, String> {
             test_names.push(argument);
         }
     }
+    let rbs_version = RbsVersion::of_release(&rbs_release).ok_or_else(|| {
+        format!(
+            "unsupported rbs version {rbs_release}: choose a release of {}",
+            RbsVersion::supported_names()
+        )
+    })?;
+    if rbs_version < steep_version.oldest_rbs_version() {
+        return Err(format!(
+            "Steep {steep_version} requires rbs {} or later, not rbs {rbs_release}",
+            steep_version.oldest_rbs_version()
+        ));
+    }
     Ok(Options {
-        checker: Checker::parse(&checker_name, steep_version)?,
+        checker: Checker::parse(&checker_name, steep_version, rbs_release)?,
         test_names,
     })
 }
@@ -463,7 +495,8 @@ fn run_test_case(checker: &Checker, test_case: &TestCase) -> TestResult {
         println!("SKIP {} (Steep has no --strict)", test_case.display_name());
         return TestResult::Skipped;
     }
-    let expectations_file_name = test_case.expectations_file_name(checker.steep_version);
+    let expectations_file_name =
+        test_case.expectations_file_name(checker.steep_version, &checker.rbs_release);
     let expectations_path = test_case.directory.join(&expectations_file_name);
     if !expectations_path.is_file() {
         println!(
