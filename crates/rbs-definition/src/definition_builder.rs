@@ -11,7 +11,7 @@ use crate::{
         TypeNameKind, TypeParameter, VariableKind, Visibility,
     },
     collections::{HashSet, IndexMap},
-    environment::Environment,
+    environment::{Environment, rename_type_parameters},
     errors::RbsError,
     location::{AstLocation, Location, TypeLocation},
     method_builder::{MethodBuilder, MethodEntry, Methods, Original},
@@ -640,10 +640,11 @@ impl DefinitionBuilder {
 
         let entry = &self.environment().class_declarations[type_name];
         for declaration in entry.declarations() {
-            let declaration_substitution = match entry.align_parameters(declaration) {
-                Some(align) => substitution.compose(&align),
-                None => substitution.clone(),
-            };
+            let declaration_substitution =
+                match entry.align_parameters(declaration, self.environment().rbs_version) {
+                    Some(align) => substitution.compose(&align),
+                    None => substitution.clone(),
+                };
             for member in declaration.members() {
                 match member {
                     Member::Attribute(attribute) if attribute.kind == MemberKind::Instance => {
@@ -976,15 +977,11 @@ impl DefinitionBuilder {
                             .map(|parameter| parameter.name.clone())
                             .collect();
                         let substitution = Substitution::build(&old_names, &variables(&new_names));
-                        let renamed_parameters: Vec<TypeParameter> = method_type
-                            .type_parameters
-                            .iter()
-                            .zip(&new_names)
-                            .map(|(parameter, new_name)| TypeParameter {
-                                name: new_name.clone(),
-                                ..parameter.substitute(&substitution)
-                            })
-                            .collect();
+                        let renamed_parameters = rename_type_parameters(
+                            &method_type.type_parameters,
+                            &new_names,
+                            self.environment().rbs_version,
+                        );
                         let without_parameters = MethodType {
                             type_parameters: Vec::new(),
                             ..(**method_type).clone()

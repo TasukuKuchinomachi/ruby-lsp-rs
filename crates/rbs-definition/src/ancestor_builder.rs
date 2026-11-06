@@ -6,7 +6,10 @@ use std::{
 };
 
 use crate::{
-    ast::{ClassOrModule, Member, Mixin, MixinKind, Type, TypeName, TypeNameKind, TypeParameter},
+    ast::{
+        ClassOrModule, Member, Mixin, MixinKind, ModuleSelf, Type, TypeName, TypeNameKind,
+        TypeParameter,
+    },
     collections::HashMap,
     environment::{ClassEntry, ClassOrModuleDeclaration, Environment},
     errors::RbsError,
@@ -256,14 +259,8 @@ impl AncestorBuilder {
             let Some(super_class) = declaration.super_class() else {
                 continue;
             };
-            let args = match entry.align_parameters(declaration) {
-                Some(substitution) => super_class
-                    .args
-                    .iter()
-                    .map(|arg| arg.substitute(&substitution))
-                    .collect(),
-                None => super_class.args.clone(),
-            };
+            let args =
+                entry.super_class_args(declaration, super_class, self.environment.rbs_version);
             let super_type = Type::ClassInstance {
                 name: super_class.name.clone(),
                 args,
@@ -378,30 +375,7 @@ impl AncestorBuilder {
                 }
                 ClassOrModule::Module => {
                     let mut self_types = Vec::new();
-                    let mut module_self_types: Vec<(TypeName, Vec<Type>, Option<Location>)> =
-                        Vec::new();
-                    for declaration in entry.declarations() {
-                        let substitution = entry.align_parameters(declaration);
-                        for self_type in declaration.self_types() {
-                            let args: Vec<Type> = self_type
-                                .args
-                                .iter()
-                                .map(|arg| match &substitution {
-                                    Some(substitution) => arg.substitute(substitution),
-                                    None => arg.clone(),
-                                })
-                                .collect();
-                            if !module_self_types.iter().any(|(name, other_args, _)| {
-                                *name == self_type.name && *other_args == args
-                            }) {
-                                module_self_types.push((
-                                    self_type.name.clone(),
-                                    args,
-                                    self_type.location.clone(),
-                                ));
-                            }
-                        }
-                    }
+                    let module_self_types = entry.self_types(self.environment.rbs_version);
                     if module_self_types.is_empty() {
                         self_types.push(Ancestor::Instance {
                             name: object_name(),
@@ -409,7 +383,13 @@ impl AncestorBuilder {
                             source: AncestorSource::Nothing,
                         });
                     }
-                    for (name, args, location) in module_self_types {
+                    for ModuleSelf {
+                        name,
+                        args,
+                        location,
+                        ..
+                    } in module_self_types
+                    {
                         let normalized = self
                             .environment()
                             .normalize_type_name(&name)
@@ -578,7 +558,7 @@ impl AncestorBuilder {
         targets: MixinTargets,
     ) -> Result<(), RbsError> {
         for declaration in entry.declarations() {
-            let align = entry.align_parameters(declaration);
+            let align = entry.align_parameters(declaration, self.environment.rbs_version);
             self.mixin_ancestors_of_members(
                 declaration.members(),
                 type_name,

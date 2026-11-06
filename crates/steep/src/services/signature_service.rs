@@ -16,6 +16,7 @@ use rbs_definition::{
     location::Buffer,
     parallel::map_in_parallel,
     parse::{SignatureError, parse_signature_buffer},
+    rbs_version::RbsVersion,
 };
 use steep_interface::steep_version::SteepVersion;
 
@@ -135,6 +136,7 @@ impl SignatureFile {
 }
 
 struct Library {
+    rbs_version: RbsVersion,
     sources: Vec<Source>,
     error: Option<Diagnostic>,
 }
@@ -297,6 +299,7 @@ impl SignatureService {
             files,
             project_paths: Vec::new(),
             library: Arc::new(Library {
+                rbs_version: rbs_gem.version,
                 sources: library_sources,
                 error: library_error,
             }),
@@ -354,7 +357,7 @@ impl SignatureService {
             loaded: None,
             unresolved_environment: None,
         };
-        let mut environment = Environment::default();
+        let mut environment = Environment::new(self.library.rbs_version);
         for source in &self.library.sources {
             environment.add_source(source.clone())?;
         }
@@ -475,9 +478,12 @@ impl SignatureService {
         self.latest.as_ref().or_else(|| {
             self.library_signatures
                 .get_or_init(|| {
-                    let environment = Environment::from_sources(self.library.sources.clone())
-                        .and_then(|environment| environment.resolve_type_names(self.jobs))
-                        .ok()?;
+                    let environment = Environment::from_sources(
+                        self.library.rbs_version,
+                        self.library.sources.clone(),
+                    )
+                    .and_then(|environment| environment.resolve_type_names(self.jobs))
+                    .ok()?;
                     Some(Arc::new(LoadedSignatures::new(
                         Arc::new(environment),
                         OneAncestorsCache::default(),

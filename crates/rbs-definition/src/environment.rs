@@ -12,6 +12,7 @@ use crate::{
     errors::RbsError,
     location::Location,
     parallel::map_in_parallel,
+    rbs_version::RbsVersion,
     substitution::Substitution,
 };
 
@@ -125,18 +126,74 @@ impl ClassEntry {
             .collect()
     }
 
-    pub fn align_parameters(&self, declaration: &ClassOrModuleDeclaration) -> Option<Substitution> {
+    pub fn align_parameters(
+        &self,
+        declaration: &ClassOrModuleDeclaration,
+        rbs_version: RbsVersion,
+    ) -> Option<Substitution> {
         let entry_names = self.type_parameter_names();
         let declaration_names: Vec<String> = declaration
             .type_parameters()
             .iter()
             .map(|parameter| parameter.name.clone())
             .collect();
-        if declaration_names == entry_names {
+        if rbs_version >= RbsVersion::Version4_2 && declaration_names == entry_names {
             return None;
         }
         let variables: Vec<Type> = entry_names.into_iter().map(Type::Variable).collect();
         Some(Substitution::build(&declaration_names, &variables))
+    }
+
+    pub fn super_class_args(
+        &self,
+        declaration: &ClassOrModuleDeclaration,
+        super_class: &Super,
+        rbs_version: RbsVersion,
+    ) -> Vec<Type> {
+        if rbs_version < RbsVersion::Version4_2 {
+            return super_class.args.clone();
+        }
+        match self.align_parameters(declaration, rbs_version) {
+            Some(substitution) => super_class
+                .args
+                .iter()
+                .map(|arg| arg.substitute(&substitution))
+                .collect(),
+            None => super_class.args.clone(),
+        }
+    }
+
+    pub fn self_types(&self, rbs_version: RbsVersion) -> Vec<ModuleSelf> {
+        let mut self_types: Vec<ModuleSelf> = Vec::new();
+        for declaration in self.declarations() {
+            let substitution = match rbs_version {
+                RbsVersion::Version4_1 => None,
+                RbsVersion::Version4_2 => self.align_parameters(declaration, rbs_version),
+            };
+            for self_type in declaration.self_types() {
+                let self_type = match &substitution {
+                    Some(substitution) => ModuleSelf {
+                        args: self_type
+                            .args
+                            .iter()
+                            .map(|arg| arg.substitute(substitution))
+                            .collect(),
+                        ..self_type.clone()
+                    },
+                    None => self_type.clone(),
+                };
+                let duplicated = self_types.iter().any(|other| {
+                    other.name == self_type.name
+                        && other.args == self_type.args
+                        && (rbs_version >= RbsVersion::Version4_2
+                            || (other.location.is_none() && self_type.location.is_none()))
+                });
+                if !duplicated {
+                    self_types.push(self_type);
+                }
+            }
+        }
+        self_types
     }
 }
 
@@ -149,6 +206,7 @@ pub struct Entry<T> {
 
 #[derive(Default, Debug)]
 pub struct Environment {
+    pub rbs_version: RbsVersion,
     pub sources: Vec<Source>,
     pub class_declarations: IndexMap<TypeName, ClassEntry>,
     pub interface_declarations: IndexMap<TypeName, Entry<InterfaceDeclaration>>,
@@ -184,8 +242,18 @@ pub fn declaration_location(declaration: &Declaration) -> Option<Location> {
 }
 
 impl Environment {
-    pub fn from_sources(sources: Vec<Source>) -> Result<Environment, String> {
-        let mut environment = Environment::default();
+    pub fn new(rbs_version: RbsVersion) -> Environment {
+        Environment {
+            rbs_version,
+            ..Environment::default()
+        }
+    }
+
+    pub fn from_sources(
+        rbs_version: RbsVersion,
+        sources: Vec<Source>,
+    ) -> Result<Environment, String> {
+        let mut environment = Environment::new(rbs_version);
         for source in sources {
             environment.add_source(source)?;
         }
@@ -346,7 +414,8 @@ impl Environment {
             for other in declarations {
                 let other_parameters = other.type_parameters();
                 if first_names.len() != other_parameters.len()
-                    || first_parameters != rename_type_parameters(other_parameters, &first_names)
+                    || first_parameters
+                        != rename_type_parameters(other_parameters, &first_names, self.rbs_version)
                 {
                     return Err(RbsError::GenericParameterMismatch {
                         name: entry.name.clone(),
@@ -512,7 +581,7 @@ impl Environment {
         })
         .into_iter()
         .collect::<Result<Vec<Source>, String>>()?;
-        Environment::from_sources(sources)
+        Environment::from_sources(self.rbs_version, sources)
     }
 }
 
@@ -601,13 +670,17 @@ impl UseMap {
 pub fn rename_type_parameters(
     parameters: &[TypeParameter],
     new_names: &[String],
+    rbs_version: RbsVersion,
 ) -> Vec<TypeParameter> {
-    let old_names: Vec<String> = parameters
-        .iter()
-        .map(|parameter| parameter.name.clone())
-        .collect();
+    let substituted_names: Vec<String> = match rbs_version {
+        RbsVersion::Version4_1 => new_names.to_vec(),
+        RbsVersion::Version4_2 => parameters
+            .iter()
+            .map(|parameter| parameter.name.clone())
+            .collect(),
+    };
     let variables: Vec<Type> = new_names.iter().cloned().map(Type::Variable).collect();
-    let substitution = Substitution::build(&old_names, &variables);
+    let substitution = Substitution::build(&substituted_names, &variables);
     parameters
         .iter()
         .zip(new_names)

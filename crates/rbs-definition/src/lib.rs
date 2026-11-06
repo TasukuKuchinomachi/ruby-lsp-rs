@@ -14,6 +14,7 @@ pub mod method_builder;
 pub mod once_map;
 pub mod parallel;
 pub mod parse;
+pub mod rbs_version;
 pub mod repository;
 pub mod rubygems;
 pub mod substitution;

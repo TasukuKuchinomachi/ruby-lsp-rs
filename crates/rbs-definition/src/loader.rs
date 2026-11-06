@@ -8,12 +8,15 @@ use crate::{
     environment::{Environment, Source},
     environment_loader::EnvironmentLoader,
     parse::parse_signature,
+    rbs_version::{RbsVersion, release_of_gem_directory},
     repository::Repository,
     rubygems::{Specification, Specifications, Version},
 };
 
 pub struct RbsGem {
     pub directory: PathBuf,
+    pub release: Option<String>,
+    pub version: RbsVersion,
     pub specifications: Arc<Specifications>,
     pub default_repository: Arc<Repository>,
 }
@@ -31,6 +34,17 @@ impl RbsGem {
                 gem_paths.push(gem_path.clone());
             }
         }
+        let release = release_of_gem_directory(directory);
+        let version = match &release {
+            Some(release) => RbsVersion::of_release(release).ok_or_else(|| {
+                format!(
+                    "{} is rbs {release}, but only rbs {} are supported",
+                    directory.display(),
+                    RbsVersion::supported_names()
+                )
+            })?,
+            None => RbsVersion::default(),
+        };
         let activated = directory
             .file_name()
             .and_then(|name| name.to_str()?.strip_prefix("rbs-"))
@@ -42,6 +56,8 @@ impl RbsGem {
             });
         Ok(RbsGem {
             directory: directory.to_path_buf(),
+            release,
+            version,
             specifications: Arc::new(Specifications::new(
                 &gem_paths,
                 activated.into_iter().collect(),
@@ -100,5 +116,5 @@ pub fn load(rbs_gem_directory: &Path, directories: &[PathBuf]) -> Result<Environ
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
-    Environment::from_sources(sources)?.resolve_type_names(1)
+    Environment::from_sources(rbs_gem.version, sources)?.resolve_type_names(1)
 }

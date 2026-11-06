@@ -202,7 +202,8 @@ impl MethodBuilder {
                 .ok_or_else(|| format!("unknown class or module: {type_name}"))?;
             let mut methods = Methods::default();
             for declaration in entry.declarations() {
-                let substitution = entry.align_parameters(declaration);
+                let substitution =
+                    entry.align_parameters(declaration, self.environment.rbs_version);
                 let mut accessibility = Visibility::Public;
                 for member in declaration.members() {
                     match member {

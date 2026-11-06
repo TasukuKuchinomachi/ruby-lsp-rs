@@ -1557,29 +1557,27 @@ impl<'checker> TypeConstruction<'checker> {
             match environment.class_declarations.get(&normalized) {
                 Some(entry) if entry.kind == ClassOrModule::Module => {
                     let mut types = vec![instance_type("::Object", Vec::new())];
-                    for declaration in entry.declarations() {
-                        for module_self in declaration.self_types() {
-                            let args = module_self
-                                .args
-                                .iter()
-                                .map(|arg| self.builder().factory.type_(arg))
-                                .collect();
-                            types.push(
-                                if module_self.name.kind()
-                                    == rbs_definition::ast::TypeNameKind::Interface
-                                {
-                                    Type::Interface {
-                                        name: module_self.name.clone(),
-                                        args,
-                                    }
-                                } else {
-                                    Type::NameInstance {
-                                        name: module_self.name.clone(),
-                                        args,
-                                    }
-                                },
-                            );
-                        }
+                    for module_self in entry.self_types(environment.rbs_version) {
+                        let args = module_self
+                            .args
+                            .iter()
+                            .map(|arg| self.builder().factory.type_(arg))
+                            .collect();
+                        types.push(
+                            if module_self.name.kind()
+                                == rbs_definition::ast::TypeNameKind::Interface
+                            {
+                                Type::Interface {
+                                    name: module_self.name,
+                                    args,
+                                }
+                            } else {
+                                Type::NameInstance {
+                                    name: module_self.name,
+                                    args,
+                                }
+                            },
+                        );
                     }
                     types.push(module_context.instance_type.clone());
                     module_context.instance_type = Type::intersection(types);
