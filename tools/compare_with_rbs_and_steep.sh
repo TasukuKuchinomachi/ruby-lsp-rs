@@ -8,7 +8,7 @@ steep_version=2.1.0
 for argument in "$@"; do
   case $argument in
     --steep-version=2.0.0|--steep-version=2.1.0) steep_version=${argument#*=} ;;
-    --rbs-version=4.1.*|--rbs-version=4.2.*) rbs_version=${argument#*=} ;;
+    --rbs-version=4.[12].[0-9]|--rbs-version=4.[12].[0-9][0-9]) rbs_version=${argument#*=} ;;
     *)
       echo "Usage: tools/compare_with_rbs_and_steep.sh [--steep-version=2.0.0|2.1.0] [--rbs-version=4.1.x|4.2.x]" >&2
       exit 2
