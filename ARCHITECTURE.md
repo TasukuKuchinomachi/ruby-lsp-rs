@@ -39,6 +39,11 @@ The type checker is a Rust port of Steep, split into crates that mirror Steep an
 | `crates/steep-interface` | Steep: `AST::Types`, `Interface::Builder`, `Subtyping::Check` |
 | `crates/steep` | Steep: `Project::DSL`, the parser gem AST, `TypeConstruction`, `Typing`, diagnostics, `Services::*` |
 
+`RbsGem` reads the version of the rbs gem from its `lib/rbs/version.rb`, and `Environment` carries it as an `RbsVersion`
+(4.1 or 4.2). Where rbs 4.1.x and 4.2.x build differently, `crates/rbs-definition` follows the version: rbs 4.2.x aligns
+the type parameters of a class or module declaration with those of the entry (`ClassEntry#align_params`) for the
+superclass and the self types too, and renames the bounds of renamed type parameters (`AST::TypeParam.rename`).
+
 The server uses the services of `crates/steep` as Steep's language server uses them, through `src/type_checking/`:
 
 | Rust | Steep |
@@ -51,7 +56,8 @@ The server uses the services of `crates/steep` as Steep's language server uses t
 - `TypeCheckService` keeps `Rc` values, so one thread (`worker.rs`) owns it. `initialized` starts the thread and sends
   `Command::Load`: the thread reads the `Steepfile` without running Ruby (a single `default` target checking `.` with
   signatures in `sig` when there is none), decides the Steep version from `Gemfile.lock` (`steep_gem.rs`), finds the rbs
-  4.2.0 gem, loads the signatures of every target once, and answers `Event::Loaded`. Until then the requests answer
+  gem (`RBS_GEM_DIRECTORY`, the rbs of `Gemfile.lock`, or the newest supported one, `environment_loader.rs`), rejects
+  Steep 2.1.0 with rbs 4.1.x, loads the signatures of every target once, and answers `Event::Loaded`. Until then the requests answer
   without type information.
 - `didOpen` and `didChange` send the whole text of `.rb` and `.rbs` documents as `Command::SetText`, applied as a
   `ContentChange`. A Ruby file is type checked again on the next query. A change of a `.rbs` file or of a file with inline

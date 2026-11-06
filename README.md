@@ -13,17 +13,19 @@ Rust で書いた Ruby の language server です。[Shopify Ruby LSP](https://g
 ## 必要なもの
 
 - Rust（stable）
-- rbs 4.2.0 の gem。core と stdlib の RBS はこの gem から読み込みます。対象プロジェクトの `Gemfile.lock` にあるもの、対象プロジェクトの Ruby の gem のディレクトリにあるもの、`RBS_GEM_DIRECTORY` で指定したディレクトリの順に探します
+- rbs 4.1.x または 4.2.x の gem。core と stdlib の RBS はこの gem から読み込みます。`RBS_GEM_DIRECTORY` で指定したディレクトリがあればそれを使い、無ければ対象プロジェクトの `Gemfile.lock` にあるバージョンを、それも無ければ対応しているうちで最も新しいバージョンを、対象プロジェクトの Ruby の gem のディレクトリから探します
 - `Steepfile`（無いときは `check "."` と `signature "sig"` の 1 つの target として扱います）、`sig/`、`rbs_collection.lock.yaml`（あれば読み込みます）
 
 ## 対応している Steep・rbs
 
 | Steep | rbs |
 | --- | --- |
-| 2.0.0 | 4.2.0 |
-| 2.1.0 | 4.2.0 |
+| 2.0.0 | 4.1.x、4.2.x |
+| 2.1.0 | 4.2.x |
 
 どの Steep に合わせるかは、対象プロジェクトの `Gemfile.lock` にある steep のバージョンで決まります。`Gemfile.lock` に steep が無いときは、gem のディレクトリにある最も新しい steep に、それも無いときは Steep 2.1.0 に合わせます。対応していないバージョンのときは警告を出して Steep 2.1.0 に合わせます。
+
+rbs は上の「必要なもの」の順で決めた gem に合わせます。rbs 4.1.x と 4.2.x では、型引数の名前を変えてクラスやモジュールを開き直したときの扱い（superclass の型引数、module の self type、型引数の上限）が異なり、それぞれの rbs gem と同じ結果を出します。Steep 2.1.0 は rbs 4.2 以上を必要とするので、Steep 2.1.0 と rbs 4.1.x の組み合わせはエラーにします。Steep・rbs の実物の gem と比べて確かめているのは、Steep 2.1.0 と rbs 4.2.0、Steep 2.0.0 と rbs 4.2.0、Steep 2.0.0 と rbs 4.1.3 の組み合わせです。
 
 `Steepfile` は Ruby を実行せずに読みます。決まった書き方（`target`、`check`、`signature`、`ignore`、`library`、`repo_path`、`collection_config`、`configure_code_diagnostics`、`group` など）以外の `Steepfile` は読めず、読み込みのエラーとしてログに出します。
 
@@ -97,6 +99,6 @@ ruby-type-check
 | `crates/ruby-file-glob` | Ruby の `File.fnmatch` と `Dir.glob` 相当 |
 | `e2e/` | `steep check` の期待値を持つ end-to-end のケース |
 | `fixtures/` | rbs gem・Steep と層ごとに比べるための入力 |
-| `tools/run_smoke_tests.sh` | Steep の smoke test と `e2e/cases` を走らせる（`--steep-version=2.0.0` / `2.1.0`） |
-| `tools/compare_with_rbs_and_steep.sh` | environment・ancestors・definitions・shapes・subtyping・parser・hover・completion・signature help・goto を rbs gem と Steep の出力と比べる |
+| `tools/run_smoke_tests.sh` | Steep の smoke test と `e2e/cases` を走らせる（`--steep-version=2.0.0` / `2.1.0`、`--rbs-version=4.1.3` / `4.2.0`） |
+| `tools/compare_with_rbs_and_steep.sh` | environment・ancestors・definitions・shapes・subtyping・parser・hover・completion・signature help・goto を rbs gem と Steep の出力と比べる（`--steep-version`、`--rbs-version` は `run_smoke_tests.sh` と同じ） |
 | `editors/vscode` | VS Code 拡張 |

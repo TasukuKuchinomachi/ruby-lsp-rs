@@ -11,6 +11,8 @@
   mise exec ruby@3.4.11 -- steep check --save-expectations=test_expectations.yml
   ```
 
+- Steep 2.0.0 や rbs 4.1.x で診断が変わるケースだけ、その組み合わせの期待値を同じディレクトリ（Steep の smoke test は `e2e/steep-smoke/名前`）に置きます。`test_expectations.steep-2.0.0.yml` は Steep 2.0.0 と rbs 4.2.0、`test_expectations.steep-2.0.0.rbs-4.1.3.yml` は Steep 2.0.0 と rbs 4.1.3 の診断で、どちらも手で書かず、その組み合わせの gem を有効にした `steep check --save-expectations` で作りました。
+
 - すべてのケースが、Steep の `bin/output_test.rb` と同じ次のコマンドで成功することを確かめています。
 
   ```sh
@@ -116,8 +118,8 @@ smoke test で確かめられていても、smoke test が確かめていない�
 | `RBS::DuplicatedMethodDefinition` | smoke `diagnostics-rbs` |
 | `RBS::RecursiveAlias` | smoke `diagnostics-rbs` |
 | `RBS::RecursiveAncestor` | smoke `diagnostics-rbs` |
-| `RBS::SuperclassMismatch` | smoke `diagnostics-rbs` |
-| `RBS::GenericParameterMismatch` | smoke `diagnostics-rbs` |
+| `RBS::SuperclassMismatch` | smoke `diagnostics-rbs`（e2e `renamed_type_parameters_in_superclass` で、型引数の名前を変えて開き直したときに rbs 4.1.x だけが出すことを補強） |
+| `RBS::GenericParameterMismatch` | smoke `diagnostics-rbs`（e2e `renamed_type_parameters_in_bounds` で、型引数の名前を変えて開き直したときに rbs 4.1.x だけが出すことを補強） |
 | `RBS::InvalidVarianceAnnotation` | smoke `diagnostics-rbs` |
 | `RBS::ModuleSelfTypeError` | e2e `module_self_type_error`、`inline_module_self_and_class_alias` |
 | `RBS::InstanceVariableDuplicationError` | smoke `diagnostics-rbs` |
@@ -251,7 +253,7 @@ smoke test で確かめられていても、smoke test が確かめていない�
 | `untyped`、`top` | e2e `untyped_and_top_types` |
 | 型エイリアス、ジェネリックな型エイリアス | smoke `alias`、`regression` |
 | rbs gem が名前を解決できず相対名のまま残した型エイリアス（展開するときに `::` から探す） | e2e `relative_type_alias_name_left_unresolved` |
-| module の self type（`module A : _Each`） | smoke `module` |
+| module の self type（`module A : _Each`） | smoke `module`（e2e `renamed_type_parameters_in_module_self_types` で、型引数の名前を変えて開き直した module の self type が rbs 4.1.x と 4.2.x で異なることを補強） |
 | 既存クラスへのメソッド追加、`...` による overload の追加、`prepend` | smoke `extension`、`regression` |
 | `%a{implicitly-returns-nil}` と `implicitly_returns_nil!` の有無 | e2e `implicitly_returns_nil_annotation` |
 | `%a{deprecated}` | e2e `deprecated_reference`、`deprecated_type_name` |
