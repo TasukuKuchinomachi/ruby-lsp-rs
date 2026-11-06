@@ -347,7 +347,7 @@ pub fn load_project(directory: &Path, steep_version: SteepVersion) -> Result<Pro
     let content = fs::read_to_string(&steepfile)
         .map_err(|error| format!("{}: {error}", steepfile.display()))?;
     let project = dsl::parse(&base_directory, &content)?;
-    let rbs_gem = environment_loader::rbs_gem(None)?;
+    let rbs_gem = environment_loader::rbs_gem(None, None)?;
     let mut service = TypeCheckService::load(
         project,
         &rbs_gem,

@@ -3,6 +3,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use rbs_definition::rbs_version::release_segments;
+
 use crate::steep_version::SteepVersion;
 
 use crate::environment_loader::gem_directories;
@@ -29,19 +31,25 @@ fn find_gemfile(base_directory: &Path) -> Option<PathBuf> {
     })
 }
 
-fn locked_steep_version(lockfile: &str) -> Option<&str> {
+fn locked_version<'lockfile>(lockfile: &'lockfile str, gem_name: &str) -> Option<&'lockfile str> {
+    let prefix = format!("    {gem_name} (");
     lockfile.lines().find_map(|line| {
-        line.strip_prefix("    steep (")?
+        line.strip_prefix(prefix.as_str())?
             .strip_suffix(')')
             .map(|version| version.split('-').next().unwrap_or(version))
     })
 }
 
-fn release_segments(version: &str) -> Option<Vec<u64>> {
-    version
-        .split('.')
-        .map(|segment| segment.parse().ok())
-        .collect()
+fn project_lockfile(base_directory: &Path) -> Option<(String, PathBuf)> {
+    let lockfile = lockfile_of(&find_gemfile(base_directory)?);
+    let content = fs::read_to_string(&lockfile).ok()?;
+    Some((content, lockfile))
+}
+
+pub fn locked_rbs_release(base_directory: &Path) -> Option<(String, PathBuf)> {
+    let (content, lockfile) = project_lockfile(base_directory)?;
+    let release = locked_version(&content, "rbs")?.to_string();
+    Some((release, lockfile))
 }
 
 fn newest_installed_steep(gem_directory: &Path) -> Option<String> {
@@ -71,13 +79,10 @@ pub fn detect_steep_version(
     base_directory: &Path,
     ruby: Option<&Path>,
 ) -> Result<SteepVersion, String> {
-    if let Some(gemfile) = find_gemfile(base_directory) {
-        let lockfile = lockfile_of(&gemfile);
-        if let Ok(content) = fs::read_to_string(&lockfile)
-            && let Some(version) = locked_steep_version(&content)
-        {
-            return supported(version, &lockfile.display().to_string());
-        }
+    if let Some((content, lockfile)) = project_lockfile(base_directory)
+        && let Some(version) = locked_version(&content, "steep")
+    {
+        return supported(version, &lockfile.display().to_string());
     }
     for gem_directory in gem_directories(ruby)? {
         if let Some(version) = newest_installed_steep(&gem_directory) {
@@ -92,7 +97,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reads_the_locked_version_of_steep() {
+    fn reads_the_locked_versions_of_steep_and_rbs() {
         let lockfile = "\
 GEM
   remote: https://rubygems.org/
@@ -105,7 +110,8 @@ GEM
 DEPENDENCIES
   steep (~> 2.0)
 ";
-        assert_eq!(locked_steep_version(lockfile), Some("2.0.0"));
+        assert_eq!(locked_version(lockfile, "steep"), Some("2.0.0"));
+        assert_eq!(locked_version(lockfile, "rbs"), Some("4.1.3"));
     }
 
     #[test]
@@ -116,7 +122,7 @@ GEM
     steep-plugin (1.0.0)
       steep (>= 2.0)
 ";
-        assert_eq!(locked_steep_version(lockfile), None);
+        assert_eq!(locked_version(lockfile, "steep"), None);
     }
 
     #[test]

@@ -23,13 +23,10 @@ fn repository() -> PathBuf {
 }
 
 fn rbs_gem() -> Option<RbsGem> {
-    match environment_loader::rbs_gem(None) {
+    match environment_loader::rbs_gem(None, None) {
         Ok(rbs_gem) => Some(rbs_gem),
         Err(error) => {
-            eprintln!(
-                "skipped: the rbs gem {} is not found: {error}",
-                environment_loader::RBS_VERSION
-            );
+            eprintln!("skipped: the rbs gem is not found: {error}");
             None
         }
     }

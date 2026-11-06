@@ -24,7 +24,6 @@ use crate::{
         configuration::{Configuration, Severity},
         ruby::{self as diagnostics, Diagnostic},
     },
-    environment_loader,
     expectations::{self, Expectations, Position, Range},
     ignore::{self, IgnoreRanges},
     index::source_index::SourceIndex,
@@ -549,10 +548,9 @@ pub fn check_project(
     project: &Project,
     enabled_checks: &EnabledChecks,
     steep_version: SteepVersion,
-    ruby: Option<&Path>,
+    rbs_gem: &RbsGem,
     jobs: usize,
 ) -> Result<CheckResult, String> {
-    let rbs_gem = environment_loader::rbs_gem(ruby)?;
     let mut files = Vec::new();
     let mut all_files = UniquePaths::default();
     let mut failures = Vec::new();
@@ -566,7 +564,7 @@ pub fn check_project(
         }
     }
     for (target_index, target) in project.targets.iter().enumerate() {
-        let service = match SignatureService::load(&rbs_gem, project, target, steep_version, jobs) {
+        let service = match SignatureService::load(rbs_gem, project, target, steep_version, jobs) {
             Ok(service) => service,
             Err(error) => {
                 failures.push(format!(

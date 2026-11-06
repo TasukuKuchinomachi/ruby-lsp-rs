@@ -226,7 +226,7 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     }
 }
 
-fn rbs_gem(request: &LoadRequest) -> Result<RbsGem, String> {
+fn rbs_gem(request: &LoadRequest, events: &Sender<Event>) -> Result<RbsGem, String> {
     let ruby = request.ruby.as_deref();
     let gem_paths = || environment_loader::gem_directories(ruby).unwrap_or_default();
     if let Some(directory) = &request.rbs_gem_directory {
@@ -236,9 +236,17 @@ fn rbs_gem(request: &LoadRequest) -> Result<RbsGem, String> {
         && let Some(directory) = &request.locked_rbs_directory
         && directory.join("core").is_dir()
     {
-        return RbsGem::new(directory, &gem_paths());
+        match RbsGem::new(directory, &gem_paths()) {
+            Ok(rbs_gem) => return Ok(rbs_gem),
+            Err(message) => {
+                let _ = events.send(Event::Log {
+                    message: format!("{message}; loading the newest supported rbs gem instead"),
+                    message_type: message_type::WARNING,
+                });
+            }
+        }
     }
-    environment_loader::rbs_gem(ruby)
+    environment_loader::rbs_gem(ruby, None)
 }
 
 fn steep_version(request: &LoadRequest, events: &Sender<Event>) -> SteepVersion {
@@ -262,7 +270,8 @@ fn load_service(request: &LoadRequest, events: &Sender<Event>) -> Result<Loaded,
     let project = dsl::parse(&request.workspace_path, &steepfile)
         .map_err(|error| format!("{}: {error}", steepfile_path.display()))?;
     let steep_version = steep_version(request, events);
-    let rbs_gem = rbs_gem(request)?;
+    let rbs_gem = rbs_gem(request, events)?;
+    steep_version.check_rbs_gem(&rbs_gem)?;
     let jobs = thread::available_parallelism().map_or(1, usize::from);
     let mut service = TypeCheckService::load(project, &rbs_gem, steep_version, EnabledChecks::default(), jobs)?;
     if has_steepfile {

@@ -103,7 +103,9 @@ impl Checker {
 
     pub fn rbs_gem_directory(&self) -> Result<PathBuf, String> {
         match &self.kind {
-            CheckerKind::SteepCheck { .. } => steep::environment_loader::rbs_gem_directory(None),
+            CheckerKind::SteepCheck { .. } => {
+                steep::environment_loader::rbs_gem_directory(None, None)
+            }
             CheckerKind::Steep => {
                 let mut command = Command::new("ruby");
                 command.arg("-e").arg(format!(

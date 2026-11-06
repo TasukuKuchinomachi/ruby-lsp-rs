@@ -600,7 +600,7 @@ impl Server {
         let locked_rbs_directory = ruby_environment
             .locked_gems
             .iter()
-            .find(|gem| gem.name == "rbs" && gem.version == steep::environment_loader::RBS_VERSION)
+            .find(|gem| gem.name == "rbs")
             .map(|gem| PathBuf::from(&gem.full_gem_path));
         client.send(TypeCheckCommand::Load(LoadRequest {
             workspace_path: PathBuf::from(self.global_state.workspace_path()),

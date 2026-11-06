@@ -7,17 +7,44 @@ use rbs_definition::{
     collection::{self, Lockfile},
     environment_loader::EnvironmentLoader,
     loader::RbsGem,
+    rbs_version::{RbsVersion, release_of_gem_directory, release_segments},
 };
 
-use crate::project::{CollectionConfiguration, LibraryOptions, Project};
-
-pub const RBS_VERSION: &str = "4.2.0";
+use crate::{
+    project::{CollectionConfiguration, LibraryOptions, Project},
+    steep_gem::locked_rbs_release,
+};
 
 pub const RBS_DIRECTORY_VARIABLE: &str = "RBS_GEM_DIRECTORY";
 
-fn rbs_directory_in(gems_directory: &Path) -> Option<PathBuf> {
-    let directory = gems_directory.join(format!("gems/rbs-{RBS_VERSION}"));
-    directory.join("core").is_dir().then_some(directory)
+fn rbs_directory_in(gems_directory: &Path, release: Option<&str>) -> Option<PathBuf> {
+    if let Some(release) = release {
+        let directory = gems_directory.join(format!("gems/rbs-{release}"));
+        return directory.join("core").is_dir().then_some(directory);
+    }
+    fs::read_dir(gems_directory.join("gems"))
+        .ok()?
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            let release = name.strip_prefix("rbs-")?;
+            RbsVersion::of_release(release)?;
+            let segments = release_segments(release)?;
+            let directory = entry.path();
+            directory
+                .join("core")
+                .is_dir()
+                .then_some((segments, directory))
+        })
+        .max()
+        .map(|(_, directory)| directory)
+}
+
+fn wanted_rbs(release: Option<&str>) -> String {
+    match release {
+        Some(release) => format!("rbs {release}"),
+        None => format!("rbs {}", RbsVersion::supported_names()),
+    }
 }
 
 fn installed_ruby_gem_directories(root: &Path) -> Vec<PathBuf> {
@@ -110,35 +137,45 @@ pub fn gem_directories(ruby: Option<&Path>) -> Result<Vec<PathBuf>, String> {
     Ok(candidates)
 }
 
-pub fn rbs_gem_directory(ruby: Option<&Path>) -> Result<PathBuf, String> {
+pub fn rbs_gem_directory(ruby: Option<&Path>, release: Option<&str>) -> Result<PathBuf, String> {
     if let Some(directory) = env::var_os(RBS_DIRECTORY_VARIABLE) {
         let directory = PathBuf::from(directory);
-        if directory.join("core").is_dir() {
-            return Ok(directory);
+        if !directory.join("core").is_dir() {
+            return Err(format!(
+                "{RBS_DIRECTORY_VARIABLE}={} is not the directory of the rbs gem (it has no core/)",
+                directory.display()
+            ));
         }
-        return Err(format!(
-            "{RBS_DIRECTORY_VARIABLE}={} is not the directory of the rbs gem (it has no core/)",
-            directory.display()
-        ));
+        if let Some(release) = release
+            && let Some(found) = release_of_gem_directory(&directory)
+            && found != release
+        {
+            return Err(format!(
+                "{RBS_DIRECTORY_VARIABLE}={} is rbs {found}, not rbs {release}",
+                directory.display()
+            ));
+        }
+        return Ok(directory);
     }
     for candidate in gem_directories(ruby)? {
-        if let Some(directory) = rbs_directory_in(&candidate) {
+        if let Some(directory) = rbs_directory_in(&candidate, release) {
             return Ok(directory);
         }
     }
+    let wanted = wanted_rbs(release);
     match ruby {
         Some(ruby) => Err(format!(
-            "the Ruby {} has no rbs {RBS_VERSION} gem: install it, or set {RBS_DIRECTORY_VARIABLE} to its directory",
+            "the Ruby {} has no {wanted} gem: install it, or set {RBS_DIRECTORY_VARIABLE} to its directory",
             ruby.display()
         )),
         None => Err(format!(
-            "cannot find the rbs {RBS_VERSION} gem: install it, or set {RBS_DIRECTORY_VARIABLE} to its directory"
+            "cannot find the {wanted} gem: install it, or set {RBS_DIRECTORY_VARIABLE} to its directory"
         )),
     }
 }
 
-pub fn rbs_gem(ruby: Option<&Path>) -> Result<RbsGem, String> {
-    let directory = rbs_gem_directory(ruby)?;
+pub fn rbs_gem(ruby: Option<&Path>, release: Option<&str>) -> Result<RbsGem, String> {
+    let directory = rbs_gem_directory(ruby, release)?;
     let gem_paths = match ruby {
         Some(ruby) => gem_directories_of_ruby(ruby)?,
         None => ["GEM_HOME", "GEM_PATH"]
@@ -148,6 +185,33 @@ pub fn rbs_gem(ruby: Option<&Path>) -> Result<RbsGem, String> {
             .collect(),
     };
     RbsGem::new(&directory, &gem_paths)
+}
+
+pub fn supported_rbs_release(release: &str, found_in: &str) -> Result<(), String> {
+    match RbsVersion::of_release(release) {
+        Some(_) => Ok(()),
+        None => Err(format!(
+            "{found_in} has rbs {release}, but only rbs {} are supported; pass --rbs-version to choose one",
+            RbsVersion::supported_names()
+        )),
+    }
+}
+
+pub fn project_rbs_gem(
+    base_directory: &Path,
+    ruby: Option<&Path>,
+    release: Option<&str>,
+) -> Result<RbsGem, String> {
+    if release.is_some() || env::var_os(RBS_DIRECTORY_VARIABLE).is_some() {
+        return rbs_gem(ruby, release);
+    }
+    match locked_rbs_release(base_directory) {
+        Some((release, lockfile)) => {
+            supported_rbs_release(&release, &lockfile.display().to_string())?;
+            rbs_gem(ruby, Some(&release))
+        }
+        None => rbs_gem(ruby, None),
+    }
 }
 
 fn load_collection_lock(config_path: &Path) -> Result<Option<Lockfile>, String> {

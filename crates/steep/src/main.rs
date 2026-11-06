@@ -5,7 +5,9 @@ use std::{
     thread,
 };
 
+use rbs_definition::rbs_version::RbsVersion;
 use steep::{
+    environment_loader::project_rbs_gem,
     expectations::{Diagnostic, Expectations, Outcome, compare},
     project::dsl,
     ruby_exception,
@@ -29,18 +31,22 @@ Description:
     Type check the program, as `steep check` does.
 
     ruby-type-check reads the Steepfile in the current directory without running Ruby,
-    and finds the rbs 4.2.0 gem in the gem directories of the Ruby given with
-    --ruby, or without it, of installed Rubies, or in RBS_GEM_DIRECTORY.
+    and loads the core and stdlib signatures from the rbs gem in RBS_GEM_DIRECTORY,
+    or, without it, from the rbs gem of the version in the Gemfile.lock that
+    `bundle exec` uses, or of the newest supported version, found in the gem
+    directories of the Ruby given with --ruby, or without it, of installed Rubies.
 
     The diagnostics are the same as those of the Steep version in the
-    Gemfile.lock that `bundle exec` uses, or, without it, of the newest Steep
-    in the first gem directory that has one (Steep 2.1.0 when none is found).
-    ruby-type-check supports Steep 2.0.0 and 2.1.0.
+    Gemfile.lock, or, without it, of the newest Steep in the first gem directory
+    that has one (Steep 2.1.0 when none is found), with that rbs gem.
+    ruby-type-check supports Steep 2.0.0 and 2.1.0, and rbs 4.1.x and 4.2.x.
+    Steep 2.1.0 requires rbs 4.2.x.
 
 Options:
         --with-expectations[=PATH]   Type check with expectations saved in PATH (or steep_expectations.yml)
         --save-expectations[=PATH]   Save expectations with current type check result to PATH (or steep_expectations.yml)
         --steep-version=VERSION      Report the diagnostics of Steep VERSION (2.0.0 or 2.1.0)
+        --rbs-version=VERSION        Load the rbs gem of VERSION (4.1.x or 4.2.x, as 4.1.3)
         --ruby=PATH                  Find Steep and the rbs gem only in the gem directories of the ruby executable PATH
         --jobs=N                     Type check with N threads (the number of CPUs by default)
         --strict                     Enable every strict check except hidden-steep-diagnostics
@@ -78,6 +84,7 @@ struct CheckOptions {
     with_expectations_path: Option<PathBuf>,
     save_expectations_path: Option<PathBuf>,
     steep_version: Option<SteepVersion>,
+    rbs_release: Option<String>,
     ruby: Option<PathBuf>,
     jobs: Option<usize>,
     enabled_checks: EnabledChecks,
@@ -111,6 +118,17 @@ fn parse_check_arguments(arguments: &[String]) -> Result<CheckOptions, String> {
                         SteepVersion::supported_names()
                     )
                 })?);
+            }
+            "--rbs-version" => {
+                let release =
+                    value.ok_or("--rbs-version needs a version, as --rbs-version=4.1.3")?;
+                if RbsVersion::of_release(release).is_none() {
+                    return Err(format!(
+                        "unsupported rbs version {release}: choose one of {}",
+                        RbsVersion::supported_names()
+                    ));
+                }
+                options.rbs_release = Some(release.to_string());
             }
             "--ruby" => {
                 let ruby =
@@ -146,6 +164,7 @@ fn parse_check_arguments(arguments: &[String]) -> Result<CheckOptions, String> {
 fn type_check(
     enabled_checks: &EnabledChecks,
     steep_version: Option<SteepVersion>,
+    rbs_release: Option<&str>,
     ruby: Option<&Path>,
     jobs: usize,
 ) -> Result<(Expectations, Vec<String>), String> {
@@ -159,7 +178,9 @@ fn type_check(
         Some(version) => version,
         None => detect_steep_version(&base_directory, ruby)?,
     };
-    let result = check_project(&project, enabled_checks, steep_version, ruby, jobs)?;
+    let rbs_gem = project_rbs_gem(&base_directory, ruby, rbs_release)?;
+    steep_version.check_rbs_gem(&rbs_gem)?;
+    let result = check_project(&project, enabled_checks, steep_version, &rbs_gem, jobs)?;
     Ok((to_expectations(&result), result.failures))
 }
 
@@ -319,6 +340,7 @@ fn check(options: CheckOptions) -> Result<ExitCode, String> {
     let (actual, failures) = type_check(
         &options.enabled_checks,
         options.steep_version,
+        options.rbs_release.as_deref(),
         options.ruby.as_deref(),
         options
             .jobs
