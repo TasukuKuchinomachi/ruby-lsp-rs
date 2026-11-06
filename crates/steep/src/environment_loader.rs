@@ -17,13 +17,16 @@ use crate::{
 
 pub const RBS_DIRECTORY_VARIABLE: &str = "RBS_GEM_DIRECTORY";
 
-fn rbs_directory_in(gems_directory: &Path, release: Option<&str>) -> Option<PathBuf> {
-    if let Some(release) = release {
-        let directory = gems_directory.join(format!("gems/rbs-{release}"));
-        return directory.join("core").is_dir().then_some(directory);
-    }
-    fs::read_dir(gems_directory.join("gems"))
-        .ok()?
+fn rbs_directory_of_release_in(gems_directory: &Path, release: &str) -> Option<PathBuf> {
+    let directory = gems_directory.join(format!("gems/rbs-{release}"));
+    directory.join("core").is_dir().then_some(directory)
+}
+
+fn supported_rbs_directories_in(gems_directory: &Path) -> Vec<(Vec<u64>, PathBuf)> {
+    let Ok(entries) = fs::read_dir(gems_directory.join("gems")) else {
+        return Vec::new();
+    };
+    entries
         .flatten()
         .filter_map(|entry| {
             let name = entry.file_name().into_string().ok()?;
@@ -36,7 +39,16 @@ fn rbs_directory_in(gems_directory: &Path, release: Option<&str>) -> Option<Path
                 .is_dir()
                 .then_some((segments, directory))
         })
-        .max()
+        .collect()
+}
+
+fn newest_supported_rbs_directory(gems_directories: &[PathBuf]) -> Option<PathBuf> {
+    gems_directories
+        .iter()
+        .flat_map(|gems_directory| supported_rbs_directories_in(gems_directory))
+        // Not max_by alone: it keeps the last of equal releases, and the first in search order wins.
+        .rev()
+        .max_by(|left, right| left.0.cmp(&right.0))
         .map(|(_, directory)| directory)
 }
 
@@ -157,10 +169,15 @@ pub fn rbs_gem_directory(ruby: Option<&Path>, release: Option<&str>) -> Result<P
         }
         return Ok(directory);
     }
-    for candidate in gem_directories(ruby)? {
-        if let Some(directory) = rbs_directory_in(&candidate, release) {
-            return Ok(directory);
-        }
+    let candidates = gem_directories(ruby)?;
+    let found = match release {
+        Some(release) => candidates
+            .iter()
+            .find_map(|candidate| rbs_directory_of_release_in(candidate, release)),
+        None => newest_supported_rbs_directory(&candidates),
+    };
+    if let Some(directory) = found {
+        return Ok(directory);
     }
     let wanted = wanted_rbs(release);
     match ruby {
@@ -286,4 +303,47 @@ pub fn library_files(
     construct_env_loader(rbs_gem, project, options)?
         .signature_files()
         .map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn gems_directory_with(root: &Path, name: &str, releases: &[&str]) -> PathBuf {
+        let gems_directory = root.join(name);
+        for release in releases {
+            fs::create_dir_all(gems_directory.join(format!("gems/rbs-{release}/core"))).unwrap();
+        }
+        gems_directory
+    }
+
+    fn temporary_root(name: &str) -> PathBuf {
+        let root = env::temp_dir().join(format!("ruby-type-check-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        root
+    }
+
+    #[test]
+    fn newest_supported_rbs_directory_looks_at_every_gem_directory() {
+        let root = temporary_root("newest-rbs");
+        let gem_home = gems_directory_with(&root, "gem_home", &["4.1.3"]);
+        let gem_path = gems_directory_with(&root, "gem_path", &["4.2.0", "4.3.0"]);
+        assert_eq!(
+            newest_supported_rbs_directory(&[gem_home, gem_path.clone()]),
+            Some(gem_path.join("gems/rbs-4.2.0"))
+        );
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn newest_supported_rbs_directory_prefers_the_earlier_gem_directory_for_the_same_release() {
+        let root = temporary_root("same-rbs");
+        let gem_home = gems_directory_with(&root, "gem_home", &["4.2.0"]);
+        let gem_path = gems_directory_with(&root, "gem_path", &["4.2.0"]);
+        assert_eq!(
+            newest_supported_rbs_directory(&[gem_home.clone(), gem_path]),
+            Some(gem_home.join("gems/rbs-4.2.0"))
+        );
+        fs::remove_dir_all(&root).unwrap();
+    }
 }
