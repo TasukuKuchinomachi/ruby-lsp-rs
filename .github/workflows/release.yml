@@ -4,13 +4,11 @@ on:
     tags: ["v*"]
 
 jobs:
-  release:
+  ruby-type-check:
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     permissions:
-      contents: write
-      id-token: write
-      attestations: write
+      contents: read
     env:
       TARGET: x86_64-unknown-linux-musl
       ARCHIVE: ruby-type-check-x86_64-unknown-linux-musl.tar.gz
@@ -29,14 +27,92 @@ jobs:
           BINDGEN_EXTRA_CLANG_ARGS: -I/usr/include/x86_64-linux-musl
         run: cargo build --release --locked -p steep --bin ruby-type-check --target "$TARGET"
       - name: Package
+        run: tar -czf "$ARCHIVE" -C "target/$TARGET/release" ruby-type-check
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ruby-type-check
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: error
+
+  vscode-extension:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - vsce-target: linux-x64
+            runner: ubuntu-26.04
+            rust-target: x86_64-unknown-linux-musl
+            musl-include-directory: /usr/include/x86_64-linux-musl
+          - vsce-target: linux-arm64
+            runner: ubuntu-26.04-arm
+            rust-target: aarch64-unknown-linux-musl
+            musl-include-directory: /usr/include/aarch64-linux-musl
+          - vsce-target: darwin-arm64
+            runner: macos-latest
+            rust-target: aarch64-apple-darwin
+    env:
+      RUST_TARGET: ${{ matrix.rust-target }}
+      VSCE_TARGET: ${{ matrix.vsce-target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the musl toolchain
+        if: matrix.musl-include-directory
         run: |
-          tar -czf "$ARCHIVE" -C "target/$TARGET/release" ruby-type-check
-          sha256sum "$ARCHIVE" | tee "$ARCHIVE.sha256"
+          sudo apt-get update
+          sudo apt-get install -y musl-tools clang libclang-dev
+      - run: rustup target add "$RUST_TARGET"
+      - name: Build the language server
+        env:
+          BINDGEN_EXTRA_CLANG_ARGS: ${{ matrix.musl-include-directory && format('-I{0}', matrix.musl-include-directory) || '' }}
+        run: cargo build --release --locked -p ruby-lsp-rs --bin ruby-lsp-rs --target "$RUST_TARGET"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - name: Package the extension with the language server
+        working-directory: editors/vscode
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          npm ci
+          node scripts/copyServer.mjs "../../target/$RUST_TARGET/release/ruby-lsp-rs"
+          test -x server/ruby-lsp-rs
+          npx vsce package --target "$VSCE_TARGET" --allow-missing-repository --skip-license --out "../../ruby-lsp-rs-$VSCE_TARGET-$version.vsix"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vscode-extension-${{ matrix.vsce-target }}
+          path: ruby-lsp-rs-*.vsix
+          if-no-files-found: error
+
+  release:
+    needs: [ruby-type-check, vscode-extension]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Checksum
+        working-directory: assets
+        run: for file in *; do sha256sum "$file" | tee "$file.sha256"; done
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: ${{ env.ARCHIVE }}
+          subject-path: |
+            assets/*.tar.gz
+            assets/*.vsix
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes "$ARCHIVE" "$ARCHIVE.sha256"
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes assets/*
