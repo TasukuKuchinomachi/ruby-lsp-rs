@@ -4,7 +4,9 @@ import { fileURLToPath } from "node:url";
 
 const extensionDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const executableName = process.platform === "win32" ? "ruby-lsp-rs.exe" : "ruby-lsp-rs";
-const sourcePath = path.resolve(extensionDirectory, "..", "..", "target", "release", executableName);
+const sourcePath = process.argv[2]
+  ? path.resolve(process.argv[2])
+  : path.resolve(extensionDirectory, "..", "..", "target", "release", executableName);
 const destinationDirectory = path.join(extensionDirectory, "server");
 const destinationPath = path.join(destinationDirectory, executableName);
 
