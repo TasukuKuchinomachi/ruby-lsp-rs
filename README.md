@@ -32,7 +32,7 @@ rbs は上の「必要なもの」の順で決めた gem に合わせます。rb
 ## インストール
 
 ```sh
-cargo install --locked --git https://github.com/TasukuKuchinomachi/ruby-lsp-rs --tag v0.2.0 ruby-lsp-rs steep
+cargo install --locked --git https://github.com/TasukuKuchinomachi/ruby-lsp-rs --tag v0.2.1 ruby-lsp-rs steep
 ```
 
 `ruby-lsp-rs`（language server）と `ruby-type-check`（CLI）が入ります。リリースの tag は `v<バージョン>` です。

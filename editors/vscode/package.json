@@ -2,7 +2,7 @@
   "name": "ruby-lsp-rs",
   "displayName": "Ruby LSP RS",
   "description": "Ruby language support powered by ruby-lsp-rs: a Rust port of Ruby LSP with Steep-compatible type inference, type inlay hints, hover and diagnostics.",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "publisher": "ruby-lsp-rs",
   "private": true,
   "engines": {

@@ -4,6 +4,14 @@
 
 ## インストール
 
+[リリース](https://github.com/TasukuKuchinomachi/ruby-lsp-rs/releases)から使っている OS・CPU の vsix（`ruby-lsp-rs-<darwin-arm64|linux-x64|linux-arm64>-<バージョン>.vsix`）を落としてインストールします。vsix にはサーバーが同梱されています。
+
+```sh
+code --install-extension ruby-lsp-rs-darwin-arm64-0.2.1.vsix
+```
+
+### ソースからビルドする
+
 ```sh
 cargo build --release      # リポジトリのルートで
 cd editors/vscode

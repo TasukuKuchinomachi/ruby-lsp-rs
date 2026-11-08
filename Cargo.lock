@@ -342,7 +342,7 @@ dependencies = [
 
 [[package]]
 name = "prism-child-nodes"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "ruby-prism",
 ]
@@ -428,7 +428,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "ruby-environment"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -436,11 +436,11 @@ dependencies = [
 
 [[package]]
 name = "ruby-file-glob"
-version = "0.2.0"
+version = "0.2.1"
 
 [[package]]
 name = "ruby-lsp-rs"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "crossbeam-channel",
  "fancy-regex",
