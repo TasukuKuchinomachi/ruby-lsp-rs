@@ -8,7 +8,7 @@ use crate::document::{LanguageId, ParsedDocument};
 use crate::listeners::definition::Definition;
 use crate::position::Position;
 use crate::prism::NodeExt;
-use crate::requests::support::interface::{LocationLink, LocationOrLink};
+use crate::requests::support::interface::{LocationLink, LocationOrLink, uniform_kinds};
 use crate::requests::support::local_variable_definition;
 use crate::type_checking::DefinitionTarget;
 use crate::type_checking::worker::GotoKind;
@@ -137,7 +137,7 @@ pub fn handle(context: &mut RequestContext<'_>, params: Value) -> RequestResult 
             )
         }
     };
-    to_result(definitions)
+    to_result(uniform_kinds(definitions))
 }
 
 /// Implementations found from the inferred type are exact, while the name based lookup may list methods of unrelated

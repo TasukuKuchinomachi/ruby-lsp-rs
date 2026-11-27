@@ -703,6 +703,19 @@ fn jumps_to_the_declarations_of_instance_variables() {
 }
 
 #[test]
+fn answers_declarations_of_instance_variables_only_with_location_links() {
+    let mut server = start_server();
+    let uri = server.open("lib/garage/car.rb");
+    let definitions = server.at("textDocument/definition", &uri, 11, 6);
+    let definitions = definitions.as_array().unwrap();
+    assert_eq!(definitions.len(), 3);
+    assert!(
+        definitions.iter().all(|definition| definition["targetUri"].is_string()),
+        "{definitions:?}"
+    );
+}
+
+#[test]
 fn jumps_from_signatures_to_implementations() {
     let mut server = start_server();
     let uri = server.open("sig/user.rbs");
